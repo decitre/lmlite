@@ -16,7 +16,7 @@ jobs:
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.10.2
         with:
-          environments: dev
+          environments: default
 
       - name: Build the package
         run: pixi run wheel
