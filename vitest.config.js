@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'html', 'lcov'],
       include: ['src/lmlite/**/*.js'],
       exclude: ['src/lmlite/**/*.test.js', 'node_modules/']
     }
