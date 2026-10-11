@@ -10,7 +10,7 @@
 
 # lmLite
 
-Package version: `0.5.5`
+Package version: `0.5.6`
 
 **Browser-native LLM orchestration in JupyterLite** - run language models entirely in your browser using WebAssembly or WebGPU.
 
