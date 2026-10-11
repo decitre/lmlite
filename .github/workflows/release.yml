@@ -6,6 +6,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: none
     steps:
       # https://github.com/actions/checkout
       # https://github.com/prefix-dev/setup-pixi
