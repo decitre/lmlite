@@ -7,6 +7,7 @@
 [![xeus-badge][xeus-badge]][xeus-url]
 [![pyodide-badge][pyodide-badge]][pyodide-url]
 
+
 # lmLite
 
 **Browser-native LLM orchestration in JupyterLite** - run language models entirely in your browser using WebAssembly or WebGPU.
