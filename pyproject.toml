@@ -175,7 +175,7 @@ lmlite = { path = ".", editable = true }
 [tool.pixi.tasks]
 set-version = { cmd = "python scripts/set_version.py {{ version }}", args = ["version"] }
 hf = { cmd = "hf download {{ model }} --local-dir ./models/{{ model }}", args = ["model"] }
-tests = "pytest tests -vv --full-trace -m 'not browser'"
+tests = "pytest tests -vv --full-trace -m 'not browser' --ignore=tests/browser"
 all-tests = "pixi run --environment py311 tests; pixi run --environment py312 tests; pixi run --environment py313 tests"
 js-tests = "CI=1 npm run test:js"
 js-coverage = "CI=1 npm run test:js:coverage"
@@ -183,7 +183,7 @@ install-browser = "python -m playwright install chromium"
 model-smoke = "pytest tests/browser/test_model_loading.py -m browser -v"
 embedding-smoke = "pytest tests/browser/test_embeddings.py -m browser -v"
 generate-embedding-fixture = "python scripts/generate_embedding_fixture.py"
-coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py -m 'not browser' && coverage report -m"
+coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py --ignore=tests/browser -m 'not browser' && coverage report -m"
 lint = "ruff check src tests scripts --fix && ruff format src tests scripts"
 lint-check = "ruff check src tests scripts && ruff format src tests scripts --check"
 wheel = "rm -rf dist build; python -m build --sdist --wheel"
