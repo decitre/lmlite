@@ -1,0 +1,27 @@
+coverage:
+  status:
+    project:
+      default: off
+      python:
+        flags:
+          - python
+        target: auto
+        threshold: 1%
+      javascript:
+        flags:
+          - javascript
+        target: auto
+        threshold: 1%
+    patch:
+      default: off
+
+flags:
+  python:
+    carryforward: false
+  javascript:
+    carryforward: false
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false

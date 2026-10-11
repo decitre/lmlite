@@ -40,7 +40,13 @@ jobs:
 
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
-        run: pixi run --environment py313 -- pytest -v --cov=src tests --ignore=tests/test_notebooks.py --ignore=tests/browser --cov-report=xml --cov-report=term-missing
+        run: |
+          pixi run --environment py313 -- \
+            pytest -v --cov=src tests \
+            --ignore=tests/test_notebooks.py \
+            --ignore=tests/browser \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
 
       - name: Set up Node.js
         if: matrix.os == 'ubuntu-latest'
@@ -51,25 +57,27 @@ jobs:
       - name: JS Coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          npm install
+          npm ci
           CI=1 npm run test:js:coverage
 
       - name: Upload Python Coverage to Codecov
-        if: github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && (github.event_name == 'push' || github.event_name == 'pull_request')
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
           flags: python
-          verbose: true
+          disable_search: true
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload JS Coverage to Codecov
-        if: github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && (github.event_name == 'push' || github.event_name == 'pull_request')
         uses: codecov/codecov-action@v5
         with:
-          files: ./coverage/coverage-final.json
+          files: ./coverage/lcov.info
           flags: javascript
-          verbose: true
+          disable_search: true
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
   embedding-smoke:
