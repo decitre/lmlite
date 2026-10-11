@@ -113,7 +113,7 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 ```bibtex
 @software{lmlite2026,
   author = {Decitre, Emmanuel},
-  title = {LMLite: Browser-native LLM orchestration in JupyterLite},
+  title = {lmLite: Browser-native LLM orchestration in JupyterLite},
   year = {2026},
   url = {https://github.com/decitre/lmlite}
 }
