@@ -1,7 +1,6 @@
 # Glossary
 
-Terminology used in lmLite and the [vector-index design](vector-index-design.md).
-Descriptions of proposed index features do not imply they are implemented.
+Terminology used in lmLite. Descriptions of proposed index features do not imply they are implemented.
 
 | Term | Meaning |
 |:-----|:--------|

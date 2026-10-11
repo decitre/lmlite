@@ -65,19 +65,19 @@ lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in
 
 **Best suited for:** Teaching, interactive experiments, and browser-local prototypes where avoiding remote inference services matters.
 
-> **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a browser Python runtime (xeus-python or Pyodide) with JavaScript bridge. See [docs/RUNTIME.md](docs/RUNTIME.md) for details.
+> **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a browser Python runtime (xeus-python or Pyodide) with JavaScript bridge. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
 
 ## Documentation
 
-- **[Getting Started](docs/DEVELOPMENT.md)** - Installation, development setup, and testing
-- **[Usage Guide](docs/USAGE.md)** - Detailed API examples and configuration
-- **[Model Guide](docs/MODELS.md)** - Recommended models and dtype selection
-- **[Runtime & Integration](docs/RUNTIME.md)** - Platform support and integration boundaries
-- **[Glossary](docs/GLOSSARY.md)** - Key concepts and terminology
+- **[Getting Started](https://github.com/decitre/lmlite/blob/main/docs/DEVELOPMENT.md)** - Installation, development setup, and testing
+- **[Usage Guide](https://github.com/decitre/lmlite/blob/main/docs/USAGE.md)** - Detailed API examples and configuration
+- **[Model Guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md)** - Recommended models and dtype selection
+- **[Runtime & Integration](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md)** - Platform support and integration boundaries
+- **[Glossary](https://github.com/decitre/lmlite/blob/main/docs/GLOSSARY.md)** - Key concepts and terminology
 
 ## Notebooks
 
-Open [`demo.ipynb`](notebooks/demo.ipynb) in the [online demo][xeus-url] to see lmLite in action. See [notebooks/README.md](notebooks/README.md) for a complete notebook guide.
+Open [`demo.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/demo.ipynb) in the [online demo][xeus-url] to see lmLite in action. See the [notebooks directory](https://github.com/decitre/lmlite/tree/main/notebooks) for all examples.
 
 ## How It Works
 
