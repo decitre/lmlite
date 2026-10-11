@@ -101,7 +101,7 @@ The original fixture's six assets total 83002 bytes (about 81 KiB) and are inclu
 pixi run --environment model-fixture generate-embedding-fixture
 ```
 
-The export environment supports Apple Silicon macOS and Linux; normal smoke execution also supports Intel macOS. See the [fixture provenance and regeneration notes](../tests/fixtures/models/lmlite/tiny-bert/README.md).
+The export environment supports Apple Silicon macOS and Linux; normal smoke execution also supports Intel macOS. See the [fixture provenance and regeneration notes](https://github.com/decitre/lmlite/blob/main/tests/fixtures/models/lmlite/tiny-bert/README.md).
 
 **Optional representative sentence-model run:**
 

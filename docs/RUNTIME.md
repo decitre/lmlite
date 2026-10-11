@@ -44,8 +44,8 @@ and HTTP(S) access and CORS for model files.
 Automatic hosted-model discovery recognizes JupyterLite URLs. A host without
 those URLs should provide `hosted_models_url` pointing to an HTTP(S) model
 directory with `manifest.json` and the expected namespace/model layout.
-Model preparation is described in [the README](../README.md#prepare-models-for-another-hosted-site)
-and [the model guide](MODELS.md).
+Model preparation is described in [the README](https://github.com/decitre/lmlite/blob/main/README.md#prepare-models-for-another-hosted-site)
+and [the model guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md).
 
 ### JavaScript browser applications
 
