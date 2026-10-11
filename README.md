@@ -1,189 +1,83 @@
 [![Python package][ci-badge]][ci-url]
+[![codecov-python][codecov-python-badge]][codecov-url]
+[![codecov-js][codecov-js-badge]][codecov-url]
+[![Pixi Badge][pixi-badge]][pixi]
+[![Transformers.js][transformers-badge]][transformers-url]
+
 [![xeus-badge][xeus-badge]][xeus-url]
 [![pyodide-badge][pyodide-badge]][pyodide-url]
 
+
 # lmLite
 
-Browser-native LLM orchestration in JupyterLite - run language models entirely in your browser using WebAssembly.
+**Browser-native LLM orchestration in JupyterLite** - run language models entirely in your browser using WebAssembly or WebGPU.
 
-## Features
-
-- **Browser-native**: Run LLMs entirely in the browser, no server required
-- **Zero setup**: No installation, no API keys, works offline
-- **Privacy-first**: All computation happens locally in your browser
-- **Multiple models**: Support for GPT-2, DistilGPT-2, and more via Transformers.js
-- **Embeddings**: Generate text embeddings for semantic search
-- **Similarity search**: Built-in cosine similarity for RAG applications
-- **Model caching**: Download once, use offline forever
-- **Pythonic API**: Clean, async Python interface
-
-<!-- To re-introduce when the Actions page is up
 ## Quick Start
 
-### Try the Demo (No Installation)
+**Try online** (no installation required):
+- [Launch with Xeus-Python][xeus-url] (recommended)
+- [Launch with Pyodide][pyodide-url]
 
-**Recommended**: Visit the live demo with xeus-python kernel at:
-[https://decitre.github.io/lmlite/](https://decitre.github.io/lmlite/)
-
-**Alternative**: Pyodide kernel demo at:
-[https://decitre.github.io/lmlite/pyodide/](https://decitre.github.io/lmlite/pyodide/)
-
-Open the `demo.ipynb` notebook and run the cells to see LMLite in action.
-
-### Install from PyPI
-
-```bash
-pip install lmlite
-```
-
-**Note**: LMLite is designed to run in JupyterLite environments (xeus-python or pyodide kernels). For local development and testing, see the Development section below.
-
--->
-
-## Usage
+**Basic usage:**
 
 ```python
 from lmlite import LLM
 
 # Create LLM instance (downloads model on first run)
-llm = await LLM.create(generator_model="gpt2")
+llm = await LLM.create(
+    generator_model="gpt2",
+    embedding_model="all-MiniLM-L6-v2"
+)
 
 # Generate text
 text = await llm.generate("Python is a great language because")
-print(text)
 
 # Generate embeddings
 embedding = await llm.embed("Hello world")
-print(embedding[:5])  # First 5 dimensions
 
 # Similarity search
-docs = [
-    "JupyterLite runs entirely in the browser.",
-    "Python is widely used for machine learning.",
-    "TypeScript is great for frontend applications.",
-]
-
-results = await llm.similarity_search(
-    "Where does JupyterLite run?",
-    docs
-)
-
-for doc, score in results:
-    print(f"{score:.3f} -> {doc}")
+docs = ["JupyterLite runs in the browser.", "Python is widely used for ML."]
+results = await llm.similarity_search("Where does JupyterLite run?", docs)
 ```
 
-### Configuration Options
+## Features
 
-```python
-llm = await LLM.create(
-    generator_model="gpt2",           # or "distilgpt2", etc.
-    embedding_model="all-MiniLM-L6-v2",
-    max_new_tokens=50,
-    temperature=0.7,
-    top_k=50,
-    do_sample=True,
-    use_local_models=False,           # Auto-detect local models
-    local_models_path="/drive/models"
-)
-```
+- **Browser-native**: Run LLMs entirely in the browser, no server required
+- **Privacy-first**: All computation happens locally in your browser
+- **Zero setup**: No installation or API keys for hosted demos
+- **Multiple backends**: WebAssembly (WASM) or WebGPU
+- **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
+- **Embeddings & classification**: Sentence vectors and text classification
+- **Model caching**: Browser-cached downloads and portable ZIP export/import
+- **Pythonic API**: Clean, async Python interface
 
-### Export Models for Offline Use
+## What is lmLite?
 
-After using models in the browser, you can export them for offline use:
+lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in the browser**, designed for JupyterLite notebooks. It provides:
 
-```python
-# Export to zip file (default)
-await llm.export_model_files("gpt2")
+- Async Python API for text generation, embeddings, classification, and similarity search
+- Model loading, caching, and portable ZIP workflows
+- Independent backend/dtype controls for embeddings and generation
 
-# Export to directory
-await llm.export_model_files("gpt2", as_zip=False)
-```
+**Inference is powered by [Transformers.js](https://github.com/huggingface/transformers.js) and ONNX Runtime**. lmLite is not a new model engine or native Python inference backend. Its similarity search is an in-memory cosine ranking helper, not a vector database.
 
-The exported files will be saved to `/drive/models/` and can be downloaded from JupyterLite.
+**Best suited for:** Teaching, interactive experiments, and browser-local prototypes where avoiding remote inference services matters.
 
-## Development
+> **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a browser Python runtime (xeus-python or Pyodide) with JavaScript bridge. See [docs/RUNTIME.md](docs/RUNTIME.md) for details.
 
-### Prerequisites
+## Documentation
 
-- [pixi](https://pixi.sh/) - Package manager (required)
-- [micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) - Conda package manager (required for JupyterLite builds)
+- **[Getting Started](docs/DEVELOPMENT.md)** - Installation, development setup, and testing
+- **[Usage Guide](docs/USAGE.md)** - Detailed API examples and configuration
+- **[Model Guide](docs/MODELS.md)** - Recommended models and dtype selection
+- **[Runtime & Integration](docs/RUNTIME.md)** - Platform support and integration boundaries
+- **[Glossary](docs/GLOSSARY.md)** - Key concepts and terminology
 
-**Supported Platforms**: macOS (Intel/Apple Silicon) and Linux. Windows is not currently supported for development.
+## Notebooks
 
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/decitre/lmlite.git
-cd lmlite
-pixi install
-```
-
-### Development Tasks
-
-```bash
-# Run tests
-pixi run test
-
-# Quick tests (skip notebook tests)
-pixi run quick-test
-
-# Run linter
-pixi run lint
-
-# Check linting without fixing
-pixi run lint-check
-
-# Run tests with coverage
-pixi run coverage
-
-# Build wheel
-pixi run wheel
-```
-
-### Build JupyterLite Demo
-
-```bash
-pixi run lite-build
-```
-
-Follow the instructions provided by the command.
-
-### Run Tests in Different Python Versions
-
-```bash
-pixi run --environment py311 test
-pixi run --environment py312 test
-pixi run --environment py313 test
-```
+Open [`demo.ipynb`](notebooks/demo.ipynb) in the [online demo][xeus-url] to see lmLite in action. See [notebooks/README.md](notebooks/README.md) for a complete notebook guide.
 
 ## How It Works
-
-LMLite bridges Python (via xeus-python or pyodide) and JavaScript (via Transformers.js):
-
-1. **JavaScript Layer**: Uses [@huggingface/transformers](https://www.npmjs.com/package/@xenova/transformers) to run ONNX models in the browser
-2. **Python Bridge**: Exposes JavaScript functionality through a Pythonic async API
-3. **Kernel Support**:
-   - **xeus-python** (recommended): Full CPython in WebAssembly via emscripten
-   - **pyodide**: Alternative WebAssembly Python runtime
-4. **Model Loading**:
-   - First run: Downloads models from HuggingFace CDN
-   - Cached: Uses browser's Cache API or IndexedDB
-   - Local: Reads from virtual filesystem if available
-5. **Execution**: Models run entirely in-browser using WebAssembly (WASM)
-
-## Supported Models
-
-### Text Generation
-- `gpt2` - GPT-2 (124M parameters)
-- `distilgpt2` - Smaller, faster GPT-2 variant
-
-### Embeddings
-- `all-MiniLM-L6-v2` - Sentence embeddings (384 dimensions)
-
-For other models, check [Xenova's model list](https://huggingface.co/Xenova).
-
-## Architecture
 
 ```
 ┌─────────────────────────────────────┐
@@ -195,53 +89,24 @@ For other models, check [Xenova's model list](https://huggingface.co/Xenova).
 │   llm = await LLM.create()          │
 │   text = await llm.generate(...)    │
 └─────────────┬───────────────────────┘
-              │ Bridge
-              │ (pyodide.ffi / pjs)
+              │ Bridge (pyodide.ffi / pjs)
 ┌─────────────▼───────────────────────┐
 │   JavaScript (Browser)              │
-│                                     │
-│   Transformers.js                   │
-│   ├─ Model loading                  │
-│   ├─ ONNX Runtime (WASM)            │
+│   Transformers.js + ONNX Runtime    │
+│   ├─ WebAssembly (WASM)             │
 │   └─ WebGPU (optional)              │
 └─────────────────────────────────────┘
 ```
 
-
 ## License
 
-This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
+Apache License 2.0. See [LICENSE](LICENSE) for details.
 
-**Dependencies:**
-- [Transformers.js](https://github.com/xenova/transformers.js) - Apache 2.0
+**Dependencies:** [Transformers.js](https://github.com/huggingface/transformers.js) v4 (Apache 2.0)
 
-**Note**: Individual model licenses may vary. Check the model card on HuggingFace before use.
-
-## Acknowledgments
-
-- [Transformers.js](https://github.com/xenova/transformers.js) by [@xenova](https://github.com/xenova)
-- [JupyterLite](https://jupyterlite.readthedocs.io/) team
-- [Pyodide](https://pyodide.org/) project
-- [Hugging Face](https://huggingface.co/) for model hosting
-- [LLMs running in the browser](https://thekevinscott.com/llms-in-the-browser/)
-
-## Troubleshooting
-
-### Models downloading every time?
-
-Check browser console for Cache API availability. Some privacy settings may disable caching.
-
-### Out of memory errors?
-
-Try smaller models like `distilgpt2` or reduce `max_new_tokens`.
-
-### CORS errors?
-
-Ensure you're running from `http://localhost` or a proper HTTPS domain, not `file://`.
+**Note:** Individual model licenses may vary. Check model cards on HuggingFace before use.
 
 ## Citation
-
-If you use LMLite in your research, please cite:
 
 ```bibtex
 @software{lmlite2026,
@@ -252,9 +117,25 @@ If you use LMLite in your research, please cite:
 }
 ```
 
+## Acknowledgments
+
+- [Transformers.js](https://github.com/huggingface/transformers.js) by [@xenova](https://github.com/xenova) / HuggingFace
+- [JupyterLite](https://jupyterlite.readthedocs.io/) team
+- [Pyodide](https://pyodide.org/) project
+- [Hugging Face](https://huggingface.co/) for model hosting
+
+---
+
 [ci-badge]: https://github.com/decitre/lmlite/actions/workflows/test.yml/badge.svg
+[codecov-python-badge]: https://img.shields.io/codecov/c/github/decitre/lmlite/main?flag=python&label=py%20cov&logo=codecov&token=CODECOV_TOKEN
+[codecov-js-badge]: https://img.shields.io/codecov/c/github/decitre/lmlite/main?flag=javascript&label=js%20cov&logo=codecov&token=CODECOV_TOKEN
 [ci-url]: https://github.com/decitre/lmlite/actions/workflows/test.yml
-[xeus-badge]: https://img.shields.io/badge/try-lite%20now-f7dc1e.svg?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0Ni43IDQ2LjciPgogIDxwYXRoCiAgICBmaWxsPSIjNDBCM0MzIgogICAgZD0iTTUgMGMyLjUuOCA0LjUgMiA0LjYgMi4xIDEuOSAxLjMgMy42IDMuMSA0LjggNS4xLjQuNiA1LjIgNy44IDguNiAxMi45LS44IDEuMi0xLjUgMi4zLTIuMSAzLjEgMC0uMS0uMS0uMS0uMS0uMkMxNy42IDE3LjkgMTEuNCA4LjYgMTEgNy45Yy0uOS0xLjMtMi0yLjUtMy41LTMuNCAwIDAtMS41LTEtMy41LTEuNkMzLjIgMi42IDEuOCAyLjQgMCAyLjJ2NDIuNGMxLjgtLjIgMy4yLS40IDQtLjcgMi0uNiAzLjUtMS42IDMuNS0xLjYgMS41LTEgMi43LTIuMiAzLjUtMy40LjQtLjcgNi42LTkuOSAxMC4xLTE1LjJDMjQgMTkuMSAzMS40IDguMSAzMS45IDcuM2MxLjItMiAyLjktMy44IDQuOC01LjEgMC0uMSAyLjEtMS4zIDQuNi0yLjFMNDEuOCAwSDV6CiAgICAgICBNNDYuNyAyLjJjLTEuOC4yLTMuMi40LTQgLjctMi4xLjYtMy42IDEuNi0zLjYgMS42LTEuNS45LTIuNiAyLjEtMy41IDMuNC0uNC43LTYuNiA5LjktMTAuMSAxNS4yLTIuOSA0LjQtMTAuMyAxNS41LTEwLjggMTYuMi0xLjIgMi0yLjkgMy44LTQuOCA1LjEgMCAuMS0yLjEgMS4zLTQuNiAyLjFsLS41LjFoMzYuOGwtLjQtLjFjLTIuNS0uOC00LjUtMi00LjYtMi4xLTEuOS0xLjMtMy42LTMuMS00LjgtNS4xLS40LS42LTUuMi03LjgtOC42LTEyLjkuOC0xLjIgMS41LTIuMyAyLjEtMy4xIDAgLjEuMS4xLjEuMiAzLjUgNS4zIDkuNyAxNC41IDEwLjEgMTUuMi45IDEuMyAyIDIuNSAzLjUgMy40IDAgMCAxLjUgMSAzLjUgMS42LjguMyAyLjIuNSA0IC43VjIuMnoiCiAgLz4KPC9zdmc+Cgo=
-[xeus-url]: https://decitre.github.io/lmlite/lab/?path=demo.ipynb
-[pyodide-badge]: https://jupyterlite.rtfd.io/en/latest/_static/badge.svg
+[codecov-url]: https://codecov.io/gh/decitre/lmlite
+[xeus-url]: https://decitre.github.io/lmlite/xeus/lab/?path=demo.ipynb
 [pyodide-url]: https://decitre.github.io/lmlite/pyodide/lab/?path=demo.ipynb
+[pyodide-badge]: https://jupyterlite.rtfd.io/en/latest/_static/badge.svg
+[xeus-badge]: https://img.shields.io/badge/try-lite%20now-f7dc1e.svg?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0Ni43IDQ2LjciPgogIDxwYXRoCiAgICBmaWxsPSIjNDBCM0MzIgogICAgZD0iTTUgMGMyLjUuOCA0LjUgMiA0LjYgMi4xIDEuOSAxLjMgMy42IDMuMSA0LjggNS4xLjQuNiA1LjIgNy44IDguNiAxMi45LS44IDEuMi0xLjUgMi4zLTIuMSAzLjEgMC0uMS0uMS0uMS0uMS0uMkMxNy42IDE3LjkgMTEuNCA4LjYgMTEgNy45Yy0uOS0xLjMtMi0yLjUtMy41LTMuNCAwIDAtMS41LTEtMy41LTEuNkMzLjIgMi42IDEuOCAyLjQgMCAyLjJ2NDIuNGMxLjgtLjIgMy4yLS40IDQtLjcgMi0uNiAzLjUtMS42IDMuNS0xLjYgMS41LTEgMi43LTIuMiAzLjUtMy40LjQtLjcgNi42LTkuOSAxMC4xLTE1LjJDMjQgMTkuMSAzMS40IDguMSAzMS45IDcuM2MxLjItMiAyLjktMy44IDQuOC01LjEgMC0uMSAyLjEtMS4zIDQuNi0yLjFMNDEuOCAwSDV6CiAgICAgICBNNDYuNyAyLjJjLTEuOC4yLTMuMi40LTQgLjctMi4xLjYtMy42IDEuNi0zLjYgMS42LTEuNS45LTIuNiAyLjEtMy41IDMuNC0uNC43LTYuNiA5LjktMTAuMSAxNS4yLTIuOSA0LjQtMTAuMyAxNS41LTEwLjggMTYuMi0xLjIgMi0yLjkgMy44LTQuOCA1LjEgMCAuMS0yLjEgMS4zLTQuNiAyLjFsLS41LjFoMzYuOGwtLjQtLjFjLTIuNS0uOC00LjUtMi00LjYtMi4xLTEuOS0xLjMtMy42LTMuMS00LjgtNS4xLS40LS42LTUuMi03LjgtOC42LTEyLjkuOC0xLjIgMS41LTIuMyAyLjEtMy4xIDAgLjEuMS4xLjEuMiAzLjUgNS4zIDkuNyAxNC41IDEwLjEgMTUuMi45IDEuMyAyIDIuNSAzLjUgMy40IDAgMCAxLjUgMSAzLjUgMS42LjguMyAyLjIuNSA0IC43VjIuMnoiCiAgLz4KPC9zdmc+Cgo=
+[pixi-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json
+[pixi]: https://pixi.sh
+[transformers-badge]: https://img.shields.io/badge/🤗-Transformers.js-172033?style=flat&labelColor=172033&color=172033
+[transformers-url]: https://huggingface.co/docs/transformers.js/en/index

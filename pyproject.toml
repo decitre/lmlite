@@ -39,8 +39,14 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
-dependencies = [ ]
+dependencies = [
+    "ipywidgets",
+    "tqdm"
+]
 dynamic = ["version"]
+
+[project.scripts]
+lmlite-models = "lmlite.model_assets:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "lmlite.__version__"}
@@ -57,7 +63,6 @@ namespaces = true
 
 [tool.setuptools.package-data]
 "lmlite" = [
-    "notebooks/*.ipynb",
     "*.js",
 ]
 
@@ -66,6 +71,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["src"]
 addopts = "-ra -q"
+markers = ["browser: requires a real browser and network access to load models"]
 testpaths = [
     "tests",
 ]
@@ -83,6 +89,9 @@ omit = [ ]
 line-length = 120
 exclude = ["*.ipynb"]
 
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
 [tool.ruff.lint.isort]
 combine-as-imports = true
 
@@ -91,8 +100,8 @@ root = "src"
 include = ["src"]
 
 [bumpver]
-current_version = "0.2.4"
-version_pattern = "MAJOR.MINOR.PATCH"
+current_version = "0.5.5a0"
+version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 commit_message = "bump version {old_version} -> {new_version}"
 commit = true
 tag = true
@@ -102,9 +111,13 @@ push = true
 "pyproject.toml" = [
     '^current_version = "{version}"',
 ]
-"src/lmlite/__init__.py" = [
+"src/lmlite/version.py" = [
     '__version__ = "{version}"'
 ]
+"README.md" = [
+    '^Package version: `{version}`$'
+]
+
 
 [tool.pixi.workspace]
 name = "lmlite"
@@ -122,14 +135,26 @@ pytest-asyncio = "*"
 pytest-cov = "*"
 ruff = "*"
 twine = "*"
+nodejs = ">=22,<23"
 
 [tool.pixi.feature.dev.pypi-dependencies]
 bumpver = "*"
+huggingface_hub = "*"
 build = "*"
 twine = "*"
+playwright = "==1.63.0"
 
 [tool.pixi.feature.py311.dependencies]
 python = "3.11.*"
+
+[tool.pixi.feature.model-fixture]
+platforms = ["osx-arm64", "linux-64"]
+
+[tool.pixi.feature.model-fixture.pypi-dependencies]
+torch = "==2.8.0"
+transformers = "==4.57.1"
+onnx = "==1.19.1"
+onnxruntime = "==1.23.2"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
@@ -139,6 +164,7 @@ python = "3.13.*"
 
 [tool.pixi.environments]
 default = ["dev"]
+model-fixture = ["dev", "model-fixture"]
 py311 = ["py311", "dev"]
 py312 = ["py312", "dev"]
 py313 = ["py313", "dev"]
@@ -147,14 +173,20 @@ py313 = ["py313", "dev"]
 lmlite = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-test = "pytest tests -vv --full-trace"
-quick-test = "pytest tests --ignore=tests/test_notebooks.py"
-test-notebooks = "pytest -vv --full-trace tests/test_notebooks.py"
-test-all = "pixi run --environment py311 test; pixi run --environment py312 test; pixi run --environment py313 test"
-coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py && coverage report -m"
+set-version = { cmd = "python scripts/set_version.py {{ version }}", args = ["version"] }
+hf = { cmd = "hf download {{ model }} --local-dir ./models/{{ model }}", args = ["model"] }
+tests = "pytest tests -vv --full-trace -m 'not browser' --ignore=tests/browser"
+all-tests = "pixi run --environment py311 tests; pixi run --environment py312 tests; pixi run --environment py313 tests"
+js-tests = "CI=1 npm run test:js"
+js-coverage = "CI=1 npm run test:js:coverage"
+install-browser = "python -m playwright install chromium"
+model-smoke = "pytest tests/browser/test_model_loading.py -m browser -v"
+embedding-smoke = "pytest tests/browser/test_embeddings.py -m browser -v"
+generate-embedding-fixture = "python scripts/generate_embedding_fixture.py"
+coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py --ignore=tests/browser -m 'not browser' && coverage report -m"
 lint = "ruff check src tests scripts --fix && ruff format src tests scripts"
 lint-check = "ruff check src tests scripts && ruff format src tests scripts --check"
-bumpver = "bumpver update --set-version"
 wheel = "rm -rf dist build; python -m build --sdist --wheel"
 twine = "twine upload dist/*"
-lite-build = { cmd = ["bash", "scripts/lite-build.sh"] }
+jupyterlite = { cmd = ["bash", "scripts/lite-build.sh"] }
+bumpver = "bumpver update --set-version"

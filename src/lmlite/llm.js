@@ -1,148 +1,240 @@
 // lmLite JS runtime
 
+const DEFAULT_MODEL_NAMESPACE = 'Xenova';
+
+function resolveModelId(modelName) {
+  if (!modelName || typeof modelName !== 'string') {
+    return modelName;
+  }
+  return modelName.includes('/') ? modelName : `${DEFAULT_MODEL_NAMESPACE}/${modelName}`;
+}
+
+function modelIdCandidates(modelName) {
+  return [...new Set([resolveModelId(modelName), modelName].filter(Boolean))];
+}
+
+async function getHostedModelBase(modelName, configuredBase = null) {
+  const [modelId, revision] = resolveModelId(modelName).split('@', 2);
+  // Hosted trees represent one snapshot, not arbitrary Hub revisions.
+  if (revision && revision !== 'main') {
+    return null;
+  }
+  let base = configuredBase;
+  if (!base) {
+    const location = globalThis.location;
+    if (!location || !['http:', 'https:'].includes(location.protocol)) {
+      return null;
+    }
+    const marker = location.pathname.match(/\/(?:extensions|lab|retro|tree)\//);
+    if (!marker) {
+      return null;
+    }
+    base = `${location.origin}${location.pathname.slice(0, marker.index)}/files/models/`;
+  }
+  const url = new URL(base.endsWith('/') ? base : `${base}/`, globalThis.location?.href);
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('hosted_models_url must be an HTTP(S) URL');
+  }
+  const response = await fetch(new URL('manifest.json', url), { signal: AbortSignal.timeout(15000) });
+  if (response.status === 404 && !configuredBase) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Hosted model manifest request failed: ${response.status} ${response.url}`);
+  }
+  const manifest = await response.json();
+  if (!Array.isArray(manifest.models) || manifest.models.some(id =>
+    typeof id !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(id) ||
+    id.split('/').some(part => part === '.' || part === '..')
+  )) {
+    throw new Error('Invalid hosted model manifest: expected a models array of namespace/model IDs');
+  }
+  return manifest.models.includes(modelId) ? url.href : null;
+}
+
+function modelFilePathFromUrl(requestUrl, modelId) {
+  const pathname = new URL(requestUrl).pathname;
+  const modelPrefix = `/${modelId}/resolve/`;
+  const modelPathStart = pathname.indexOf(modelPrefix);
+  if (modelPathStart >= 0) {
+    const revisionAndPath = pathname.slice(modelPathStart + modelPrefix.length);
+    const pathStart = revisionAndPath.indexOf('/');
+    if (pathStart >= 0) {
+      return revisionAndPath.slice(pathStart + 1);
+    }
+  }
+  const hostedPrefix = `/${modelId}/`;
+  const hostedPathStart = pathname.indexOf(hostedPrefix);
+  if (hostedPathStart >= 0) {
+    return pathname.slice(hostedPathStart + hostedPrefix.length);
+  }
+  return pathname.split('/').pop();
+}
+
 class BrowserLLM {
   constructor(config) {
     this.generatorModel = config.generator_model;
     this.embeddingModel = config.embedding_model;
-    this.useLocalModels = config.use_local_models ?? false;
-    this.localModelsPath = config.local_models_path ?? '/drive/models';
-    this.emfsModelUri = config.emfs_model_uri ?? null;
-
+    this.classificationModel = config.classification_model ?? null;
+    this.backend = (config.backend ?? 'wasm').toLowerCase();
+    this.embeddingBackend = config.embedding_backend == null ? null : config.embedding_backend.toLowerCase();
+    this.dtype = config.dtype ?? null;
+    this.dtypeFallbacks = Array.isArray(config.dtype_fallbacks) ? config.dtype_fallbacks : null;
+    // Optional explicit dtype for the embedding (feature-extraction) pipeline.
+    // Pin it to make embeddings reproducible: a consumer that precomputes anchor
+    // vectors offline must load the SAME quantization the browser runs, or the
+    // cosines (and any margin/threshold tuned on them) drift. When null, the
+    // feature-extraction pipeline keeps Transformers.js's default dtype.
+    this.embeddingDtype = config.embedding_dtype ?? null;
     this.max_new_tokens = config.max_new_tokens ?? 50;
+    this.return_full_text = config.return_full_text ?? true;
     this.temperature = config.temperature ?? 0.7;
     this.top_k = config.top_k ?? 50;
     this.do_sample = config.do_sample ?? true;
+    this.hostedModelBase = config.hosted_model_base ?? null;
+    this.hostedModels = config.hosted_models ?? [];
 
     this.generator = null;
     this.embedder = null;
+    this.classifier = null;
   }
 
-  async init() {
+  _resolveDtypes(defaultDtypes) {
+    if (this.dtypeFallbacks && this.dtypeFallbacks.length > 0) {
+      return this.dtypeFallbacks;
+    }
+    if (this.dtype) {
+      return [this.dtype];
+    }
+    return defaultDtypes;
+  }
+
+  _isRecoverableDtypeError(message) {
+    return (
+      message.includes('Could not locate file') ||
+      message.includes('404') ||
+      message.includes('not found') ||
+      message.includes("Can't create a session") ||
+      message.includes('ERROR_CODE')
+    );
+  }
+
+  async _loadPipelineWithDtypeFallback(pipelineFn, task, modelId, extraOptions, dtypes = ['q8', 'int8', 'fp32']) {
+    let lastError;
+    for (const dtype of this._resolveDtypes(dtypes)) {
+      try {
+        return await pipelineFn(task, modelId, { ...extraOptions, dtype });
+      } catch (error) {
+        const msg = String(error?.message ?? error);
+        if (this._isRecoverableDtypeError(msg)) {
+          console.warn(`dtype '${dtype}' not available for ${modelId}, trying next…`);
+          lastError = error;
+        } else {
+          throw error;
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  async init(progressCallback = null) {
+    const report = (model, status, file = '', loaded = 0, total = 0) => {
+      if (progressCallback) {
+        progressCallback(model, status, file, loaded, total);
+      }
+    };
+    const onProgress = (model) => (progress) => {
+      if (progress.status === 'progress' || progress.status === 'downloading') {
+        report(model, 'progress', progress.file ?? '', progress.loaded ?? 0, progress.total ?? 0);
+      } else if (progress.status === 'ready') {
+        report(model, 'initializing');
+      }
+    };
+    report('', 'initializing');
     const { pipeline, env } = await import(
-      "https://cdn.jsdelivr.net/npm/@xenova/transformers"
+      "https://cdn.jsdelivr.net/npm/@huggingface/transformers"
     );
 
-    // Configure for browser environment
-    if (this.useLocalModels) {
-      env.allowLocalModels = false;
-      env.useBrowserCache = false;
-      env.allowRemoteModels = true; // Keep true but intercept fetch
-
-      // Set up custom backend to read from Pyodide FS
-      const pyodide = globalThis.pyodide;
-      if (pyodide) {
-        env.backends.onnx.wasm.proxy = false; // Disable web worker for local files
-
-        // Custom fetch that reads from Pyodide FS
-        const originalFetch = globalThis.fetch;
-        globalThis.fetch = async (url, options) => {
-          const urlStr = typeof url === 'string' ? url : url.toString();
-
-          // Check if this is a model file request for HuggingFace
-          if (urlStr.includes('huggingface.co') &&
-              (urlStr.includes(`Xenova/${this.generatorModel}`) ||
-               (this.embeddingModel && urlStr.includes(`Xenova/${this.embeddingModel}`)))) {
-
-            // Extract filename from URL
-            const parts = urlStr.split('/');
-            const filename = parts[parts.length - 1];
-            const modelName = parts[parts.indexOf('Xenova') + 1];
-            const filepath = `${this.localModelsPath}/Xenova/${modelName}/${filename}`;
-
-            console.log(`Intercepting HF request, reading from Pyodide FS: ${filepath}`);
-
-            try {
-              const data = pyodide.FS.readFile(filepath);
-              const blob = new Blob([data]);
-
-              return new Response(blob, {
-                status: 200,
-                statusText: 'OK',
-                headers: new Headers({
-                  'Content-Type': 'application/octet-stream',
-                  'Content-Length': data.length.toString()
-                })
-              });
-            } catch (err) {
-              console.error(`Failed to read ${filepath}:`, err);
-              return new Response(null, { status: 404, statusText: 'Not Found' });
-            }
-          }
-
-          // Fall back to original fetch for non-model requests
-          return originalFetch(url, options);
-        };
-
-        console.log(`Using local models from Pyodide FS: ${this.localModelsPath}`);
-      }
-    } else {
-      env.allowLocalModels = false;
-      env.useBrowserCache = true;
-      console.log('Using remote models with browser cache (IndexedDB)');
+    if (!['wasm', 'webgpu'].includes(this.backend)) {
+      throw new Error(
+        `Invalid backend '${this.backend}'. Supported backends are 'wasm' and 'webgpu'.`
+      );
     }
 
-    try {
-      let modelPath;
-      if (this.useLocalModels) {
-        // Use HuggingFace path format - our custom fetch will intercept
-        modelPath = `Xenova/${this.generatorModel}`;
-      } else {
-        // Download from HuggingFace
-        modelPath = `Xenova/${this.generatorModel}`;
-      }
-
-      console.log(`Loading text-generation model: ${modelPath}`);
-
-      // Add progress callback
-      this.generator = await pipeline(
-        "text-generation",
-        modelPath,
-        {
-          // Only use quantized models when downloading from HuggingFace
-          // Local models are usually not quantized
-          quantized: !this.useLocalModels,
-          // Explicitly use WASM backend
-          device: 'wasm',
-          // Progress callback
-          progress_callback: (progress) => {
-            if (progress.status === 'downloading') {
-              console.log(`Downloading ${progress.file}: ${progress.progress?.toFixed(2)}%`);
-            } else if (progress.status === 'done') {
-              console.log(`Downloaded ${progress.file}`);
-            } else if (progress.status === 'ready') {
-              console.log(`Model ready: ${progress.file}`);
-            } else if (progress.status === 'progress') {
-              console.log(`Loading ${progress.file}: ${progress.progress?.toFixed(2)}%`);
-            }
-          }
-        }
-      );
-
-      console.log(`Model loaded successfully: ${this.generatorModel}`);
-
-      // Warm up the model with a dummy inference to ensure it's fully ready
-      console.log(`Warming up model...`);
-      await this.generator("test", { max_new_tokens: 1 });
-      console.log(`Model warm-up complete`);
-
-    } catch (error) {
+    if (this.embeddingBackend !== null && !['wasm', 'webgpu'].includes(this.embeddingBackend)) {
       throw new Error(
-        `Failed to load text-generation model '${this.generatorModel}': ${error.message}. ` +
-        `This may be due to model incompatibility with browser WASM/WebGPU. ` +
-        `Try a different model like 'gpt2' or check model availability.`
+        `Invalid embedding_backend '${this.embeddingBackend}'. Supported backends are 'wasm' and 'webgpu'.`
       );
+    }
+
+    env.allowLocalModels = Boolean(this.hostedModelBase);
+    if (this.hostedModelBase) {
+      env.localModelPath = this.hostedModelBase;
+    }
+    env.useBrowserCache = true;
+    console.log('Using browser cache (Hugging Face Cache API - Transformers.js v4)');
+    const sourceOptions = (model) => this.hostedModels.includes(model)
+      ? { local_files_only: true }
+      : {};
+
+    if (this.generatorModel) {
+      try {
+        const generatorModelId = resolveModelId(this.generatorModel).replace(/@main$/, '');
+        report(generatorModelId, 'loading');
+        console.log(`Loading text-generation model: ${generatorModelId}`);
+        this.generator = await this._loadPipelineWithDtypeFallback(
+          pipeline,
+          "text-generation",
+          generatorModelId,
+          {
+            device: this.backend,
+            ...sourceOptions(generatorModelId),
+            progress_callback: onProgress(generatorModelId)
+          }
+        );
+        console.log(`Model loaded successfully: ${this.generatorModel}`);
+        console.log(`Warming up model...`);
+        report(generatorModelId, 'warming up');
+        await this.generator("test", { max_new_tokens: 1 });
+        console.log(`Model warm-up complete`);
+      } catch (error) {
+        const errorMessage = String(error?.message ?? error);
+        throw new Error(
+          `Failed to load text-generation model '${this.generatorModel}': ${errorMessage}. ` +
+          `This model may not be supported by the current Transformers.js browser runtime or backend '${this.backend}'. ` +
+          `Check the WebGPU guide and model/dtype availability in the Transformers.js docs before picking a model.`
+        );
+      }
     }
 
     if (this.embeddingModel) {
       try {
-        // Always use HuggingFace format - custom fetch intercepts if local
-        const embeddingPath = `Xenova/${this.embeddingModel}`;
-
-        console.log(`Loading embedding model: ${embeddingPath}`);
-        this.embedder = await pipeline(
-          "feature-extraction",
-          embeddingPath
-        );
+        const embeddingModelId = resolveModelId(this.embeddingModel).replace(/@main$/, '');
+        report(embeddingModelId, 'loading');
+        console.log(`Loading embedding model: ${embeddingModelId}`);
+        // Embedding device selection is independent of the generation/classification backend.
+        const embeddingOptions = {
+          ...(this.embeddingBackend === null ? {} : { device: this.embeddingBackend }),
+          ...sourceOptions(embeddingModelId),
+          progress_callback: onProgress(embeddingModelId),
+        };
+        if (this.embeddingDtype) {
+          // Pin EXACTLY this dtype. This is deliberately independent of the
+          // global `dtype` / `dtype_fallbacks` (which target the generator): we
+          // do NOT route through _loadPipelineWithDtypeFallback / _resolveDtypes,
+          // because those would let a generator-oriented dtype override the
+          // embedding pin. A pinned embedding dtype must be reproducible (an
+          // offline-precomputed vector set depends on it), so there is no
+          // fallback to another dtype here.
+          console.log(`Pinning embedding dtype: ${this.embeddingDtype}`);
+          this.embedder = await pipeline("feature-extraction", embeddingModelId, {
+            ...embeddingOptions,
+            dtype: this.embeddingDtype,
+          });
+        } else {
+          // Default: let Transformers.js choose the feature-extraction dtype.
+          this.embedder = await pipeline("feature-extraction", embeddingModelId, embeddingOptions);
+        }
         console.log(`Embedding model loaded successfully: ${this.embeddingModel}`);
       } catch (error) {
         throw new Error(
@@ -150,11 +242,37 @@ class BrowserLLM {
         );
       }
     }
+
+    if (this.classificationModel) {
+      try {
+        const classificationModelId = resolveModelId(this.classificationModel).replace(/@main$/, '');
+        report(classificationModelId, 'loading');
+        console.log(`Loading classification model: ${classificationModelId}`);
+        this.classifier = await this._loadPipelineWithDtypeFallback(
+          pipeline,
+          "text-classification",
+          classificationModelId,
+          {
+            device: this.backend,
+            ...sourceOptions(classificationModelId),
+            progress_callback: onProgress(classificationModelId)
+          }
+        );
+        console.log(`Classification model loaded successfully: ${this.classificationModel}`);
+      } catch (error) {
+        throw new Error(
+          `Failed to load classification model '${this.classificationModel}': ${error.message}`
+        );
+      }
+    }
+    report('', 'ready');
   }
 
   async exportModelFiles(modelName) {
     try {
-      console.log(`Starting export for model: ${modelName}`);
+      const modelId = resolveModelId(modelName);
+      const modelCandidates = modelIdCandidates(modelName);
+      console.log(`Starting export for model: ${modelId}`);
 
       // Check both Cache API and IndexedDB
       const cacheNames = await caches.keys();
@@ -164,7 +282,7 @@ class BrowserLLM {
       const databases = await indexedDB.databases();
       console.log('Available IndexedDB databases:', databases.map(db => db.name));
 
-      // First try Cache API (Transformers.js v3+ uses this)
+      // First try Cache API (Transformers.js v4 uses this)
       const modelCacheName = cacheNames.find(name =>
         name.includes('transformers') ||
         name.includes('huggingface') ||
@@ -173,7 +291,7 @@ class BrowserLLM {
 
       if (modelCacheName) {
         console.log(`Found model cache: ${modelCacheName}`);
-        return await this._exportFromCacheAPI(modelName, modelCacheName);
+        return await this._exportFromCacheAPI(modelName, modelId, modelCacheName);
       }
 
       // Try different possible database names for IndexedDB (older versions)
@@ -234,13 +352,13 @@ class BrowserLLM {
 
       // Filter keys for this model
       const modelKeys = allKeys.filter(key =>
-        String(key).includes(`Xenova/${modelName}`) || String(key).includes(modelName)
+        modelCandidates.some(candidate => String(key).includes(candidate))
       );
 
-      console.log(`Found ${modelKeys.length} cached files for ${modelName}`);
+      console.log(`Found ${modelKeys.length} cached files for ${modelId}`);
 
       if (modelKeys.length === 0) {
-        return `Error: No cached files found for model '${modelName}'. Model may not be cached yet.`;
+        return `Error: No cached files found for model '${modelId}'. Model may not be cached yet.`;
       }
 
       // Create directory for model files
@@ -249,7 +367,7 @@ class BrowserLLM {
         return 'Error: Pyodide not available, cannot export to filesystem';
       }
 
-      const modelDir = `/drive/models/Xenova/${modelName}`;
+      const modelDir = `/drive/models/${modelId}`;
       pyodide.FS.mkdirTree(modelDir);
       console.log(`Created directory: ${modelDir}`);
 
@@ -284,9 +402,9 @@ class BrowserLLM {
 
           const uint8Array = new Uint8Array(arrayBuffer);
 
-          // Extract filename from key
-          const filename = String(key).split('/').pop();
+          const filename = modelFilePathFromUrl(String(key), modelId);
           const filepath = `${modelDir}/${filename}`;
+          pyodide.FS.mkdirTree(filepath.slice(0, filepath.lastIndexOf('/')));
 
           pyodide.FS.writeFile(filepath, uint8Array);
           console.log(`Exported: ${filepath} (${uint8Array.length} bytes)`);
@@ -307,22 +425,23 @@ class BrowserLLM {
     }
   }
 
-  async _exportFromCacheAPI(modelName, cacheName) {
+  async _exportFromCacheAPI(modelName, modelId, cacheName) {
     try {
       const cache = await caches.open(cacheName);
       const requests = await cache.keys();
+      const modelCandidates = modelIdCandidates(modelName);
 
       console.log(`Total cached requests: ${requests.length}`);
 
       // Filter for this model
       const modelRequests = requests.filter(req =>
-        req.url.includes(`Xenova/${modelName}`) || req.url.includes(modelName)
+        modelCandidates.some(candidate => req.url.includes(candidate))
       );
 
-      console.log(`Found ${modelRequests.length} cached files for ${modelName}`);
+      console.log(`Found ${modelRequests.length} cached files for ${modelId}`);
 
       if (modelRequests.length === 0) {
-        return `Error: No cached files found for model '${modelName}' in Cache API.`;
+        return `Error: No cached files found for model '${modelId}' in Cache API.`;
       }
 
       // Access Pyodide filesystem (in web worker context)
@@ -341,12 +460,12 @@ class BrowserLLM {
       if (!pyodide) {
         console.error('Pyodide not found in self or globalThis');
         // Return data to Python side instead
-        return await this._exportViaPython(modelName, cacheName, modelRequests);
+        return await this._exportViaPython(modelId, cacheName, modelRequests);
       }
 
       console.log('Pyodide found, exporting via FS:', pyodide);
 
-      const modelDir = `/drive/models/Xenova/${modelName}`;
+      const modelDir = `/drive/models/${modelId}`;
 
       // Create directory using Pyodide FS
       try {
@@ -365,12 +484,10 @@ class BrowserLLM {
           const arrayBuffer = await response.arrayBuffer();
           const uint8Array = new Uint8Array(arrayBuffer);
 
-          // Extract filename from URL
-          const url = new URL(request.url);
-          const pathParts = url.pathname.split('/');
-          const filename = pathParts[pathParts.length - 1];
+          const filename = modelFilePathFromUrl(request.url, modelId);
 
           const filepath = `${modelDir}/${filename}`;
+          pyodide.FS.mkdirTree(filepath.slice(0, filepath.lastIndexOf('/')));
           pyodide.FS.writeFile(filepath, uint8Array);
           console.log(`Exported: ${filepath} (${uint8Array.length} bytes)`);
           exportedCount++;
@@ -388,7 +505,7 @@ class BrowserLLM {
     }
   }
 
-  async _exportViaPython(modelName, cacheName, modelRequests) {
+  async _exportViaPython(modelId, cacheName, modelRequests) {
     // Export by returning data to Python side
     console.log('Exporting via Python side');
 
@@ -401,10 +518,7 @@ class BrowserLLM {
         const arrayBuffer = await response.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
 
-        // Extract filename from URL
-        const url = new URL(request.url);
-        const pathParts = url.pathname.split('/');
-        const filename = pathParts[pathParts.length - 1];
+        const filename = modelFilePathFromUrl(request.url, modelId);
 
         files.push({
           filename: filename,
@@ -415,12 +529,31 @@ class BrowserLLM {
 
     return {
       success: true,
-      model: modelName,
+      model: modelId,
       files: files
     };
   }
 
-  async generate(prompt) {
+  async dispose() {
+    const errors = [];
+    for (const name of ['generator', 'embedder', 'classifier']) {
+      const pipeline = this[name];
+      if (pipeline === null) {
+        continue;
+      }
+      try {
+        await pipeline.dispose();
+        this[name] = null;
+      } catch (error) {
+        errors.push(new Error(`Failed to dispose ${name}: ${String(error?.message ?? error)}`, { cause: error }));
+      }
+    }
+    if (errors.length) {
+      throw new AggregateError(errors, errors.map(error => error.message).join('; '));
+    }
+  }
+
+  async generate(prompt, returnFullText = this.return_full_text) {
     if (!this.generator) {
       throw new Error("Generator model not initialized. Call init() first.");
     }
@@ -428,6 +561,7 @@ class BrowserLLM {
     try {
       const output = await this.generator(prompt, {
         max_new_tokens: this.max_new_tokens,
+        return_full_text: returnFullText,
         temperature: this.temperature,
         top_k: this.top_k,
         do_sample: this.do_sample
@@ -446,14 +580,169 @@ class BrowserLLM {
     }
   }
 
+  async chat(messages) {
+    if (!this.generator) {
+      throw new Error("Generator model not initialized. Call init() first.");
+    }
+    if (typeof messages === 'string') {
+      messages = JSON.parse(messages);
+    }
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new TypeError("Chat requires a nonempty array of messages.");
+    }
+    const normalized = messages.map((message) => {
+      if (message == null || typeof message !== 'object' ||
+          typeof message.role !== 'string' || !message.role.trim() ||
+          typeof message.content !== 'string') {
+        throw new TypeError("Each chat message requires a nonempty string role and string content.");
+      }
+      return { role: message.role.toLowerCase(), content: message.content };
+    });
+
+    if (this.generator.tokenizer?.chat_template) {
+      // The pipeline applies the tokenizer's template and avoids duplicate special tokens.
+      const conversation = await this.generate(normalized, false);
+      const answer = Array.isArray(conversation) ? conversation.at(-1) : null;
+      if (answer?.role !== 'assistant' || typeof answer.content !== 'string') {
+        throw new Error("Chat pipeline returned an invalid assistant message.");
+      }
+      return answer.content.trim();
+    }
+
+    const prompt = normalized.map(({ role, content }) => {
+      const label = role === 'user' ? 'User' : role === 'assistant' ? 'Assistant' : role;
+      return `${label}: ${content}\n`;
+    }).join('') + 'Assistant:';
+    const answer = await this.generate(prompt, false);
+    return answer.trim();
+  }
+
   async embed(text) {
     if (!this.embedder) {
       throw new Error("No embedding model configured");
     }
 
-    const result = await this.embedder(text);
+    // Return a single sentence embedding, not the raw per-token tensor.
+    // Without `pooling`, feature-extraction returns the unpooled
+    // [1, tokens, hidden] last_hidden_state; flattening that gives a vector
+    // whose length scales with token count and which is not a sentence
+    // representation, so nearest-neighbour ranking over it is unreliable. Mean
+    // pooling (attention-mask weighted) collapses it to one fixed-dim sentence
+    // vector, as sentence-embedding models such as multilingual-e5 expect.
+    // `normalize: true` makes the returned `.data` unit-length so a consumer
+    // doing a bare dot product gets cosine similarity; it only rescales and
+    // does not change the ranking of a consumer that normalizes itself.
+    const result = await this.embedder(text, { pooling: "mean", normalize: true });
     return Array.from(result.data);
   }
+
+  async classify(text, top_k = null) {
+    if (!this.classifier) {
+      throw new Error("No classification model configured");
+    }
+
+    if (top_k === null || top_k === undefined) {
+      return await this.classifier(text);
+    }
+    return await this.classifier(text, { top_k });
+  }
+}
+
+// --- Cache injection ---
+
+async function isModelCached(modelName) {
+  const cacheNames = await caches.keys();
+  const candidates = modelIdCandidates(modelName);
+
+  for (const cacheName of cacheNames) {
+    const cache = await caches.open(cacheName);
+    const requests = await cache.keys();
+
+    const hasModel = requests.some((request) =>
+      candidates.some(candidate => request.url.includes(candidate))
+    );
+    if (hasModel) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function loadModelToCache(modelName, files) {
+  const cacheNames = await caches.keys();
+  const modelId = resolveModelId(modelName);
+  const cacheName = cacheNames.find(n =>
+    n.includes('transformers') || n.includes('huggingface')
+  ) || 'transformers-cache';
+
+  const cache = await caches.open(cacheName);
+  let count = 0;
+
+  for (const [filename, data] of Object.entries(files)) {
+    const url = `https://huggingface.co/${modelId}/resolve/main/${filename}`;
+    await cache.put(url, new Response(data, {
+      status: 200,
+      headers: { 'Content-Type': 'application/octet-stream' }
+    }));
+    console.log(`Cached: ${url} (${data.length} bytes)`);
+    count++;
+  }
+
+  console.log(`Loaded ${count} files for ${modelId} into browser cache`);
+}
+
+async function clearModelCache() {
+  const deletedCaches = [];
+  const deletedDatabases = [];
+  const knownDatabaseNames = ['transformers-cache', 'transformers_cache', 'huggingface-assets', 'transformers.js'];
+
+  const cacheNames = await caches.keys();
+  for (const cacheName of cacheNames) {
+    const lowerName = cacheName.toLowerCase();
+    if (
+      lowerName.includes('transformers') ||
+      lowerName.includes('huggingface') ||
+      lowerName.includes('onnx')
+    ) {
+      const deleted = await caches.delete(cacheName);
+      if (deleted) {
+        deletedCaches.push(cacheName);
+      }
+    }
+  }
+
+  const candidateDatabaseNames = new Set(knownDatabaseNames);
+  if (typeof indexedDB.databases === 'function') {
+    const runtimeDatabases = await indexedDB.databases();
+    for (const db of runtimeDatabases) {
+      if (db?.name) {
+        candidateDatabaseNames.add(db.name);
+      }
+    }
+  }
+
+  for (const dbName of candidateDatabaseNames) {
+    const lowerName = dbName.toLowerCase();
+    if (
+      lowerName.includes('transformers') ||
+      lowerName.includes('huggingface') ||
+      lowerName.includes('onnx')
+    ) {
+      await new Promise((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      deletedDatabases.push(dbName);
+    }
+  }
+
+  return {
+    deleted_caches: deletedCaches,
+    deleted_databases: deletedDatabases,
+  };
 }
 
 // --- Factory ---
@@ -479,11 +768,34 @@ function cosineSimilarityBatch(queryVec, docVecs) {
   return docVecs.map(doc => cosineSimilarity(queryVec, doc));
 }
 
+// --- Model info helpers ---
+
+async function getModelLatestRevision(modelId) {
+  try {
+    const url = `https://huggingface.co/api/models/${modelId}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.warn(`Failed to fetch model info: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    const data = await response.json();
+    return data.sha || null;
+  } catch (error) {
+    console.warn(`Error fetching latest revision for ${modelId}:`, error);
+    return null;
+  }
+}
+
 // --- expose globally (critical for Python) ---
 
+globalThis.BrowserLLM = BrowserLLM;
 globalThis.createLLM = createLLM;
+globalThis.isModelCached = isModelCached;
+globalThis.loadModelToCache = loadModelToCache;
+globalThis.clearModelCache = clearModelCache;
 globalThis.cosineSimilarity = cosineSimilarity;
 globalThis.cosineSimilarityBatch = cosineSimilarityBatch;
+globalThis.getModelLatestRevision = getModelLatestRevision;
+globalThis.getHostedModelBase = getHostedModelBase;
 
 undefined;
-

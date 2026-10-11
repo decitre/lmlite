@@ -1,0 +1,16 @@
+{
+  "name": "lmlite",
+  "version": "0.3.0",
+  "description": "Browser-native LLM orchestration in JupyterLite",
+  "type": "module",
+  "scripts": {
+    "test:js": "vitest",
+    "test:js:ui": "vitest --ui",
+    "test:js:coverage": "vitest --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0",
+    "@vitest/ui": "^1.0.0",
+    "@vitest/coverage-v8": "^1.0.0"
+  }
+}

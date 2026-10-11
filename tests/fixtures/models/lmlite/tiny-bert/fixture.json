@@ -1,0 +1,33 @@
+{
+  "license": "Apache-2.0",
+  "seed": 2026,
+  "hidden_size": 16,
+  "torch_version": "2.8.0",
+  "transformers_version": "4.57.1",
+  "assets": {
+    "config.json": {
+      "sha256": "394a7b3a6e3ea695b14b1730f65d72c1c09f5f2f22cae767f6dbe6575d9a4682",
+      "size": 546
+    },
+    "tokenizer.json": {
+      "sha256": "7b6d5a76d862772ffbc103a96e1a12e46ab7a3c0a0250451956699889e483e2b",
+      "size": 2876
+    },
+    "tokenizer_config.json": {
+      "sha256": "3e35223e90da6a03d8b7f968e40c83bb6da5ebd18b6af7a584498c558d4dfeb6",
+      "size": 1128
+    },
+    "special_tokens_map.json": {
+      "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+      "size": 125
+    },
+    "onnx/model.onnx": {
+      "sha256": "c12a88d6dce756075c868ffb314195f266c5f8258c33db13f05f536f33a8794c",
+      "size": 34186
+    },
+    "onnx/model_quantized.onnx": {
+      "sha256": "e670776228d6b6b4cea74f95ba7e4b7139816a58803a8ce2d88e5d838368c511",
+      "size": 44141
+    }
+  }
+}
