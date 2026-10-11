@@ -57,7 +57,7 @@ jobs:
       - name: JS Coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          npm ci
+          npm install
           CI=1 npm run test:js:coverage
 
       - name: Upload Python Coverage to Codecov
