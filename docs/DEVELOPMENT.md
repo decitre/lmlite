@@ -126,10 +126,6 @@ WebGPU requires support in the browser, execution environment, model, and dtype;
 
 Set `LMLITE_MODEL_TIMEOUT_MS` to adjust the inference wait limit (default: 900000 ms). Neither browser smoke task runs in the default non-browser test suite.
 
-**CI Integration:**
-
-GitLab provides a separate manual, non-blocking `embedding_smoke` job for branch and merge-request pipelines. It uses the Playwright Python `v1.63.0-noble` image with preinstalled Chromium and system dependencies; the Pixi Playwright package is pinned to the matching version. The job runs only the bundled fp32/q8 WASM fixture, publishes a JUnit report, and requires no model download or fixture export environment. CDN runtime access is still required. Keep the image tag and Python package version aligned when upgrading Playwright.
-
 ### Building a Wheel
 
 ```bash
