@@ -48,15 +48,14 @@ embedding = await llm.embed("Hello world")
 
 docs = ["JupyterLite runs in the browser.", "Python is widely used for ML."]
 results = await llm.similarity_search("Where does JupyterLite run?", docs)
+print(results)
 ```
-
-For more advanced examples, see the
-[orchestration notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=orchestration.ipynb),
-which demonstrates RAG and multi-turn chat with conversation memory.
 
 ## Features
 
 - **Browser-native**: Run LLMs entirely in the browser, no server required
+- **Instruction-tuned models**: Chat and instruction-following with browser-compatible models such as SmolLM2-360M-Instruct.
+- **Composable workflows**: Build simple RAG pipelines and conversational interfaces with memory using Python.
 - **Privacy-first**: All computation happens locally in your browser
 - **Zero setup**: No installation or API keys for hosted demos
 - **Multiple backends**: WebAssembly (WASM) or WebGPU
