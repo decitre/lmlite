@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use lmLite in your work, please cite it using this metadata."
+type: software
+title: "lmLite: Browser-native LLM orchestration in JupyterLite"
+authors:
+  - family-names: Decitre
+    given-names: Emmanuel
+repository-code: "https://github.com/decitre/lmlite"
+url: "https://github.com/decitre/lmlite"
+license: Apache-2.0
