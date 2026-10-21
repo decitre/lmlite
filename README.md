@@ -63,8 +63,6 @@ print(results)
 - **Embeddings & classification**: Sentence vectors and text classification
 - **Model caching**: Browser-cached downloads and portable ZIP export/import
 - **Pythonic API**: Clean, async Python interface
-- **Instruction-tuned models**: Chat and instruction-following with browser-compatible models such as SmolLM2-360M-Instruct.
-- **Composable workflows**: Build simple RAG pipelines and conversational interfaces with memory using Python.
 
 ## What is lmLite?
 
