@@ -14,6 +14,7 @@ Package version: `0.5.7`
 
 **Browser-native LLM orchestration in JupyterLite** - run language models entirely in your browser using WebAssembly or WebGPU.
 
+
 ## Quick Start
 
 **Try online** (no installation required):
@@ -25,22 +26,33 @@ Package version: `0.5.7`
 ```python
 from lmlite import LLM
 
-# Create LLM instance (downloads model on first run)
+# Instruction-tuned chat with SmolLM2
 llm = await LLM.create(
-    generator_model="gpt2",
-    embedding_model="all-MiniLM-L6-v2"
+    generator_model="HuggingFaceTB/SmolLM2-360M-Instruct",
+    backend="wasm",
+    dtype="q4",
 )
+response = await llm.chat([
+    {"role": "user", "content": "Explain embeddings in simple terms."}
+])
+print(response)
 
-# Generate text
+# Text completion with GPT-2
+llm = await LLM.create(generator_model="gpt2")
 text = await llm.generate("Python is a great language because")
+print(text)
 
-# Generate embeddings
+# Embeddings and similarity search
+llm = await LLM.create(embedding_model="all-MiniLM-L6-v2")
 embedding = await llm.embed("Hello world")
 
-# Similarity search
 docs = ["JupyterLite runs in the browser.", "Python is widely used for ML."]
 results = await llm.similarity_search("Where does JupyterLite run?", docs)
 ```
+
+For more advanced examples, see the
+[orchestration notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=orchestration.ipynb),
+which demonstrates RAG and multi-turn chat with conversation memory.
 
 ## Features
 
@@ -52,6 +64,8 @@ results = await llm.similarity_search("Where does JupyterLite run?", docs)
 - **Embeddings & classification**: Sentence vectors and text classification
 - **Model caching**: Browser-cached downloads and portable ZIP export/import
 - **Pythonic API**: Clean, async Python interface
+- **Instruction-tuned models**: Chat and instruction-following with browser-compatible models such as SmolLM2-360M-Instruct.
+- **Composable workflows**: Build simple RAG pipelines and conversational interfaces with memory using Python.
 
 ## What is lmLite?
 
@@ -75,9 +89,14 @@ lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in
 - **[Runtime & Integration](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md)** - Platform support and integration boundaries
 - **[Glossary](https://github.com/decitre/lmlite/blob/main/docs/GLOSSARY.md)** - Key concepts and terminology
 
-## Notebooks
+## Interactive Notebooks
 
-Open [`demo.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/demo.ipynb) in the [online demo][xeus-url] to see lmLite in action. See the [notebooks directory](https://github.com/decitre/lmlite/tree/main/notebooks) for all examples.
+Try lmLite directly in your browser, without installing anything.
+
+- **[Basic demo](https://decitre.github.io/lmlite/xeus/lab/index.html?path=demo.ipynb)** — Text generation, embeddings, classification, and similarity search.
+- **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
+
+Both examples run locally in the browser using Transformers.js.
 
 ## How It Works
 
