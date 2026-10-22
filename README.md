@@ -12,7 +12,7 @@
 
 Package version: `0.5.7`
 
-**Browser-native LLM orchestration in JupyterLite** - run language models entirely in your browser using WebAssembly or WebGPU.
+**A Python bridge to Transformers.js for JupyterLite** — run language models and embedding workflows entirely in your browser.
 
 
 ## Quick Start
@@ -77,6 +77,19 @@ lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in
 **Best suited for:** Teaching, interactive experiments, and browser-local prototypes where avoiding remote inference services matters.
 
 > **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a browser Python runtime (xeus-python or Pyodide) with JavaScript bridge. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
+
+## Feedback and Contributions
+
+lmLite is an experimental project exploring Python access to browser-native machine learning through Transformers.js.
+
+Feedback is particularly welcome on:
+
+- The usefulness and design of the asynchronous Python API.
+- Additional Transformers.js tasks and capabilities to expose.
+- Model compatibility, performance, and browser runtime limitations.
+- Potential applications beyond JupyterLite.
+
+Please share suggestions, bug reports, and use cases through [GitHub Issues](https://github.com/decitre/lmlite/issues).
 
 ## Documentation
 
