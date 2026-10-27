@@ -18,7 +18,7 @@ Package version: `0.5.7`
 ## Quick Start
 
 **Try online** (no installation required):
-- [Launch with Xeus-Python][xeus-url] (recommended)
+- [Launch with xeus-python][xeus-url] (recommended)
 - [Launch with Pyodide][pyodide-url]
 
 **Basic usage:**
@@ -76,7 +76,7 @@ lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in
 
 **Best suited for:** Teaching, interactive experiments, and browser-local prototypes where avoiding remote inference services matters.
 
-> **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a browser Python runtime (xeus-python or Pyodide) with JavaScript bridge. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
+> **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a supported browser-based Python environment (xeus-python or the JupyterLite Pyodide kernel) with JavaScript interoperability. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
 
 ## Feedback and Contributions
 
@@ -120,7 +120,7 @@ Both examples run locally in the browser using Transformers.js.
 │   llm = await LLM.create()          │
 │   text = await llm.generate(...)    │
 └─────────────┬───────────────────────┘
-              │ Bridge (pyodide.ffi / pjs)
+              │ Bridge (xeus-python: pjs / Pyodide: pyodide.ffi)
 ┌─────────────▼───────────────────────┐
 │   JavaScript (Browser)              │
 │   Transformers.js + ONNX Runtime    │
