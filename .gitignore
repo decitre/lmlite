@@ -58,3 +58,6 @@ workspace/
 venv/
 .pixi/
 pixi.lock
+
+# npm
+package-lock.json

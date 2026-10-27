@@ -5,6 +5,12 @@ from .bridge.runtime import ensure_runtime
 
 DEFAULT_MODEL_NAMESPACE = "Xenova"
 
+# Transformers.js tasks available through LLM.pipeline(); keep in sync with llm.js.
+SUPPORTED_TASKS = ("zero-shot-classification", "automatic-speech-recognition", "translation")
+
+# Sampling rate expected by Whisper and most Transformers.js speech recognition models.
+AUDIO_SAMPLING_RATE = 16000
+
 
 def _loading_progress():
     import sys
@@ -210,6 +216,119 @@ def _to_python_deep(value):
     return value
 
 
+def _to_js(value):
+    try:
+        from pyodide.ffi import to_js
+
+        return to_js(value)
+    except ImportError:
+        try:
+            from pjs import to_js
+
+            return to_js(value)
+        except ImportError:
+            return value
+
+
+def _read_wav(source, sampling_rate=AUDIO_SAMPLING_RATE):
+    """Decode PCM WAV bytes or a file path into mono float samples at ``sampling_rate``."""
+    import array
+    import io
+    import sys
+    import wave
+
+    fileobj = io.BytesIO(source) if isinstance(source, (bytes, bytearray, memoryview)) else source
+    try:
+        with wave.open(fileobj, "rb") as wav:
+            channels = wav.getnchannels()
+            width = wav.getsampwidth()
+            rate = wav.getframerate()
+            frames = wav.readframes(wav.getnframes())
+    except (wave.Error, EOFError) as exc:
+        raise ValueError(f"Audio must be a PCM WAV file: {exc}") from exc
+
+    if width == 1:
+        samples = [(byte - 128) / 128 for byte in frames]
+    elif width == 3:
+        samples = [int.from_bytes(frames[i : i + 3], "little", signed=True) / 8388608 for i in range(0, len(frames), 3)]
+    else:
+        typecode = {2: "h", 4: "i"}.get(width)
+        if typecode is None:
+            raise ValueError(f"Unsupported WAV sample width: {width} bytes")
+        pcm = array.array(typecode, frames)
+        if sys.byteorder == "big":
+            pcm.byteswap()
+        scale = float(2 ** (8 * width - 1))
+        samples = [value / scale for value in pcm]
+
+    if channels > 1:
+        samples = [sum(samples[i : i + channels]) / channels for i in range(0, len(samples), channels)]
+    if rate != sampling_rate and samples:
+        # Linear interpolation is sufficient for speech; resample offline for best quality.
+        count = max(1, round(len(samples) * sampling_rate / rate))
+        step = (len(samples) - 1) / max(1, count - 1)
+        resampled = []
+        for i in range(count):
+            position = i * step
+            left = int(position)
+            right = min(left + 1, len(samples) - 1)
+            resampled.append(samples[left] + (samples[right] - samples[left]) * (position - left))
+        samples = resampled
+    return samples
+
+
+def _audio_input(audio):
+    """Normalize ASR input to a URL string or a list of float samples."""
+    import os
+
+    if isinstance(audio, str):
+        if audio.startswith(("http://", "https://", "blob:", "data:")):
+            return audio
+        if os.path.isfile(audio):
+            return _read_wav(audio)
+        raise FileNotFoundError(
+            f"Audio file not found: {audio!r}. Pass an HTTP(S) URL, a path to a PCM WAV file, "
+            f"WAV bytes, or mono samples at {AUDIO_SAMPLING_RATE} Hz."
+        )
+    if isinstance(audio, (bytes, bytearray, memoryview)):
+        return _read_wav(audio)
+    return [float(sample) for sample in audio]
+
+
+class Pipeline:
+    """A loaded Transformers.js task pipeline, created with ``LLM.pipeline()``."""
+
+    def __init__(self, llm, task, model):
+        self.llm = llm
+        self.task = task
+        self.model = model
+
+    def __repr__(self):
+        return f"Pipeline(task={self.task!r}, model={self.model!r})"
+
+    async def __call__(self, inputs, **kwargs):
+        """Run the task. Keyword arguments are forwarded as Transformers.js task options."""
+        import json
+
+        if self.task == "automatic-speech-recognition":
+            inputs = _audio_input(inputs)
+        elif not isinstance(inputs, str):
+            inputs = list(inputs)
+        if not isinstance(inputs, str):
+            inputs = _to_js(inputs)
+        options = json.dumps(kwargs, allow_nan=False)
+        result = await self.llm.js.runTask(inputs, options)
+        return _to_python_deep(result)
+
+    async def dispose(self):
+        """Release the loaded pipeline without deleting cached model files."""
+        await self.llm.dispose()
+
+    async def export_models(self):
+        """Export the pipeline model as a zip file to /drive/models."""
+        await self.llm.export_models()
+
+
 async def clear_cache():
     """Clear browser caches/databases used by Transformers.js model downloads."""
     ensure_runtime()
@@ -278,6 +397,7 @@ class LLM:
                 config.get("generator_model"),
                 config.get("embedding_model"),
                 config.get("classification_model"),
+                config.get("task_model"),
             ):
                 if model_name and model_name not in models_to_detect:
                     models_to_detect.append(model_name)
@@ -453,8 +573,32 @@ class LLM:
             config.get("generator_model"),
             config.get("embedding_model"),
             config.get("classification_model"),
+            config.get("task_model"),
         ]
         return cls(instance, models=models)
+
+    @classmethod
+    async def pipeline(cls, task, model, **options):
+        """Load a Transformers.js task pipeline.
+
+        Supported tasks are listed in ``SUPPORTED_TASKS``. Loading options such as
+        ``backend``, ``dtype``, ``dtype_fallbacks``, ``hosted_models_url`` and
+        ``local_models_path`` behave as in ``LLM.create()``.
+        """
+        if task not in SUPPORTED_TASKS:
+            raise ValueError(
+                f"Unsupported task {task!r}. Supported pipeline tasks are: {', '.join(SUPPORTED_TASKS)}. "
+                "Use LLM.create() with generate()/chat(), embed() or classify() for text generation, "
+                "embeddings and text classification."
+            )
+        if not model:
+            raise ValueError(f"Task {task!r} requires a model.")
+        model_options = {"generator_model", "embedding_model", "classification_model", "task", "task_model"}
+        conflicting = sorted(model_options & options.keys())
+        if conflicting:
+            raise TypeError(f"LLM.pipeline() does not accept {', '.join(conflicting)}; use LLM.create() instead.")
+        llm = await cls.create(task=task, task_model=model, **options)
+        return Pipeline(llm, task, model)
 
     # --- core API ---
 

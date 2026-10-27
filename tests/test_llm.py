@@ -1533,3 +1533,153 @@ class TestSimilaritySearchNoConversion:
                 sys.modules["pyodide.ffi"] = pyodide_ffi_backup
             if pjs_backup:
                 sys.modules["pjs"] = pjs_backup
+
+
+class TestLLMPipeline:
+    """Test the generic Transformers.js task pipeline interface."""
+
+    async def test_pipeline_loads_task_model_with_shared_options(self, monkeypatch):
+        import sys
+
+        from lmlite import LLM, Pipeline
+
+        mock_js_instance = MagicMock()
+        mock_js_instance.init = AsyncMock()
+        mock_js_module = types.ModuleType("js")
+        mock_js_module.createLLM = MagicMock(return_value=mock_js_instance)
+        mock_js_module.isModelCached = AsyncMock(return_value=True)
+        monkeypatch.setitem(sys.modules, "js", mock_js_module)
+
+        with patch("lmlite.llm.ensure_runtime"):
+            pipe = await LLM.pipeline("translation", model="opus-mt-en-fr", backend="webgpu", dtype="fp32")
+
+        assert isinstance(pipe, Pipeline)
+        assert (pipe.task, pipe.model) == ("translation", "opus-mt-en-fr")
+        config = mock_js_module.createLLM.call_args.args[0]
+        assert config["task"] == "translation"
+        assert config["task_model"] == "opus-mt-en-fr"
+        assert config["backend"] == "webgpu"
+        assert config["dtype"] == "fp32"
+        mock_js_module.isModelCached.assert_awaited_once_with("opus-mt-en-fr")
+        assert pipe.llm._models == ["opus-mt-en-fr"]
+
+    async def test_unsupported_task_lists_supported_tasks(self):
+        from lmlite import LLM
+
+        with pytest.raises(ValueError, match="Unsupported task 'image-to-text'.*zero-shot-classification"):
+            await LLM.pipeline("image-to-text", model="m")
+        with pytest.raises(ValueError, match="requires a model"):
+            await LLM.pipeline("translation", model=None)
+        with pytest.raises(TypeError, match="generator_model"):
+            await LLM.pipeline("translation", model="m", generator_model="gpt2")
+
+    async def test_zero_shot_forwards_labels_as_json_options(self):
+        from lmlite import Pipeline
+
+        llm = MagicMock()
+        output = {"sequence": "text", "labels": ["technology", "sports"], "scores": [0.9, 0.1]}
+        llm.js.runTask = AsyncMock(return_value=output)
+        pipe = Pipeline(llm, "zero-shot-classification", "m")
+
+        result = await pipe("text", candidate_labels=["technology", "sports"], multi_label=False)
+
+        assert result == output
+        inputs, options = llm.js.runTask.await_args.args
+        assert inputs == "text"
+        assert json.loads(options) == {"candidate_labels": ["technology", "sports"], "multi_label": False}
+
+    async def test_text_batches_are_sent_as_lists(self):
+        from lmlite import Pipeline
+
+        llm = MagicMock()
+        llm.js.runTask = AsyncMock(return_value=[{"translation_text": "a"}, {"translation_text": "b"}])
+        result = await Pipeline(llm, "translation", "m")(("Hello", "World"))
+
+        assert result == [{"translation_text": "a"}, {"translation_text": "b"}]
+        assert llm.js.runTask.await_args.args == (["Hello", "World"], "{}")
+
+    async def test_dispose_and_export_delegate_to_llm(self):
+        from lmlite import Pipeline
+
+        llm = MagicMock()
+        llm.dispose = AsyncMock()
+        llm.export_models = AsyncMock()
+        pipe = Pipeline(llm, "translation", "m")
+        await pipe.dispose()
+        await pipe.export_models()
+        llm.dispose.assert_awaited_once_with()
+        llm.export_models.assert_awaited_once_with()
+        assert repr(pipe) == "Pipeline(task='translation', model='m')"
+
+
+def _wav_bytes(samples, rate=16000, channels=1, width=2):
+    import io
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(width)
+        wav.setframerate(rate)
+        scale = 2 ** (8 * width - 1) - 1
+        wav.writeframes(b"".join(int(s * scale).to_bytes(width, "little", signed=True) for s in samples))
+    return buffer.getvalue()
+
+
+class TestAudioInput:
+    """Test speech recognition input normalization."""
+
+    async def test_asr_decodes_wav_bytes_to_samples(self):
+        from lmlite import Pipeline
+
+        llm = MagicMock()
+        llm.js.runTask = AsyncMock(return_value={"text": "hello"})
+        result = await Pipeline(llm, "automatic-speech-recognition", "m")(
+            _wav_bytes([0.0, 0.5, -0.5]), return_timestamps=True
+        )
+
+        assert result == {"text": "hello"}
+        samples, options = llm.js.runTask.await_args.args
+        assert samples == pytest.approx([0.0, 0.5, -0.5], abs=1e-4)
+        assert json.loads(options) == {"return_timestamps": True}
+
+    def test_wav_file_stereo_and_resampling(self, tmp_path):
+        from lmlite.llm import _audio_input
+
+        path = tmp_path / "a.wav"
+        # Stereo channels average to mono; 8 kHz is upsampled to 16 kHz.
+        path.write_bytes(_wav_bytes([0.5, -0.5, 1.0, 0.0], rate=8000, channels=2))
+        assert _audio_input(str(path)) == pytest.approx([0.0, 1 / 6, 1 / 3, 0.5], abs=1e-4)
+
+    @pytest.mark.parametrize("width", [1, 3, 4])
+    def test_wav_sample_widths(self, width):
+        from lmlite.llm import _read_wav
+
+        if width == 1:
+            import io
+            import wave
+
+            buffer = io.BytesIO()
+            with wave.open(buffer, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(1)
+                wav.setframerate(16000)
+                wav.writeframes(bytes([128, 192, 64]))
+            data = buffer.getvalue()
+        else:
+            data = _wav_bytes([0.0, 0.5, -0.5], width=width)
+        assert _read_wav(data) == pytest.approx([0.0, 0.5, -0.5], abs=1e-2)
+
+    def test_urls_and_samples_pass_through(self):
+        from lmlite.llm import _audio_input
+
+        assert _audio_input("https://example.test/a.wav") == "https://example.test/a.wav"
+        assert _audio_input((0, 1)) == [0.0, 1.0]
+
+    def test_invalid_audio_reports_supported_inputs(self):
+        from lmlite.llm import _audio_input
+
+        with pytest.raises(FileNotFoundError, match="PCM WAV"):
+            _audio_input("missing.wav")
+        with pytest.raises(ValueError, match="PCM WAV"):
+            _audio_input(b"not a wav file")

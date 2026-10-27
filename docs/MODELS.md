@@ -66,6 +66,17 @@ llm = await LLM.create(classification_model="toxic-bert")
 labels = await llm.classify("example text", top_k=2)
 ```
 
+## Task pipelines (for `LLM.pipeline(task, model=...)`)
+
+Transformers.js only runs models with ONNX weights and a browser-supported architecture. Models in the `Xenova` and `onnx-community` namespaces usually work. These models are covered by the opt-in `task-smoke` browser test on WASM and WebGPU:
+
+1. [`Xenova/mobilebert-uncased-mnli`](https://huggingface.co/Xenova/mobilebert-uncased-mnli) (`zero-shot-classification`)
+   Small English NLI model that scores arbitrary candidate labels. It is fast enough for interactive demos. Short, distinct labels work best, and scores are relative to the labels you supply, not calibrated probabilities. For better accuracy, use larger NLI models such as `Xenova/distilbert-base-uncased-mnli` or `Xenova/nli-deberta-v3-xsmall`.
+2. [`Xenova/opus-mt-en-fr`](https://huggingface.co/Xenova/opus-mt-en-fr) (`translation`)
+   Compact Marian model for one language pair. Other pairs use the same naming (`Xenova/opus-mt-<src>-<tgt>`). Multilingual models such as `Xenova/nllb-200-distilled-600M` take `src_lang`/`tgt_lang` arguments, but they are much larger.
+3. [`Xenova/whisper-tiny.en`](https://huggingface.co/Xenova/whisper-tiny.en) (`automatic-speech-recognition`)
+   English-only Whisper speech recognition model, about 40 MB quantized. `Xenova/whisper-tiny` and `Xenova/whisper-base` are multilingual, and accept `language` and `task="translate"` arguments. Larger Whisper models are more accurate, but slow and memory-heavy in a browser.
+
 ## Text generation (for `LLM.create(generator_model=...)`)
 
 1. [`Xenova/gpt2`](https://huggingface.co/Xenova/gpt2)  

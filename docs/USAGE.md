@@ -87,6 +87,42 @@ top_results = await llm.similarity_search(
 )
 ```
 
+### Task Pipelines
+
+`LLM.pipeline(task, model=...)` loads one additional Transformers.js task and returns an awaitable callable. Supported tasks are listed in `lmlite.SUPPORTED_TASKS`: `"zero-shot-classification"`, `"automatic-speech-recognition"` and `"translation"`. Other task names raise a `ValueError` that lists the supported tasks; generation, embeddings and text classification keep their dedicated methods.
+
+```python
+classifier = await LLM.pipeline("zero-shot-classification", model="mobilebert-uncased-mnli")
+result = await classifier("This notebook runs in a browser", candidate_labels=["technology", "sports"])
+# {'sequence': 'This notebook runs in a browser', 'labels': ['technology', 'sports'], 'scores': [0.93, 0.07]}
+
+translator = await LLM.pipeline("translation", model="opus-mt-en-fr")
+await translator("Hello, how are you?", max_new_tokens=64)
+# {'translation_text': 'Bonjour, comment allez-vous ?'}
+await translator(["Hello!", "Goodbye!"])
+# [{'translation_text': 'Bonjour !'}, {'translation_text': 'Au revoir !'}]
+
+transcriber = await LLM.pipeline("automatic-speech-recognition", model="whisper-tiny.en")
+await transcriber("https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav")
+# {'text': ' And so my fellow Americans ask not what your country can do for you...'}
+
+await classifier.dispose()
+```
+
+Loading options are the same as for `LLM.create()`: `backend`, `dtype`, `dtype_fallbacks`, `hosted_models_url`, `auto_detect_local` and `local_models_path`. Model names, hosted files, browser caching, progress display and `export_models()` work the same way too. Load failures name the task, model and backend.
+
+Keyword arguments to a pipeline call are forwarded as Transformers.js options for that task, and must be JSON-serializable. Results are plain Python dicts and lists:
+
+| Task | Input | Task-specific arguments | Output |
+|------|-------|-------------------------|--------|
+| `zero-shot-classification` | string or list of strings | `candidate_labels` (required), `hypothesis_template`, `multi_label` | `{"sequence", "labels", "scores"}` sorted by score, or a list for list input |
+| `translation` | string or list of strings | generation options such as `max_new_tokens`; `src_lang`/`tgt_lang` for multilingual models (e.g. NLLB, M2M100) | `{"translation_text"}`, or a list for list input |
+| `automatic-speech-recognition` | audio (see below) | `return_timestamps`, `chunk_length_s`, `stride_length_s`, `language`/`task` for multilingual Whisper | `{"text"}`, plus `"chunks"` with timestamps |
+
+Speech recognition accepts an HTTP(S) URL, a path to a PCM WAV file (e.g. a file uploaded to the JupyterLite file browser), WAV bytes, or a sequence of mono float samples at 16 kHz. WAV files are decoded in Python, mixed down to mono and linearly resampled to 16 kHz. Notebook kernels run in a Web Worker without `AudioContext`, so URLs are fetched and decoded the same way and must point to WAV files. Compressed formats (MP3, OGG, M4A) are not decoded in the kernel: convert them to WAV first. URL fetches must be allowed by CORS. Whisper processes 30-second windows, so pass `chunk_length_s=30` for longer recordings.
+
+Expect a pipeline in a browser kernel to be slower than native inference, especially sequence-to-sequence tasks (translation and speech recognition), which decode token by token. WebGPU can help when the browser, model and dtype support it. Each pipeline holds its own model in browser memory; call `dispose()` before loading the next one.
+
 ## Configuration Options
 
 ### All Available Parameters

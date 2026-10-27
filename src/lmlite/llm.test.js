@@ -497,6 +497,131 @@ describe('BrowserLLM.classify()', () => {
   });
 });
 
+describe('BrowserLLM task pipelines', () => {
+  it('loads a supported task with the shared backend, dtype and hosted options', async () => {
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const taskPipeline = vi.fn();
+    pipeline.mockReset();
+    pipeline.mockResolvedValue(taskPipeline);
+    const llm = new BrowserLLM({
+      task: 'translation',
+      task_model: 'opus-mt-en-fr',
+      backend: 'webgpu',
+      dtype: 'fp32',
+      hosted_model_base: 'https://example.test/models/',
+      hosted_models: ['Xenova/opus-mt-en-fr'],
+    });
+
+    await llm.init();
+
+    expect(pipeline).toHaveBeenCalledTimes(1);
+    expect(pipeline).toHaveBeenCalledWith('translation', 'Xenova/opus-mt-en-fr',
+      expect.objectContaining({ device: 'webgpu', dtype: 'fp32', local_files_only: true }));
+    expect(llm.taskPipeline).toBe(taskPipeline);
+  });
+
+  it('rejects unsupported tasks and missing models before loading', async () => {
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    pipeline.mockReset();
+    await expect(new BrowserLLM({ task: 'image-to-text', task_model: 'm' }).init())
+      .rejects.toThrow("Unsupported task 'image-to-text'. Supported pipeline tasks are: zero-shot-classification");
+    await expect(new BrowserLLM({ task: 'translation' }).init()).rejects.toThrow("requires a model");
+    expect(pipeline).not.toHaveBeenCalled();
+  });
+
+  it('reports the task and model when loading fails', async () => {
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    pipeline.mockReset();
+    pipeline.mockRejectedValue(new Error('Unsupported model type: foo'));
+    await expect(new BrowserLLM({ task: 'translation', task_model: 'org/foo' }).init())
+      .rejects.toThrow("Failed to load translation model 'org/foo': Unsupported model type: foo");
+  });
+
+  it('passes candidate_labels positionally for zero-shot classification', async () => {
+    const llm = new BrowserLLM({ task: 'zero-shot-classification' });
+    const output = { sequence: 'text', labels: ['technology', 'sports'], scores: [0.9, 0.1] };
+    llm.taskPipeline = vi.fn(async () => output);
+
+    const result = await llm.runTask('text', JSON.stringify({ candidate_labels: ['technology', 'sports'], multi_label: true }));
+
+    expect(llm.taskPipeline).toHaveBeenCalledWith('text', ['technology', 'sports'], { multi_label: true });
+    expect(result).toBe(output);
+    await expect(llm.runTask('text', '{}')).rejects.toThrow('requires candidate_labels');
+  });
+
+  it('unwraps a single translation and keeps batched results', async () => {
+    const llm = new BrowserLLM({ task: 'translation' });
+    llm.taskPipeline = vi.fn(async (inputs) => [inputs].flat().map(text => ({ translation_text: `fr:${text}` })));
+
+    expect(await llm.runTask('Hello', '{"max_new_tokens": 8}')).toEqual({ translation_text: 'fr:Hello' });
+    expect(llm.taskPipeline).toHaveBeenCalledWith('Hello', { max_new_tokens: 8 });
+    expect(await llm.runTask(['a', 'b'])).toEqual([{ translation_text: 'fr:a' }, { translation_text: 'fr:b' }]);
+  });
+
+  it('converts raw audio samples to Float32Array and keeps URLs', async () => {
+    const llm = new BrowserLLM({ task: 'automatic-speech-recognition' });
+    llm.taskPipeline = vi.fn(async () => ({ text: 'hello' }));
+
+    await llm.runTask([0, 0.5, -0.5], '{"return_timestamps": true}');
+    const [audio, options] = llm.taskPipeline.mock.calls[0];
+    expect(audio).toBeInstanceOf(Float32Array);
+    expect(Array.from(audio)).toEqual([0, 0.5, -0.5]);
+    expect(options).toEqual({ return_timestamps: true });
+
+    vi.stubGlobal('AudioContext', class {});
+    await llm.runTask('https://example.test/a.wav');
+    expect(llm.taskPipeline.mock.calls[1][0]).toBe('https://example.test/a.wav');
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches and decodes WAV URLs when AudioContext is unavailable (kernel workers)', async () => {
+    // 8 kHz stereo 16-bit PCM: frames (0.5, -0.5) and (1.0, 0.0) average to 0 and 0.5.
+    const pcm = [16384, -16384, 32767, 0];
+    const buffer = new ArrayBuffer(44 + pcm.length * 2);
+    const view = new DataView(buffer);
+    const ascii = (offset, text) => [...text].forEach((ch, i) => view.setUint8(offset + i, ch.charCodeAt(0)));
+    ascii(0, 'RIFF'); view.setUint32(4, buffer.byteLength - 8, true); ascii(8, 'WAVE');
+    ascii(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 2, true);
+    view.setUint32(24, 8000, true); view.setUint32(28, 32000, true); view.setUint16(32, 4, true); view.setUint16(34, 16, true);
+    ascii(36, 'data'); view.setUint32(40, pcm.length * 2, true);
+    pcm.forEach((value, i) => view.setInt16(44 + i * 2, value, true));
+    const fetch = vi.fn(async () => new Response(buffer));
+    vi.stubGlobal('fetch', fetch);
+    const llm = new BrowserLLM({ task: 'automatic-speech-recognition' });
+    llm.taskPipeline = vi.fn(async () => ({ text: 'hello' }));
+
+    try {
+      await llm.runTask('https://example.test/a.wav');
+      expect(fetch).toHaveBeenCalledWith('https://example.test/a.wav');
+      const audio = llm.taskPipeline.mock.calls[0][0];
+      expect(audio).toBeInstanceOf(Float32Array);
+      expect(Array.from(audio).map(x => Number(x.toFixed(3)))).toEqual([0, 0.167, 0.333, 0.5]);
+
+      fetch.mockResolvedValueOnce(new Response('ID3 mp3 data'));
+      await expect(llm.runTask('https://example.test/a.mp3')).rejects.toThrow('Audio must be a WAV file');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('wraps inference errors and rejects calls without a loaded pipeline', async () => {
+    const llm = new BrowserLLM({ task: 'translation' });
+    await expect(llm.runTask('Hello')).rejects.toThrow('translation pipeline not initialized');
+    await expect(new BrowserLLM({}).runTask('Hello')).rejects.toThrow('No pipeline task configured');
+    llm.taskPipeline = vi.fn(async () => { throw new Error('out of memory'); });
+    await expect(llm.runTask('Hello')).rejects.toThrow('translation failed: out of memory');
+  });
+
+  it('disposes the task pipeline', async () => {
+    const llm = new BrowserLLM({ task: 'translation' });
+    const taskPipeline = { dispose: vi.fn(async () => {}) };
+    llm.taskPipeline = taskPipeline;
+    await llm.dispose();
+    expect(taskPipeline.dispose).toHaveBeenCalledTimes(1);
+    expect(llm.taskPipeline).toBeNull();
+  });
+});
+
 describe('BrowserLLM.generate()', () => {
   let llm;
 

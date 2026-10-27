@@ -2,6 +2,90 @@
 
 const DEFAULT_MODEL_NAMESPACE = 'Xenova';
 
+// Transformers.js tasks exposed through the generic pipeline interface.
+// Generation, embeddings and text classification keep their dedicated methods.
+const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation'];
+
+function unsupportedTaskError(task) {
+  return new Error(
+    `Unsupported task '${task}'. Supported pipeline tasks are: ${SUPPORTED_TASKS.join(', ')}. ` +
+    `Use generate()/chat(), embed() or classify() for text generation, embeddings and text classification.`
+  );
+}
+
+// Sampling rate expected by Whisper and most Transformers.js speech recognition models.
+const AUDIO_SAMPLING_RATE = 16000;
+
+// Decode PCM or float WAV into mono Float32Array samples at samplingRate (mirrors _read_wav in llm.py).
+function decodeWav(buffer, samplingRate = AUDIO_SAMPLING_RATE) {
+  const view = new DataView(buffer);
+  const tag = (offset) => String.fromCharCode(...new Uint8Array(buffer, offset, 4));
+  if (buffer.byteLength < 12 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') {
+    throw new Error("Audio must be a WAV file when AudioContext is unavailable (e.g. in a notebook kernel).");
+  }
+  let format, channels, rate, width, data;
+  for (let offset = 12; offset + 8 <= buffer.byteLength;) {
+    const size = view.getUint32(offset + 4, true);
+    if (tag(offset) === 'fmt ') {
+      format = view.getUint16(offset + 8, true);
+      channels = view.getUint16(offset + 10, true);
+      rate = view.getUint32(offset + 12, true);
+      width = view.getUint16(offset + 22, true) / 8;
+      if (format === 0xFFFE) {
+        format = view.getUint16(offset + 32, true);  // WAVE_FORMAT_EXTENSIBLE sub-format
+      }
+    } else if (tag(offset) === 'data') {
+      data = { start: offset + 8, size: Math.min(size, buffer.byteLength - offset - 8) };
+    }
+    offset += 8 + size + (size % 2);
+  }
+  if (!format || !data) {
+    throw new Error("Invalid WAV file: missing fmt or data chunk.");
+  }
+  const read = {
+    '1:1': (o) => (view.getUint8(o) - 128) / 128,
+    '1:2': (o) => view.getInt16(o, true) / 32768,
+    '1:3': (o) => ((view.getUint8(o + 2) << 24 | view.getUint8(o + 1) << 16 | view.getUint8(o) << 8) >> 8) / 8388608,
+    '1:4': (o) => view.getInt32(o, true) / 2147483648,
+    '3:4': (o) => view.getFloat32(o, true),
+    '3:8': (o) => view.getFloat64(o, true),
+  }[`${format}:${width}`];
+  if (!read) {
+    throw new Error(`Unsupported WAV encoding (format ${format}, ${width * 8}-bit).`);
+  }
+  const frames = Math.floor(data.size / (width * channels));
+  let samples = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    let sum = 0;
+    for (let c = 0; c < channels; c++) {
+      sum += read(data.start + (i * channels + c) * width);
+    }
+    samples[i] = sum / channels;
+  }
+  if (rate !== samplingRate && frames > 1) {
+    // Linear interpolation is sufficient for speech; resample offline for best quality.
+    const count = Math.max(1, Math.round(frames * samplingRate / rate));
+    const step = (frames - 1) / Math.max(1, count - 1);
+    const resampled = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const position = i * step;
+      const left = Math.floor(position);
+      const right = Math.min(left + 1, frames - 1);
+      resampled[i] = samples[left] + (samples[right] - samples[left]) * (position - left);
+    }
+    samples = resampled;
+  }
+  return samples;
+}
+
+async function fetchWavSamples(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch audio from ${url}: ${response.status} ${response.statusText}`);
+  }
+  return decodeWav(await response.arrayBuffer());
+}
+
 function resolveModelId(modelName) {
   if (!modelName || typeof modelName !== 'string') {
     return modelName;
@@ -76,6 +160,8 @@ class BrowserLLM {
     this.generatorModel = config.generator_model;
     this.embeddingModel = config.embedding_model;
     this.classificationModel = config.classification_model ?? null;
+    this.task = config.task ?? null;
+    this.taskModel = config.task_model ?? null;
     this.backend = (config.backend ?? 'wasm').toLowerCase();
     this.embeddingBackend = config.embedding_backend == null ? null : config.embedding_backend.toLowerCase();
     this.dtype = config.dtype ?? null;
@@ -97,6 +183,7 @@ class BrowserLLM {
     this.generator = null;
     this.embedder = null;
     this.classifier = null;
+    this.taskPipeline = null;
   }
 
   _resolveDtypes(defaultDtypes) {
@@ -165,6 +252,13 @@ class BrowserLLM {
       throw new Error(
         `Invalid embedding_backend '${this.embeddingBackend}'. Supported backends are 'wasm' and 'webgpu'.`
       );
+    }
+
+    if (this.task !== null && !SUPPORTED_TASKS.includes(this.task)) {
+      throw unsupportedTaskError(this.task);
+    }
+    if (this.task !== null && !this.taskModel) {
+      throw new Error(`Task '${this.task}' requires a model.`);
     }
 
     env.allowLocalModels = Boolean(this.hostedModelBase);
@@ -262,6 +356,30 @@ class BrowserLLM {
       } catch (error) {
         throw new Error(
           `Failed to load classification model '${this.classificationModel}': ${error.message}`
+        );
+      }
+    }
+
+    if (this.task) {
+      try {
+        const taskModelId = resolveModelId(this.taskModel).replace(/@main$/, '');
+        report(taskModelId, 'loading');
+        console.log(`Loading ${this.task} model: ${taskModelId}`);
+        this.taskPipeline = await this._loadPipelineWithDtypeFallback(
+          pipeline,
+          this.task,
+          taskModelId,
+          {
+            device: this.backend,
+            ...sourceOptions(taskModelId),
+            progress_callback: onProgress(taskModelId)
+          }
+        );
+        console.log(`${this.task} model loaded successfully: ${this.taskModel}`);
+      } catch (error) {
+        throw new Error(
+          `Failed to load ${this.task} model '${this.taskModel}': ${String(error?.message ?? error)}. ` +
+          `This model may not be supported by the current Transformers.js browser runtime or backend '${this.backend}'.`
         );
       }
     }
@@ -536,7 +654,7 @@ class BrowserLLM {
 
   async dispose() {
     const errors = [];
-    for (const name of ['generator', 'embedder', 'classifier']) {
+    for (const name of ['generator', 'embedder', 'classifier', 'taskPipeline']) {
       const pipeline = this[name];
       if (pipeline === null) {
         continue;
@@ -645,6 +763,46 @@ class BrowserLLM {
       return await this.classifier(text);
     }
     return await this.classifier(text, { top_k });
+  }
+
+  async runTask(inputs, options = {}) {
+    if (!this.taskPipeline) {
+      throw new Error(this.task ? `${this.task} pipeline not initialized` : "No pipeline task configured");
+    }
+    // Options arrive as JSON so plain objects cross both Python browser bridges.
+    if (typeof options === 'string') {
+      options = JSON.parse(options);
+    }
+    options = options ?? {};
+    if (this.task === 'automatic-speech-recognition' && typeof inputs === 'string' && typeof AudioContext === 'undefined') {
+      // Kernels run in Web Workers, where Transformers.js cannot decode URLs without AudioContext.
+      inputs = await fetchWavSamples(inputs);
+    } else if (this.task === 'automatic-speech-recognition' && typeof inputs !== 'string' && !(inputs instanceof Float32Array)) {
+      // Raw samples (e.g. a Python list or Float64Array) become the Float32Array audio input.
+      inputs = Float32Array.from(inputs);
+    }
+    if (this.task === 'zero-shot-classification') {
+      const labels = options.candidate_labels;
+      delete options.candidate_labels;
+      if (labels === undefined || labels === null) {
+        throw new TypeError("zero-shot-classification requires candidate_labels.");
+      }
+      return await this._callTask(inputs, labels, options);
+    }
+    const output = await this._callTask(inputs, options);
+    // A single translation input returns one result, like the other tasks.
+    if (this.task === 'translation' && !Array.isArray(inputs) && Array.isArray(output) && output.length === 1) {
+      return output[0];
+    }
+    return output;
+  }
+
+  async _callTask(...args) {
+    try {
+      return await this.taskPipeline(...args);
+    } catch (error) {
+      throw new Error(`${this.task} failed: ${String(error?.message ?? error)}`, { cause: error });
+    }
   }
 }
 

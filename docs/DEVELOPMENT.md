@@ -124,7 +124,17 @@ LMLITE_TEST_EMBEDDING_BACKEND=webgpu pixi run embedding-smoke
 
 WebGPU requires support in the browser, execution environment, model, and dtype; the test does not skip failures or fall back to WASM. Optional MiniLM model files stay under `models/Xenova/all-MiniLM-L6-v2/`; missing files fail with preparation instructions. Chromium and the Transformers.js/ONNX runtime dependencies must also be available. Runtime dependencies are loaded from the CDN, so the test is not fully offline. Only the optional MiniLM run also needs Hub metadata access.
 
-Set `LMLITE_MODEL_TIMEOUT_MS` to adjust the inference wait limit (default: 900000 ms). Neither browser smoke task runs in the default non-browser test suite.
+#### Task Pipeline Smoke Tests
+
+The opt-in `task-smoke` task loads each `LLM.pipeline()` task (zero-shot classification, translation and speech recognition) through the browser runtime, with real models downloaded from the Hub:
+
+```bash
+pixi run task-smoke
+```
+
+It runs each task on WASM and WebGPU. WebGPU runs are skipped when Chromium exposes no WebGPU adapter. Set `LMLITE_TEST_TASK_BACKENDS=wasm` to restrict backends. Override the models with `LMLITE_TEST_ZERO_SHOT_MODEL`, `LMLITE_TEST_TRANSLATION_MODEL` and `LMLITE_TEST_ASR_MODEL`.
+
+Set `LMLITE_MODEL_TIMEOUT_MS` to adjust the inference wait limit (default: 900000 ms). None of the browser smoke tasks run in the default non-browser test suite.
 
 ### Building a Wheel
 

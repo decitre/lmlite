@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from lmlite import SUPPORTED_TASKS
+
 NOTEBOOKS = Path(__file__).resolve().parents[1] / "notebooks"
 
 
@@ -56,6 +58,23 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         async def classify(self, text, top_k=None):
             assert not self.disposed and self.config.get("classification_model")
             return [{"label": "POSITIVE", "score": 0.9}][:top_k]
+
+        @classmethod
+        async def pipeline(cls, task, model, **options):
+            assert task in SUPPORTED_TASKS and model
+            return await cls.create(task=task, task_model=model, **options)
+
+        async def __call__(self, inputs, **kwargs):
+            assert not self.disposed and self.config.get("task_model")
+            task = self.config["task"]
+            if task == "zero-shot-classification":
+                labels = kwargs["candidate_labels"]
+                return {"sequence": inputs, "labels": labels, "scores": [1 / len(labels)] * len(labels)}
+            if task == "translation":
+                if isinstance(inputs, str):
+                    return {"translation_text": "Exemple."}
+                return [{"translation_text": "Exemple."} for _ in inputs]
+            return {"text": "Example transcript."}
 
         async def export_models(self):
             assert not self.disposed
@@ -128,6 +147,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert instances[0].config["backend"] == "wasm"
     if path.name in {"demo.ipynb", "orchestration.ipynb", "generation-tinyllama.ipynb", "generation-lamini.ipynb"}:
         assert instances[0].config["return_full_text"] is False
+    if path.name == "tasks.ipynb":
+        tasks = [instance.config["task"] for instance in instances]
+        assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]
     if path.name == "orchestration.ipynb":
         assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-360M-Instruct"
         assert instances[0].config["backend"] == "wasm"

@@ -61,6 +61,7 @@ print(results)
 - **Multiple backends**: WebAssembly (WASM) or WebGPU
 - **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
 - **Embeddings & classification**: Sentence vectors and text classification
+- **Task pipelines**: Zero-shot classification, speech recognition and translation via `LLM.pipeline(task, model=...)`
 - **Model caching**: Browser-cached downloads and portable ZIP export/import
 - **Pythonic API**: Clean, async Python interface
 
@@ -68,7 +69,7 @@ print(results)
 
 lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in the browser**, designed for JupyterLite notebooks. It provides:
 
-- Async Python API for text generation, embeddings, classification, and similarity search
+- Async Python API for text generation, embeddings, classification, similarity search, and additional Transformers.js task pipelines
 - Model loading, caching, and portable ZIP workflows
 - Independent backend/dtype controls for embeddings and generation
 
@@ -104,9 +105,10 @@ Please share suggestions, bug reports, and use cases through [GitHub Issues](htt
 Try lmLite directly in your browser, without installing anything.
 
 - **[Basic demo](https://decitre.github.io/lmlite/xeus/lab/index.html?path=demo.ipynb)** — Text generation, embeddings, classification, and similarity search.
+- **[Task pipelines](https://decitre.github.io/lmlite/xeus/lab/index.html?path=tasks.ipynb)** — Zero-shot classification, translation and speech recognition with `LLM.pipeline()`.
 - **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
 
-Both examples run locally in the browser using Transformers.js.
+These examples run locally in the browser using Transformers.js.
 
 ## How It Works
 
