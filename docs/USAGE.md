@@ -145,6 +145,7 @@ llm = await LLM.create(
     auto_detect_local=True,           # Discover hosted model files automatically
     hosted_models_url=None,           # Optional explicit HTTP models directory
     local_models_path="/drive/models",  # Portable ZIP import directory
+    progress_callback=None,           # Called with a dict per loading event (see below)
 )
 ```
 
@@ -258,6 +259,48 @@ Set `embedding_backend="wasm"` or `"webgpu"` to choose the embedding device inde
 
 For offline-precomputed vectors, use the same model snapshot, ONNX weights/dtype, tokenization, model-specific input prefixes, pooling, and normalization in both environments. Pinning dtype alone does not guarantee identical results across runtimes. Regenerate stored vectors and recalibrate thresholds when these settings change. See [embedding dtype selection](MODELS.md#embedding-dtype-selection) for details.
 
+### Model Info, Cache Status and Loading Progress
+
+Inspect a model before loading it:
+
+```python
+from lmlite import LLM
+
+info = await LLM.model_info("HuggingFaceTB/SmolLM2-360M-Instruct", backend="wasm", dtype="q4")
+print(info.cache_status, info.download_bytes)
+for f in info.files:
+    print(f["name"], f["size"], f["cached"])
+
+llm = await LLM.create(
+    generator_model="HuggingFaceTB/SmolLM2-360M-Instruct",
+    backend="wasm", dtype="q4",
+    progress_callback=lambda event: print(event),
+)
+```
+
+`LLM.model_info(model, task="text-generation", backend="wasm", dtype=None)` returns a `ModelInfo` built from the Transformers.js `ModelRegistry`. Pass the `task` you will load (`"feature-extraction"` for embeddings, `"text-classification"`, or a `SUPPORTED_TASKS` entry). It contains:
+
+- `model_id`, `revision`, `task`, `backend` and `dtype`. Without a dtype, the first of `q8`, `int8` or `fp32` published for the model is reported, matching what `LLM.create()` tries; `feature-extraction` keeps the Transformers.js default and reports `None`.
+- `files`: the files the pipeline will fetch, each with `name`, `size` in bytes (or `None`) and `cached`.
+- `cache_status`: `"cached"`, `"partial"`, `"not_cached"` or `"unknown"`.
+- `download_bytes`: the sum of the file sizes, or `None` if any size is unknown. It is the download size, not an estimate of runtime memory. Runtime memory depends on the backend, the dtype, the browser and the length of what you generate, and lmLite does not estimate it.
+- `error`: why the metadata is incomplete, or `None`.
+
+Limitations:
+
+- `cache_status` only reflects the Transformers.js Cache API (`transformers-cache`). It does not inspect the browser HTTP cache, IndexedDB, hosted JupyterLite model files, or ZIPs in `local_models_path`, even though `LLM.create()` can load from any of these.
+- When the Cache API is unavailable, for example outside a secure context, `cache_status` is `"unknown"`.
+- Offline, sizes of files that are not cached are `None`. If `dtype` is omitted, the dtype lookup needs the network, so you get `cache_status="unknown"` with `error` set. Pass `dtype` explicitly to inspect cached models offline.
+- File sizes are read from the cache, or from a 1-byte range request to the Hub. Nothing is downloaded.
+- The check works the same in Xeus-Python and Pyodide; it runs entirely in the browser JS runtime.
+
+`progress_callback` receives dicts with `model`, `status`, `file`, `loaded` and `total`:
+
+- `status` is `"initializing"`, `"loading"`, `"progress"` (byte counts for `file`), `"warming up"`, `"ready"` (all models loaded) or `"error"`.
+- An `"error"` event also has an `error` message. The exception is still raised.
+- The tqdm progress bar keeps working alongside the callback.
+- Reading a local ZIP archive is shown only in the progress bar.
+
 ### Portable ZIP Import and Export
 
 ZIP archives are a separate portability feature, not an input to the JupyterLite hosting build. Export all models configured on an instance from the browser cache:
@@ -292,3 +335,16 @@ print(result)
 ```
 
 This clears all cached model files from the browser's cache. Use this if you need to force re-downloading models or if you're experiencing cache-related issues.
+
+To see what is cached, or to remove a single model (all revisions):
+
+```python
+from lmlite import cached_models, clear_cache
+
+for entry in await cached_models() or []:
+    print(entry["model_type"], entry["task"], entry["model_id"], entry["revision"], entry["size"])
+
+await clear_cache(model="Xenova/gpt2")  # {"model_id": ..., "deleted_files": [...]}
+```
+
+`cached_models()` only lists the Transformers.js browser Cache API (not hosted model files or `/drive/models` ZIPs). It returns `None` if the Cache API is unavailable, and `size` is `None` when a file's size is unknown. `model_type` is the architecture from the cached `config.json` (e.g. `gpt2`, `bert`). `task` is the Hub pipeline tag (e.g. `text-generation`) and needs the network, so it is `None` offline. A cache manager widget built on these is demonstrated in `notebooks/model-info.ipynb`.

@@ -4,6 +4,11 @@ import './llm.js';
 vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers', () => ({
   pipeline: vi.fn(),
   env: {},
+  ModelRegistry: {
+    get_available_dtypes: vi.fn(),
+    is_pipeline_cached_files: vi.fn(),
+    get_file_metadata: vi.fn(),
+  },
 }));
 
 const {
@@ -14,7 +19,9 @@ const {
   isModelCached,
   loadModelToCache,
   clearModelCache,
+  getCachedModels,
   getHostedModelBase,
+  getModelInfo,
 } = globalThis;
 
 describe('Hosted model discovery', () => {
@@ -882,9 +889,10 @@ describe('loadModelToCache()', () => {
     expect(mockCaches.open).toHaveBeenCalledWith('transformers-cache');
     expect(mockCache.put).toHaveBeenCalledTimes(2);
 
-    const [url0] = mockCache.put.mock.calls[0];
+    const [url0, response0] = mockCache.put.mock.calls[0];
     expect(url0).toContain('Xenova/gpt2');
     expect(url0).toContain('config.json');
+    expect(response0.headers.get('content-length')).toBe('3');
   });
 
   it('should keep explicit model paths unchanged', async () => {
@@ -970,5 +978,223 @@ describe('clearModelCache()', () => {
     expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith('transformers-cache');
     expect(result.deleted_caches).toEqual(['transformers-cache']);
     expect(result.deleted_databases).toContain('transformers-cache');
+  });
+});
+
+function mockModelCaches(contents) {
+  const stores = Object.fromEntries(Object.entries(contents).map(([name, entries]) => {
+    const map = new Map(Object.entries(entries));
+    return [name, {
+      keys: vi.fn(async () => [...map.keys()].map(url => ({ url }))),
+      match: vi.fn(async ({ url }) => {
+        const [length, body = ''] = [map.get(url)].flat();
+        return new Response(body, { headers: length == null ? {} : { 'Content-Length': String(length) } });
+      }),
+      delete: vi.fn(async ({ url }) => map.delete(url)),
+    }];
+  }));
+  vi.stubGlobal('caches', {
+    keys: vi.fn(async () => Object.keys(stores)),
+    open: vi.fn(async (name) => stores[name]),
+  });
+  return stores;
+}
+
+const HUB = 'https://huggingface.co';
+
+describe('getCachedModels()', () => {
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); })));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns null when the Cache API is unavailable', async () => {
+    vi.stubGlobal('caches', undefined);
+    expect(await getCachedModels()).toBeNull();
+  });
+
+  it('groups Hub entries by model and revision with summed sizes', async () => {
+    mockModelCaches({
+      'transformers-cache': {
+        [`${HUB}/Xenova/gpt2/resolve/main/config.json`]: 10,
+        [`${HUB}/Xenova/gpt2/resolve/main/onnx/model.onnx`]: 90,
+        [`${HUB}/Xenova/gpt2/resolve/v1/config.json`]: 5,
+      },
+      'app-cache': { [`${HUB}/acme/ignored/resolve/main/config.json`]: 1 },
+    });
+
+    expect(await getCachedModels()).toEqual([
+      { model_id: 'Xenova/gpt2', revision: 'main', model_type: null, task: null, files: ['config.json', 'onnx/model.onnx'], size: 100 },
+      { model_id: 'Xenova/gpt2', revision: 'v1', model_type: null, task: null, files: ['config.json'], size: 5 },
+    ]);
+  });
+
+  it('reports null size when a content-length header is missing', async () => {
+    mockModelCaches({
+      'transformers-cache': {
+        [`${HUB}/Xenova/gpt2/resolve/main/config.json`]: 10,
+        [`${HUB}/Xenova/gpt2/resolve/main/vocab.json`]: null,
+      },
+    });
+
+    const [group] = await getCachedModels();
+    expect(group.size).toBeNull();
+  });
+
+  it('reads the architecture from cached config.json and the task from the Hub', async () => {
+    mockModelCaches({
+      'transformers-cache': {
+        [`${HUB}/Xenova/gpt2/resolve/main/config.json`]: [20, '{"model_type": "gpt2"}'],
+        [`${HUB}/Xenova/bert/resolve/main/config.json`]: [3, 'not json'],
+      },
+    });
+    fetch.mockImplementation(async (url) => url.endsWith('/gpt2')
+      ? new Response(JSON.stringify({ pipeline_tag: 'text-generation' }))
+      : new Response('', { status: 404 }));
+
+    const [gpt2, bert] = await getCachedModels();
+    expect(gpt2).toMatchObject({ model_type: 'gpt2', task: 'text-generation' });
+    expect(bert).toMatchObject({ model_type: null, task: null });
+    expect(fetch).toHaveBeenCalledWith(`${HUB}/api/models/Xenova/gpt2`, expect.objectContaining({ signal: expect.anything() }));
+  });
+
+  it('groups non-Hub entries under a null model', async () => {
+    const url = 'https://example.test/files/models/Xenova/gpt2/config.json';
+    mockModelCaches({ 'transformers-cache': { [url]: 3 } });
+
+    expect(await getCachedModels()).toEqual([
+      { model_id: null, revision: null, model_type: null, task: null, files: [url], size: 3 },
+    ]);
+  });
+});
+
+describe('clearModelCache(modelName)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('deletes only entries of the resolved model across revisions', async () => {
+    const stores = mockModelCaches({
+      'transformers-cache': {
+        [`${HUB}/Xenova/gpt2/resolve/main/config.json`]: 1,
+        [`${HUB}/Xenova/gpt2/resolve/v1/config.json`]: 1,
+        [`${HUB}/acme/gpt2/resolve/main/config.json`]: 1,
+        [`${HUB}/Xenova/gpt2-large/resolve/main/config.json`]: 1,
+      },
+      'app-cache': { [`${HUB}/Xenova/gpt2/resolve/main/config.json`]: 1 },
+    });
+    const deleteDatabase = vi.fn();
+    vi.stubGlobal('indexedDB', { deleteDatabase });
+
+    const result = await clearModelCache('gpt2@v1');
+
+    expect(result).toEqual({
+      model_id: 'Xenova/gpt2',
+      deleted_files: [
+        `${HUB}/Xenova/gpt2/resolve/main/config.json`,
+        `${HUB}/Xenova/gpt2/resolve/v1/config.json`,
+      ],
+    });
+    expect((await stores['transformers-cache'].keys()).map(r => r.url)).toEqual([
+      `${HUB}/acme/gpt2/resolve/main/config.json`,
+      `${HUB}/Xenova/gpt2-large/resolve/main/config.json`,
+    ]);
+    expect(stores['app-cache'].delete).not.toHaveBeenCalled();
+    expect(deleteDatabase).not.toHaveBeenCalled();
+  });
+
+  it('matches explicit model IDs exactly', async () => {
+    mockModelCaches({
+      'transformers-cache': {
+        [`${HUB}/Xenova/gpt2/resolve/main/config.json`]: 1,
+        [`${HUB}/acme/gpt2/resolve/main/config.json`]: 1,
+      },
+    });
+
+    const result = await clearModelCache('acme/gpt2');
+
+    expect(result.deleted_files).toEqual([`${HUB}/acme/gpt2/resolve/main/config.json`]);
+  });
+});
+
+describe('getModelInfo()', () => {
+  const SIZES = { 'config.json': 10, 'onnx/model_quantized.onnx': 1000 };
+  let registry;
+
+  beforeEach(async () => {
+    ({ ModelRegistry: registry } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers'));
+    registry.get_available_dtypes.mockReset().mockResolvedValue(['fp32', 'q8', 'q4']);
+    registry.get_file_metadata.mockReset().mockImplementation(async (_id, file) => ({ exists: true, size: SIZES[file] }));
+    registry.is_pipeline_cached_files.mockReset();
+    vi.stubGlobal('caches', {});
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const cachedFlags = (...flags) => registry.is_pipeline_cached_files.mockResolvedValue({
+    files: Object.keys(SIZES).map((file, i) => ({ file, cached: flags[i] })),
+  });
+
+  it.each([
+    [[false, false], 'not_cached'],
+    [[true, false], 'partial'],
+    [[true, true], 'cached'],
+  ])('reports cache flags %j as %s with total download size', async (flags, status) => {
+    cachedFlags(...flags);
+    const info = await getModelInfo('gpt2');
+
+    expect(info).toMatchObject({
+      model_id: 'Xenova/gpt2', revision: 'main', task: 'text-generation', backend: 'wasm',
+      dtype: 'q8', cache_status: status, download_bytes: 1010, error: null,
+    });
+    expect(info.files[1]).toEqual({ name: 'onnx/model_quantized.onnx', size: 1000, cached: flags[1] });
+    expect(registry.is_pipeline_cached_files).toHaveBeenCalledWith(
+      'text-generation', 'Xenova/gpt2', { revision: 'main', device: 'wasm', dtype: 'q8' });
+  });
+
+  it('keeps an explicit dtype and revision and skips dtype discovery', async () => {
+    cachedFlags(false, false);
+    const info = await getModelInfo('org/m@v1', 'translation', 'webgpu', 'q4');
+
+    expect(registry.get_available_dtypes).not.toHaveBeenCalled();
+    expect(info).toMatchObject({ model_id: 'org/m', revision: 'v1', dtype: 'q4', backend: 'webgpu' });
+    expect(registry.is_pipeline_cached_files).toHaveBeenCalledWith(
+      'translation', 'org/m', { revision: 'v1', device: 'webgpu', dtype: 'q4' });
+  });
+
+  it('leaves feature-extraction on the Transformers.js default dtype', async () => {
+    cachedFlags(true, true);
+    const info = await getModelInfo('org/embed', 'feature-extraction');
+
+    expect(info.dtype).toBeNull();
+    expect(registry.is_pipeline_cached_files.mock.calls[0][2]).not.toHaveProperty('dtype');
+  });
+
+  it('reports unknown sizes as null instead of guessing (offline)', async () => {
+    cachedFlags(true, false);
+    registry.get_file_metadata.mockImplementation(async (_id, file) => {
+      if (file === 'config.json') return { exists: true, size: 10, fromCache: true };
+      throw new TypeError('Failed to fetch');
+    });
+    const info = await getModelInfo('gpt2');
+
+    expect(info.cache_status).toBe('partial');
+    expect(info.files.map(f => f.size)).toEqual([10, null]);
+    expect(info.download_bytes).toBeNull();
+    expect(info.error).toBeNull();
+  });
+
+  it('reports unknown cache status when the Cache API is unavailable', async () => {
+    vi.stubGlobal('caches', undefined);
+    cachedFlags(false, false);
+    expect((await getModelInfo('gpt2')).cache_status).toBe('unknown');
+  });
+
+  it('degrades to unknown with an error message when metadata cannot be fetched', async () => {
+    registry.get_available_dtypes.mockRejectedValue(new Error('Could not locate file config.json'));
+    const info = await getModelInfo('gpt2');
+
+    expect(info).toMatchObject({ cache_status: 'unknown', download_bytes: null, files: [], dtype: null });
+    expect(info.error).toContain('Could not locate file');
+  });
+
+  it('fails clearly when no default dtype is published', async () => {
+    registry.get_available_dtypes.mockResolvedValue(['q4']);
+    expect((await getModelInfo('gpt2')).error).toContain('No q8, int8, fp32 ONNX weights');
   });
 });

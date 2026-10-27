@@ -1,6 +1,8 @@
 # Copyright 2026 Emmanuel Decitre
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass
+
 from .bridge.runtime import ensure_runtime
 
 DEFAULT_MODEL_NAMESPACE = "Xenova"
@@ -329,18 +331,56 @@ class Pipeline:
         await self.llm.export_models()
 
 
-async def clear_cache():
-    """Clear browser caches/databases used by Transformers.js model downloads."""
+@dataclass
+class ModelInfo:
+    """Best-effort, pre-load metadata returned by ``LLM.model_info()``.
+
+    ``cache_status`` is ``"cached"``, ``"partial"``, ``"not_cached"`` or ``"unknown"`` and
+    only reflects the Transformers.js Cache API. ``download_bytes`` is the summed file
+    size, or ``None`` when any size is unknown; it is not a runtime memory estimate.
+    """
+
+    model_id: str
+    revision: str
+    task: str
+    backend: str
+    dtype: str | None
+    cache_status: str
+    download_bytes: int | None
+    files: list
+    error: str | None = None
+
+
+def _js_function(name):
     ensure_runtime()
 
     import js as js_runtime
 
-    clear_model_cache = getattr(js_runtime, "clearModelCache", None)
-    if clear_model_cache is None:
-        raise RuntimeError("JS runtime missing clearModelCache")
+    fn = getattr(js_runtime, name, None)
+    if fn is None:
+        raise RuntimeError(f"JS runtime missing {name}; restart the kernel to reload lmLite")
+    return fn
 
-    result = await clear_model_cache()
+
+async def clear_cache(model=None):
+    """Clear browser caches/databases used by Transformers.js model downloads.
+
+    With no ``model``, deletes all caches and returns
+    ``{"deleted_caches": [...], "deleted_databases": [...]}``. With a model name,
+    deletes only that model's cached files (all revisions) and returns
+    ``{"model_id": ..., "deleted_files": [urls]}``.
+    """
+    result = await _js_function("clearModelCache")(model)
     return _to_python_deep(result)
+
+
+async def cached_models():
+    """List models in the Transformers.js browser cache as dicts, or None if the Cache API is unavailable.
+
+    Each dict has ``model_id``, ``revision``, ``model_type`` (from the cached config.json), ``task`` (the Hub
+    pipeline tag, None offline), ``files`` and ``size``. Hosted model files and /drive/models ZIPs are not included.
+    """
+    return _to_python_deep(await _js_function("getCachedModels")())
 
 
 class LLM:
@@ -372,12 +412,27 @@ class LLM:
     # --- lifecycle ---
 
     @classmethod
-    async def create(cls, **overrides):
-        with _loading_progress() as progress:
-            return await cls._create(progress, **overrides)
+    async def model_info(cls, model, task="text-generation", backend="wasm", dtype=None):
+        """Inspect a model's files, download size and cache status without loading it."""
+        get_model_info = _js_function("getModelInfo")
+        return ModelInfo(**_to_python_deep(await get_model_info(model, task, backend, dtype)))
 
     @classmethod
-    async def _create(cls, progress, **overrides):
+    async def create(cls, progress_callback=None, **overrides):
+        """Load models. ``progress_callback`` receives a dict per loading event, ending with
+        status ``"ready"`` or ``"error"``."""
+        with _loading_progress() as progress:
+            try:
+                return await cls._create(progress, progress_callback, **overrides)
+            except Exception as exc:
+                if progress_callback is not None:
+                    progress_callback(
+                        {"model": "", "status": "error", "file": "", "loaded": 0, "total": 0, "error": str(exc)}
+                    )
+                raise
+
+    @classmethod
+    async def _create(cls, progress, progress_callback, **overrides):
         import asyncio
         import os
         import sys
@@ -538,6 +593,10 @@ class LLM:
                 current_file = None
                 progress.bar_format = "{desc}"
                 progress.set_description(f"{status.capitalize()} {model}")
+            if progress_callback is not None:
+                progress_callback(
+                    {"model": model, "status": status, "file": filename, "loaded": loaded, "total": total}
+                )
 
         progress.bar_format = "{desc}"
         progress.set_description("Initializing browser runtime")

@@ -16,6 +16,9 @@ function unsupportedTaskError(task) {
 // Sampling rate expected by Whisper and most Transformers.js speech recognition models.
 const AUDIO_SAMPLING_RATE = 16000;
 
+// Dtype order tried when no dtype is configured (generation, classification and task pipelines).
+const DEFAULT_DTYPES = ['q8', 'int8', 'fp32'];
+
 // Decode PCM or float WAV into mono Float32Array samples at samplingRate (mirrors _read_wav in llm.py).
 function decodeWav(buffer, samplingRate = AUDIO_SAMPLING_RATE) {
   const view = new DataView(buffer);
@@ -206,7 +209,7 @@ class BrowserLLM {
     );
   }
 
-  async _loadPipelineWithDtypeFallback(pipelineFn, task, modelId, extraOptions, dtypes = ['q8', 'int8', 'fp32']) {
+  async _loadPipelineWithDtypeFallback(pipelineFn, task, modelId, extraOptions, dtypes = DEFAULT_DTYPES) {
     let lastError;
     for (const dtype of this._resolveDtypes(dtypes)) {
       try {
@@ -841,7 +844,8 @@ async function loadModelToCache(modelName, files) {
     const url = `https://huggingface.co/${modelId}/resolve/main/${filename}`;
     await cache.put(url, new Response(data, {
       status: 200,
-      headers: { 'Content-Type': 'application/octet-stream' }
+      // Content-Length lets getModelInfo() report sizes of injected files.
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(data.byteLength ?? data.length) }
     }));
     console.log(`Cached: ${url} (${data.length} bytes)`);
     count++;
@@ -850,23 +854,71 @@ async function loadModelToCache(modelName, files) {
   console.log(`Loaded ${count} files for ${modelId} into browser cache`);
 }
 
-async function clearModelCache() {
+async function modelCacheNames() {
+  return (await caches.keys()).filter((name) => {
+    const lowerName = name.toLowerCase();
+    return lowerName.includes('transformers') || lowerName.includes('huggingface') || lowerName.includes('onnx');
+  });
+}
+
+async function getCachedModels() {
+  if (typeof caches === 'undefined') {
+    return null;
+  }
+  const groups = new Map();
+  for (const cacheName of await modelCacheNames()) {
+    const cache = await caches.open(cacheName);
+    for (const request of await cache.keys()) {
+      const match = new URL(request.url).pathname.match(/^\/([^/]+\/[^/]+)\/resolve\/([^/]+)\/(.+)$/);
+      const [modelId, revision, file] = match ? match.slice(1) : [null, null, request.url];
+      const key = `${modelId}@${revision}`;
+      if (!groups.has(key)) {
+        groups.set(key, { model_id: modelId, revision, model_type: null, task: null, files: [], size: 0 });
+      }
+      const group = groups.get(key);
+      group.files.push(file);
+      const response = await cache.match(request);
+      const length = response?.headers.get('content-length');
+      group.size = group.size === null || length == null ? null : group.size + Number(length);
+      if (modelId && file === 'config.json') {
+        group.model_type = (await response.json().catch(() => null))?.model_type ?? null;
+      }
+    }
+  }
+  // The task comes from the Hub, so it stays null offline.
+  await Promise.all([...groups.values()].filter(g => g.model_id).map(async (group) => {
+    group.task = (await fetchHubModel(group.model_id, 5000))?.pipeline_tag ?? null;
+  }));
+  return [...groups.values()];
+}
+
+async function clearModelCacheEntries(modelName) {
+  // Exact prefix on the resolved ID only, so 'gpt2' never matches 'acme/gpt2'.
+  const modelId = resolveModelId(modelName.split('@')[0]);
+  const prefix = `/${modelId}/resolve/`;
+  const deletedFiles = [];
+  for (const cacheName of await modelCacheNames()) {
+    const cache = await caches.open(cacheName);
+    for (const request of await cache.keys()) {
+      if (new URL(request.url).pathname.startsWith(prefix) && await cache.delete(request)) {
+        deletedFiles.push(request.url);
+      }
+    }
+  }
+  return { model_id: modelId, deleted_files: deletedFiles };
+}
+
+async function clearModelCache(modelName = null) {
+  if (modelName) {
+    return clearModelCacheEntries(modelName);
+  }
   const deletedCaches = [];
   const deletedDatabases = [];
   const knownDatabaseNames = ['transformers-cache', 'transformers_cache', 'huggingface-assets', 'transformers.js'];
 
-  const cacheNames = await caches.keys();
-  for (const cacheName of cacheNames) {
-    const lowerName = cacheName.toLowerCase();
-    if (
-      lowerName.includes('transformers') ||
-      lowerName.includes('huggingface') ||
-      lowerName.includes('onnx')
-    ) {
-      const deleted = await caches.delete(cacheName);
-      if (deleted) {
-        deletedCaches.push(cacheName);
-      }
+  for (const cacheName of await modelCacheNames()) {
+    if (await caches.delete(cacheName)) {
+      deletedCaches.push(cacheName);
     }
   }
 
@@ -903,6 +955,52 @@ async function clearModelCache() {
   };
 }
 
+// --- Model metadata and cache status ---
+
+// Best-effort, pre-load view of the files a pipeline needs and whether the
+// Transformers.js Cache API already holds them. Unknown values stay null/'unknown'.
+async function getModelInfo(modelName, task = 'text-generation', backend = 'wasm', dtype = null) {
+  const [modelId, revision = 'main'] = resolveModelId(modelName).split('@', 2);
+  const info = {
+    model_id: modelId, revision, task, backend, dtype: dtype ?? null,
+    cache_status: 'unknown', download_bytes: null, files: [], error: null,
+  };
+  try {
+    const { ModelRegistry, env } = await import(
+      "https://cdn.jsdelivr.net/npm/@huggingface/transformers"
+    );
+    env.useBrowserCache = true;
+    if (!info.dtype && task !== 'feature-extraction') {
+      // Mirror _loadPipelineWithDtypeFallback; feature-extraction keeps the Transformers.js default.
+      const available = await ModelRegistry.get_available_dtypes(modelId, { revision });
+      info.dtype = DEFAULT_DTYPES.find(d => available.includes(d)) ?? null;
+      if (!info.dtype) {
+        throw new Error(`No ${DEFAULT_DTYPES.join(', ')} ONNX weights found for ${modelId}`);
+      }
+    }
+    const options = { revision, device: backend, ...(info.dtype ? { dtype: info.dtype } : {}) };
+    const { files } = await ModelRegistry.is_pipeline_cached_files(task, modelId, options);
+    info.files = files.map(({ file, cached }) => ({ name: file, size: null, cached }));
+    if (typeof caches !== 'undefined') {
+      const cachedCount = files.filter(f => f.cached).length;
+      info.cache_status = cachedCount === files.length ? 'cached' : cachedCount ? 'partial' : 'not_cached';
+    }
+    // Sizes come from cached headers or a 1-byte range request; offline misses stay null.
+    const sizes = await Promise.allSettled(
+      files.map(({ file }) => ModelRegistry.get_file_metadata(modelId, file, { revision }))
+    );
+    sizes.forEach((result, i) => {
+      info.files[i].size = result.value?.size ?? null;
+    });
+    if (info.files.every(f => f.size !== null)) {
+      info.download_bytes = info.files.reduce((total, f) => total + f.size, 0);
+    }
+  } catch (error) {
+    info.error = String(error?.message ?? error);
+  }
+  return info;
+}
+
 // --- Factory ---
 
 function createLLM(config) {
@@ -928,20 +1026,23 @@ function cosineSimilarityBatch(queryVec, docVecs) {
 
 // --- Model info helpers ---
 
-async function getModelLatestRevision(modelId) {
+async function fetchHubModel(modelId, timeoutMs = null) {
   try {
     const url = `https://huggingface.co/api/models/${modelId}`;
-    const response = await fetch(url);
+    const response = await fetch(url, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : undefined);
     if (!response.ok) {
       console.warn(`Failed to fetch model info: ${response.status} ${response.statusText}`);
       return null;
     }
-    const data = await response.json();
-    return data.sha || null;
+    return await response.json();
   } catch (error) {
-    console.warn(`Error fetching latest revision for ${modelId}:`, error);
+    console.warn(`Error fetching model info for ${modelId}:`, error);
     return null;
   }
+}
+
+async function getModelLatestRevision(modelId) {
+  return (await fetchHubModel(modelId))?.sha || null;
 }
 
 // --- expose globally (critical for Python) ---
@@ -951,9 +1052,11 @@ globalThis.createLLM = createLLM;
 globalThis.isModelCached = isModelCached;
 globalThis.loadModelToCache = loadModelToCache;
 globalThis.clearModelCache = clearModelCache;
+globalThis.getCachedModels = getCachedModels;
 globalThis.cosineSimilarity = cosineSimilarity;
 globalThis.cosineSimilarityBatch = cosineSimilarityBatch;
 globalThis.getModelLatestRevision = getModelLatestRevision;
 globalThis.getHostedModelBase = getHostedModelBase;
+globalThis.getModelInfo = getModelInfo;
 
 undefined;

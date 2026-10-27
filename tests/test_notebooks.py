@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from lmlite import SUPPORTED_TASKS
+from lmlite import SUPPORTED_TASKS, ModelInfo
 
 NOTEBOOKS = Path(__file__).resolve().parents[1] / "notebooks"
 
@@ -60,6 +60,14 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             return [{"label": "POSITIVE", "score": 0.9}][:top_k]
 
         @classmethod
+        async def model_info(cls, model, task="text-generation", backend="wasm", dtype=None):
+            files = [
+                {"name": "config.json", "size": 10, "cached": False},
+                {"name": "onnx/model.onnx", "size": None, "cached": False},
+            ]
+            return ModelInfo(model, "main", task, backend, dtype, "partial", None, files)
+
+        @classmethod
         async def pipeline(cls, task, model, **options):
             assert task in SUPPORTED_TASKS and model
             return await cls.create(task=task, task_model=model, **options)
@@ -83,6 +91,31 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             self.disposed = True
 
     monkeypatch.setattr("lmlite.LLM", ExampleLLM)
+    monkeypatch.setattr("lmlite.clear_cache", AsyncMock(return_value={"deleted_caches": [], "deleted_databases": []}))
+    monkeypatch.setattr(
+        "lmlite.cached_models",
+        AsyncMock(
+            return_value=[
+                {
+                    "model_id": "Xenova/distilgpt2",
+                    "revision": "main",
+                    "model_type": "gpt2",
+                    "task": "text-generation",
+                    "files": ["config.json"],
+                    "size": 1_000_000,
+                },
+                {
+                    "model_id": None,
+                    "revision": None,
+                    "model_type": None,
+                    "task": None,
+                    "files": ["other.bin"],
+                    "size": None,
+                },
+            ]
+        ),
+        raising=False,
+    )
     installer = types.ModuleType("install")
     installer._ = AsyncMock()
     monkeypatch.setitem(sys.modules, "install", installer)
@@ -138,6 +171,26 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         panel.release.click()
         await panel.task
         assert panel.closed and panel.send.disabled and panel.release.disabled
+    if path.name == "model-info.ipynb":
+        manager = namespace["manager"]
+        clear_cache = namespace["clear_cache"]
+        assert [label.value for label in manager.header.children] == ["Architecture", "Task", "Model"]
+        (model_row,) = manager.rows.children  # the non-model entry is hidden
+        assert [label.value for label in model_row.children[:2]] == ["gpt2", "text-generation"]
+        assert model_row.children[2].value.startswith("Xenova/distilgpt2@main")
+        clear_cache.reset_mock()
+        model_row.children[-1].click()
+        assert manager.load.disabled
+        await manager.task
+        clear_cache.assert_awaited_once_with(model="Xenova/distilgpt2")
+        assert not manager.load.disabled and manager.status.value == "1 cached, 1.0 MB"
+        manager.load.click()
+        await manager.task
+        assert "Enter a model ID" in manager.status.value
+        manager.model.value = " Xenova/gpt2 "
+        manager.load.click()
+        await manager.task
+        assert instances[-1].config["generator_model"] == "Xenova/gpt2" and instances[-1].disposed
     assert instances
     assert all(instance.disposed for instance in instances)
     if path.name == "demo.ipynb":
@@ -147,6 +200,8 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert instances[0].config["backend"] == "wasm"
     if path.name in {"demo.ipynb", "orchestration.ipynb", "generation-tinyllama.ipynb", "generation-lamini.ipynb"}:
         assert instances[0].config["return_full_text"] is False
+    if path.name == "model-info.ipynb":
+        assert callable(instances[0].config["progress_callback"])
     if path.name == "tasks.ipynb":
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]

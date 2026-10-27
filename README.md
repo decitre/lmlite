@@ -62,7 +62,7 @@ print(results)
 - **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
 - **Embeddings & classification**: Sentence vectors and text classification
 - **Task pipelines**: Zero-shot classification, speech recognition and translation via `LLM.pipeline(task, model=...)`
-- **Model caching**: Browser-cached downloads and portable ZIP export/import
+- **Model caching**: Browser-cached downloads, portable ZIP export/import, and cache inspection before loading (`LLM.model_info()`, `cached_models()`, per-model `clear_cache()`) with Python progress callbacks
 - **Pythonic API**: Clean, async Python interface
 
 ## What is lmLite?
@@ -106,6 +106,7 @@ Try lmLite directly in your browser, without installing anything.
 
 - **[Basic demo](https://decitre.github.io/lmlite/xeus/lab/index.html?path=demo.ipynb)** — Text generation, embeddings, classification, and similarity search.
 - **[Task pipelines](https://decitre.github.io/lmlite/xeus/lab/index.html?path=tasks.ipynb)** — Zero-shot classification, translation and speech recognition with `LLM.pipeline()`.
+- **[Model info and cache manager](https://decitre.github.io/lmlite/xeus/lab/index.html?path=model-info.ipynb)** — Download size and cache status before loading, loading progress from Python, and a widget to list, load and delete cached models.
 - **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
 
 These examples run locally in the browser using Transformers.js.

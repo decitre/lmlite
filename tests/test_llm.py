@@ -91,6 +91,59 @@ class TestClearCache:
                     del sys.modules["js"]
 
 
+class TestCachedModels:
+    @pytest.fixture
+    def js(self, monkeypatch):
+        import sys
+
+        js = types.ModuleType("js")
+        monkeypatch.setitem(sys.modules, "js", js)
+        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        return js
+
+    async def test_cached_models_returns_list(self, js):
+        from lmlite import cached_models
+
+        entries = [
+            {"model_id": "Xenova/gpt2", "revision": "main", "files": ["config.json"], "size": 10},
+            {"model_id": None, "revision": None, "files": ["https://example.com/x"], "size": None},
+        ]
+        js.getCachedModels = AsyncMock(return_value=entries)
+
+        assert await cached_models() == entries
+        js.getCachedModels.assert_awaited_once_with()
+
+    async def test_cached_models_passes_through_none(self, js):
+        from lmlite import cached_models
+
+        js.getCachedModels = AsyncMock(return_value=None)
+
+        assert await cached_models() is None
+
+    async def test_cached_models_requires_current_runtime(self, js):
+        from lmlite import cached_models
+
+        with pytest.raises(RuntimeError, match="getCachedModels"):
+            await cached_models()
+
+    async def test_clear_cache_forwards_model(self, js):
+        from lmlite import clear_cache
+
+        payload = {"model_id": "gpt2", "deleted_files": ["https://huggingface.co/gpt2/resolve/main/config.json"]}
+        js.clearModelCache = AsyncMock(return_value=payload)
+
+        assert await clear_cache(model="gpt2") == payload
+        js.clearModelCache.assert_awaited_once_with("gpt2")
+
+    async def test_clear_cache_forwards_none_by_default(self, js):
+        from lmlite import clear_cache
+
+        js.clearModelCache = AsyncMock(return_value={"deleted_caches": [], "deleted_databases": []})
+
+        await clear_cache()
+        js.clearModelCache.assert_awaited_once_with(None)
+
+
 class TestLLMDispose:
     async def test_dispose_forwards_to_js(self):
         from lmlite import LLM
@@ -1233,6 +1286,81 @@ class TestLLMLoadingProgress:
         bar.update.assert_called_once_with(1)
         js.loadModelToCache.assert_not_awaited()
         assert not any(call.args[0].startswith("Reading") for call in bar.set_description.call_args_list)
+
+    async def test_progress_callback_receives_loading_events(self, loading):
+        from lmlite import LLM
+
+        _, instance, js, _ = loading
+
+        async def init(callback):
+            callback("Xenova/gpt2", "loading", "", 0, 0)
+            callback("Xenova/gpt2", "progress", "onnx/model.onnx", 5, 10)
+            callback("", "ready", "", 0, 0)
+
+        instance.init.side_effect = init
+        events = []
+        await LLM.create(generator_model="gpt2", auto_detect_local=False, progress_callback=events.append)
+
+        assert [event["status"] for event in events] == ["loading", "progress", "ready"]
+        assert events[1] == {
+            "model": "Xenova/gpt2",
+            "status": "progress",
+            "file": "onnx/model.onnx",
+            "loaded": 5,
+            "total": 10,
+        }
+        assert "progress_callback" not in js.createLLM.call_args.args[0]
+
+    async def test_progress_callback_receives_errors(self, loading):
+        from lmlite import LLM
+
+        _, instance, _, _ = loading
+        instance.init.side_effect = RuntimeError("Failed to load text-generation model")
+        events = []
+        with pytest.raises(RuntimeError, match="Failed to load"):
+            await LLM.create(generator_model="gpt2", auto_detect_local=False, progress_callback=events.append)
+
+        assert events[-1]["status"] == "error"
+        assert "Failed to load" in events[-1]["error"]
+
+
+class TestModelInfo:
+    @pytest.fixture
+    def js(self, monkeypatch):
+        import sys
+
+        js = types.ModuleType("js")
+        monkeypatch.setitem(sys.modules, "js", js)
+        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        return js
+
+    async def test_model_info_returns_js_metadata(self, js):
+        from lmlite import LLM, ModelInfo
+
+        payload = {
+            "model_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
+            "revision": "main",
+            "task": "text-generation",
+            "backend": "wasm",
+            "dtype": "q4",
+            "cache_status": "partial",
+            "download_bytes": None,
+            "files": [{"name": "config.json", "size": 10, "cached": True}],
+            "error": None,
+        }
+        js.getModelInfo = AsyncMock(return_value=payload)
+
+        info = await LLM.model_info("HuggingFaceTB/SmolLM2-360M-Instruct", backend="wasm", dtype="q4")
+
+        assert info == ModelInfo(**payload)
+        assert info.download_bytes is None
+        js.getModelInfo.assert_awaited_once_with("HuggingFaceTB/SmolLM2-360M-Instruct", "text-generation", "wasm", "q4")
+
+    async def test_model_info_requires_current_runtime(self, js):
+        from lmlite import LLM
+
+        with pytest.raises(RuntimeError, match="getModelInfo"):
+            await LLM.model_info("gpt2")
 
 
 class TestModelZipNaming:
