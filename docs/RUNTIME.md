@@ -49,10 +49,11 @@ and [the model guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md
 
 ### JavaScript browser applications
 
-The internal `llm.js` runtime exposes `BrowserLLM` and helpers on `globalThis`;
-it is not a documented standalone ES-module API. Reusing it outside its Python
-integration requires host-specific integration and should not be mistaken for
-an established standalone SDK.
+**JavaScript runtime:** `llm.js` exposes `BrowserLLM` and helper functions
+through `globalThis` for integration with the Python API. These interfaces are
+internal implementation details, not a separately documented or versioned
+JavaScript SDK. Direct JavaScript usage may be possible, but its initialization,
+integration, and compatibility are not guaranteed independently of the Python API.
 
 For an application already written in JavaScript, direct Transformers.js is
 usually the simpler choice unless lmLite's model-loading and cache workflows
