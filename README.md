@@ -6,7 +6,7 @@
 
 [![xeus-badge][xeus-badge]][xeus-url]
 [![pyodide-badge][pyodide-badge]][pyodide-url]
- 
+
 
 # lmLite
 
@@ -148,12 +148,15 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 }
 ```
 
-## Acknowledgments
+## Acknowledgements
 
-- [Transformers.js](https://github.com/huggingface/transformers.js) by [@xenova](https://github.com/xenova) / HuggingFace
-- [JupyterLite](https://jupyterlite.readthedocs.io/) team
-- [Pyodide](https://pyodide.org/) project
-- [Hugging Face](https://huggingface.co/) for model hosting
+lmLite builds on several open-source projects:
+
+- [Transformers.js](https://github.com/huggingface/transformers.js) — browser-native model inference.
+- [JupyterLite](https://jupyterlite.readthedocs.io/) — the browser-based Jupyter environment.
+- [xeus-python](https://github.com/jupyter-xeus/xeus-python) and [Pyodide](https://pyodide.org/) — Python execution in the browser.
+
+Thanks to the developers and maintainers of these projects and the broader Jupyter and Hugging Face communities.
 
 ---
 
