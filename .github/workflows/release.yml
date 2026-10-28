@@ -14,10 +14,10 @@ jobs:
       # https://github.com/prefix-dev/setup-pixi
       # https://github.com/pypa/gh-action-pypi-publish
       # https://github.com/softprops/action-gh-release
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up pixi
-        uses: prefix-dev/setup-pixi@v0.10.2
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           environments: default
 

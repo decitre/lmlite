@@ -23,10 +23,10 @@ jobs:
       # https://github.com/actions/checkout
       # https://github.com/prefix-dev/setup-pixi
       # https://github.com/codecov/codecov-action
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up pixi
-        uses: prefix-dev/setup-pixi@v0.10.2
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           environments: py311 py312 py313
 
@@ -50,9 +50,9 @@ jobs:
 
       - name: Set up Node.js
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: JS Coverage
         if: matrix.os == 'ubuntu-latest'
@@ -62,7 +62,7 @@ jobs:
 
       - name: Upload Python Coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && (github.event_name == 'push' || github.event_name == 'pull_request')
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
           flags: python
@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload JS Coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && (github.event_name == 'push' || github.event_name == 'pull_request')
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage/lcov.info
           flags: javascript
@@ -92,7 +92,7 @@ jobs:
       LMLITE_TEST_EMBEDDING_BACKEND: "wasm"
       LMLITE_MODEL_TIMEOUT_MS: "180000"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pixi
         run: |
@@ -107,7 +107,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: embedding-smoke-results
           path: embedding-smoke.xml
@@ -125,7 +125,7 @@ jobs:
       LMLITE_TEST_TASK_BACKENDS: "wasm"
       LMLITE_MODEL_TIMEOUT_MS: "600000"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pixi
         run: |
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: task-smoke-results
           path: task-smoke.xml
@@ -151,13 +151,13 @@ jobs:
     steps:
       # https://github.com/actions/upload-pages-artifact
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up micromamba
         uses: mamba-org/setup-micromamba@v3
 
       - name: Set up pixi
-        uses: prefix-dev/setup-pixi@v0.10.2
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           environments: default
 
@@ -168,7 +168,7 @@ jobs:
           mv workspace/public .
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./public
 
@@ -188,4 +188,4 @@ jobs:
       # https://github.com/actions/deploy-pages
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
