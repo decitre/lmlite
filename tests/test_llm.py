@@ -1354,13 +1354,22 @@ class TestModelInfo:
 
         assert info == ModelInfo(**payload)
         assert info.download_bytes is None
-        js.getModelInfo.assert_awaited_once_with("HuggingFaceTB/SmolLM2-360M-Instruct", "text-generation", "wasm", "q4")
+        js.getModelInfo.assert_awaited_once_with("HuggingFaceTB/SmolLM2-360M-Instruct", None, "wasm", "q4")
 
     async def test_model_info_requires_current_runtime(self, js):
         from lmlite import LLM
 
         with pytest.raises(RuntimeError, match="getModelInfo"):
             await LLM.model_info("gpt2")
+
+    @pytest.mark.parametrize("tag", ["feature-extraction", None])
+    async def test_model_task_returns_hub_tag(self, js, tag):
+        from lmlite import LLM
+
+        js.getModelTask = AsyncMock(return_value=tag)
+
+        assert await LLM.model_task("all-MiniLM-L6-v2") == tag
+        js.getModelTask.assert_awaited_once_with("all-MiniLM-L6-v2")
 
 
 class TestModelZipNaming:

@@ -24,6 +24,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     instances = []
     prompts = []
     chats = []
+    hub_tags = {}  # model -> Hub pipeline tag; unlisted models are text generation
 
     class ExampleLLM:
         def __init__(self, config):
@@ -60,7 +61,12 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             return [{"label": "POSITIVE", "score": 0.9}][:top_k]
 
         @classmethod
-        async def model_info(cls, model, task="text-generation", backend="wasm", dtype=None):
+        async def model_task(cls, model):
+            return hub_tags.get(model, "text-generation")
+
+        @classmethod
+        async def model_info(cls, model, task=None, backend="wasm", dtype=None):
+            task = task or await cls.model_task(model)
             files = [
                 {"name": "config.json", "size": 10, "cached": False},
                 {"name": "onnx/model.onnx", "size": None, "cached": False},
@@ -191,6 +197,22 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         manager.load.click()
         await manager.task
         assert instances[-1].config["generator_model"] == "Xenova/gpt2" and instances[-1].disposed
+        # Overrides pick the matching loader; SUPPORTED_TASKS go through LLM.pipeline().
+        for task, key, expected in [
+            ("feature-extraction", "embedding_model", "Xenova/gpt2"),
+            ("translation", "task", "translation"),
+        ]:
+            manager.task_choice.value = task
+            manager.load.click()
+            await manager.task
+            assert instances[-1].config[key] == expected and instances[-1].disposed
+        manager.task_choice.value = None
+        for tag, message in [(None, "No task found on the Hub"), ("image-to-text", "cannot load 'image-to-text'")]:
+            count = len(instances)
+            hub_tags["Xenova/gpt2"] = tag
+            manager.load.click()
+            await manager.task
+            assert message in manager.status.value and len(instances) == count
     assert instances
     assert all(instance.disposed for instance in instances)
     if path.name == "demo.ipynb":

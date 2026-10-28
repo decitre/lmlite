@@ -22,6 +22,7 @@ const {
   getCachedModels,
   getHostedModelBase,
   getModelInfo,
+  getModelTask,
 } = globalThis;
 
 describe('Hosted model discovery', () => {
@@ -1123,6 +1124,7 @@ describe('getModelInfo()', () => {
     registry.get_file_metadata.mockReset().mockImplementation(async (_id, file) => ({ exists: true, size: SIZES[file] }));
     registry.is_pipeline_cached_files.mockReset();
     vi.stubGlobal('caches', {});
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ pipeline_tag: 'text-generation' }))));
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -1152,9 +1154,32 @@ describe('getModelInfo()', () => {
     const info = await getModelInfo('org/m@v1', 'translation', 'webgpu', 'q4');
 
     expect(registry.get_available_dtypes).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
     expect(info).toMatchObject({ model_id: 'org/m', revision: 'v1', dtype: 'q4', backend: 'webgpu' });
     expect(registry.is_pipeline_cached_files).toHaveBeenCalledWith(
       'translation', 'org/m', { revision: 'v1', device: 'webgpu', dtype: 'q4' });
+  });
+
+  it('detects the task from the Hub pipeline tag when none is given', async () => {
+    cachedFlags(false, false);
+    fetch.mockResolvedValue(new Response(JSON.stringify({ pipeline_tag: 'feature-extraction' })));
+    const info = await getModelInfo('org/embed');
+
+    expect(info.task).toBe('feature-extraction');
+    expect(String(fetch.mock.calls[0][0])).toBe('https://huggingface.co/api/models/org/embed');
+    expect(registry.is_pipeline_cached_files.mock.calls[0][0]).toBe('feature-extraction');
+  });
+
+  it.each([
+    ['no tag', async () => new Response('{}')],
+    ['offline', async () => { throw new TypeError('Failed to fetch'); }],
+  ])('reports a null task and an error when detection fails (%s)', async (_case, response) => {
+    fetch.mockImplementation(response);
+    const info = await getModelInfo('org/custom');
+
+    expect(info).toMatchObject({ task: null, cache_status: 'unknown' });
+    expect(info.error).toContain('No task found on the Hub for org/custom');
+    expect(registry.is_pipeline_cached_files).not.toHaveBeenCalled();
   });
 
   it('leaves feature-extraction on the Transformers.js default dtype', async () => {
@@ -1196,5 +1221,26 @@ describe('getModelInfo()', () => {
   it('fails clearly when no default dtype is published', async () => {
     registry.get_available_dtypes.mockResolvedValue(['q4']);
     expect((await getModelInfo('gpt2')).error).toContain('No q8, int8, fp32 ONNX weights');
+  });
+});
+
+describe('getModelTask()', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns the Hub pipeline tag for the resolved model, without the revision', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ pipeline_tag: 'translation' }))));
+
+    expect(await getModelTask('opus-mt-en-fr@v1')).toBe('translation');
+    expect(fetch).toHaveBeenCalledWith(
+      'https://huggingface.co/api/models/Xenova/opus-mt-en-fr', expect.objectContaining({ signal: expect.anything() }));
+  });
+
+  it.each([
+    ['untagged', async () => new Response('{}')],
+    ['missing', async () => new Response('', { status: 404 })],
+    ['offline', async () => { throw new TypeError('Failed to fetch'); }],
+  ])('returns null for %s models', async (_case, response) => {
+    vi.stubGlobal('fetch', vi.fn(response));
+    expect(await getModelTask('org/model')).toBeNull();
   });
 });

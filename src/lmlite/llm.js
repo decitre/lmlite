@@ -887,7 +887,7 @@ async function getCachedModels() {
   }
   // The task comes from the Hub, so it stays null offline.
   await Promise.all([...groups.values()].filter(g => g.model_id).map(async (group) => {
-    group.task = (await fetchHubModel(group.model_id, 5000))?.pipeline_tag ?? null;
+    group.task = await getModelTask(group.model_id);
   }));
   return [...groups.values()];
 }
@@ -959,10 +959,11 @@ async function clearModelCache(modelName = null) {
 
 // Best-effort, pre-load view of the files a pipeline needs and whether the
 // Transformers.js Cache API already holds them. Unknown values stay null/'unknown'.
-async function getModelInfo(modelName, task = 'text-generation', backend = 'wasm', dtype = null) {
+// Without a task, the Hub's pipeline tag is used.
+async function getModelInfo(modelName, task = null, backend = 'wasm', dtype = null) {
   const [modelId, revision = 'main'] = resolveModelId(modelName).split('@', 2);
   const info = {
-    model_id: modelId, revision, task, backend, dtype: dtype ?? null,
+    model_id: modelId, revision, task: task ?? null, backend, dtype: dtype ?? null,
     cache_status: 'unknown', download_bytes: null, files: [], error: null,
   };
   try {
@@ -970,7 +971,13 @@ async function getModelInfo(modelName, task = 'text-generation', backend = 'wasm
       "https://cdn.jsdelivr.net/npm/@huggingface/transformers"
     );
     env.useBrowserCache = true;
-    if (!info.dtype && task !== 'feature-extraction') {
+    if (!info.task) {
+      info.task = await getModelTask(modelId);
+      if (!info.task) {
+        throw new Error(`No task found on the Hub for ${modelId}; pass task explicitly`);
+      }
+    }
+    if (!info.dtype && info.task !== 'feature-extraction') {
       // Mirror _loadPipelineWithDtypeFallback; feature-extraction keeps the Transformers.js default.
       const available = await ModelRegistry.get_available_dtypes(modelId, { revision });
       info.dtype = DEFAULT_DTYPES.find(d => available.includes(d)) ?? null;
@@ -979,7 +986,7 @@ async function getModelInfo(modelName, task = 'text-generation', backend = 'wasm
       }
     }
     const options = { revision, device: backend, ...(info.dtype ? { dtype: info.dtype } : {}) };
-    const { files } = await ModelRegistry.is_pipeline_cached_files(task, modelId, options);
+    const { files } = await ModelRegistry.is_pipeline_cached_files(info.task, modelId, options);
     info.files = files.map(({ file, cached }) => ({ name: file, size: null, cached }));
     if (typeof caches !== 'undefined') {
       const cachedCount = files.filter(f => f.cached).length;
@@ -1045,6 +1052,11 @@ async function getModelLatestRevision(modelId) {
   return (await fetchHubModel(modelId))?.sha || null;
 }
 
+// The Hub pipeline tag (e.g. 'text-generation'), or null offline or for untagged models.
+async function getModelTask(modelName) {
+  return (await fetchHubModel(resolveModelId(modelName).split('@')[0], 5000))?.pipeline_tag ?? null;
+}
+
 // --- expose globally (critical for Python) ---
 
 globalThis.BrowserLLM = BrowserLLM;
@@ -1058,5 +1070,6 @@ globalThis.cosineSimilarityBatch = cosineSimilarityBatch;
 globalThis.getModelLatestRevision = getModelLatestRevision;
 globalThis.getHostedModelBase = getHostedModelBase;
 globalThis.getModelInfo = getModelInfo;
+globalThis.getModelTask = getModelTask;
 
 undefined;

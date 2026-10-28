@@ -412,10 +412,18 @@ class LLM:
     # --- lifecycle ---
 
     @classmethod
-    async def model_info(cls, model, task="text-generation", backend="wasm", dtype=None):
-        """Inspect a model's files, download size and cache status without loading it."""
+    async def model_info(cls, model, task=None, backend="wasm", dtype=None):
+        """Inspect a model's files, download size and cache status without loading it.
+
+        Without ``task``, the model's Hub pipeline tag is used (``info.task``); it needs the network.
+        """
         get_model_info = _js_function("getModelInfo")
         return ModelInfo(**_to_python_deep(await get_model_info(model, task, backend, dtype)))
+
+    @classmethod
+    async def model_task(cls, model):
+        """Return the model's Hub pipeline tag (e.g. ``"text-generation"``), or None offline or if untagged."""
+        return _to_python_deep(await _js_function("getModelTask")(model))
 
     @classmethod
     async def create(cls, progress_callback=None, **overrides):

@@ -60,4 +60,5 @@ venv/
 pixi.lock
 
 # npm
+node_modules/
 package-lock.json
