@@ -182,7 +182,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         panel.stop.click()
         await panel.task
         partial = namespace["memory"].get()[-1]["content"]
-        assert partial and "one two three four five six".startswith(partial) and partial != "one two three four five six"
+        assert (
+            partial and "one two three four five six".startswith(partial) and partial != "one two three four five six"
+        )
         assert panel.status.value.startswith("Stopped") and panel.stop.disabled and not panel.busy
         instances[0].chat = original_chat
         panel.clear.click()
