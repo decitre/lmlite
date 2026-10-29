@@ -50,7 +50,7 @@ and [the model guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md
 ### JavaScript browser applications
 
 **JavaScript runtime:** `llm.js` exposes `BrowserLLM` and helper functions
-through `globalThis` for integration with the Python API. These interfaces are
+under a single `globalThis.lmLite` namespace for integration with the Python API. These interfaces are
 internal implementation details, not a separately documented or versioned
 JavaScript SDK. Direct JavaScript usage may be possible, but its initialization,
 integration, and compatibility are not guaranteed independently of the Python API.

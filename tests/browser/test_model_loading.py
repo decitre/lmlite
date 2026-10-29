@@ -28,7 +28,7 @@ def test_transformers_model_loads_and_generates(source_server):
 
             result = page.evaluate(
                 """async ({modelId, backend}) => {
-                  const llm = globalThis.createLLM({
+                  const llm = globalThis.lmLite.createLLM({
                     generator_model: modelId,
                     backend,
                     max_new_tokens: 1,
@@ -77,8 +77,8 @@ def test_hosted_config_loads_directly_over_http(source_server):
 
             result = page.evaluate(
                 """async (base) => {
-                  const hosted = await globalThis.getHostedModelBase('org/test-model', base);
-                  await globalThis.createLLM({
+                  const hosted = await globalThis.lmLite.getHostedModelBase('org/test-model', base);
+                  await globalThis.lmLite.createLLM({
                     hosted_model_base: hosted,
                     hosted_models: ['org/test-model'],
                   }).init();

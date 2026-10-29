@@ -48,7 +48,7 @@ def test_task_pipeline_runs_in_browser(source_server, task, backend):
             page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
             result = page.evaluate(
                 """async ({task, model, backend, inputs, options}) => {
-                  const llm = globalThis.createLLM({task, task_model: model, backend});
+                  const llm = globalThis.lmLite.createLLM({task, task_model: model, backend});
                   try {
                     await llm.init();
                     const output = await llm.runTask(inputs, JSON.stringify(options));
@@ -90,7 +90,7 @@ def test_asr_url_runs_in_worker(source_server):
                     self.onmessage = async ({data}) => {
                       try {
                         await import(data.src);
-                        const llm = globalThis.createLLM({task: 'automatic-speech-recognition', task_model: data.model, backend: 'wasm'});
+                        const llm = globalThis.lmLite.createLLM({task: 'automatic-speech-recognition', task_model: data.model, backend: 'wasm'});
                         await llm.init();
                         const output = await llm.runTask(data.url, '{}');
                         await llm.dispose();

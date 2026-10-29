@@ -32,7 +32,7 @@ const {
   getHostedModelBase,
   getModelInfo,
   getModelTask,
-} = globalThis;
+} = globalThis.lmLite;
 
 describe('Hosted model discovery', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -858,6 +858,89 @@ describe('BrowserLLM streaming and cancel()', () => {
   });
 });
 
+describe('BrowserLLM token records', () => {
+  // A vocabulary small enough to check probabilities by hand; 'é' spans two byte tokens.
+  const vocab = ['<end>', ' Hello', ' world', '!', '\xC3', '\xA9'];
+  const tokenizer = {
+    decode: (ids, { skip_special_tokens = false } = {}) => {
+      const text = ids.filter(id => !(skip_special_tokens && id === 0)).map(id => vocab[id]).join('');
+      return text.replace('\xC3\xA9', 'é').replace(/[\xC3\xA9]$/, '�');
+    },
+  };
+
+  // Each step feeds `logits` through the processors, picks the argmax, and streams it, like model.generate().
+  function scriptedGenerator(steps) {
+    const generator = vi.fn(async (input, { streamer, logits_processor, stopping_criteria }) => {
+      streamer.put([[7n, 8n]]);  // the prompt
+      for (const logits of steps) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (stopping_criteria.interrupted) {
+          break;
+        }
+        const processed = logits_processor.reduce((l, processor) => processor([], l), { data: Float32Array.from(logits) });
+        const id = processed.data.indexOf(Math.max(...processed.data));
+        streamer.put([[BigInt(id)]]);
+      }
+      streamer.end();
+      return [{ generated_text: [...input, { role: 'assistant', content: '' }] }];
+    });
+    generator.tokenizer = { ...tokenizer, chat_template: 'template' };
+    return generator;
+  }
+
+  async function records(stream) {
+    const out = [];
+    for (let chunk; (chunk = await stream.read());) {
+      out.push(JSON.parse(chunk));
+    }
+    return out;
+  }
+
+  const messages = [{ role: 'user', content: 'Hi' }];
+  const ln = Math.log;
+
+  it('reports each token with its probability and the runner-up', async () => {
+    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    llm.generator = scriptedGenerator([
+      [-Infinity, ln(6), ln(3), ln(1), -Infinity, -Infinity],  // ' Hello' 0.6, runner-up ' world' 0.3
+      [ln(1), ln(1), ln(8), -Infinity, -Infinity, -Infinity],  // ' world' 0.8
+      [ln(9), ln(1), -Infinity, -Infinity, -Infinity, -Infinity],  // <end> is skipped
+    ]);
+    const tokens = await records(await llm.chatTokens(JSON.stringify(messages)));
+    expect(tokens.map(t => t.text)).toEqual([' Hello', ' world']);
+    expect(tokens[0].prob).toBeCloseTo(0.6);
+    expect(tokens[0].alternatives).toHaveLength(1);
+    expect(tokens[0].alternatives[0].text).toBe(' world');
+    expect(tokens[0].alternatives[0].prob).toBeCloseTo(0.3);
+    expect(tokens[1].prob).toBeCloseTo(0.8);
+    expect(tokens[1].alternatives.map(a => a.text)).toEqual(['<end>']);  // ties keep vocabulary order
+  });
+
+  it('honours the number of alternatives and keeps split characters whole', async () => {
+    const llm = new BrowserLLM({ generator_model: 'gpt2' });
+    llm.generator = scriptedGenerator([
+      [-Infinity, -Infinity, ln(1), ln(2), ln(4), ln(3)],
+      [-Infinity, ln(1), ln(2), ln(3), ln(1), ln(4)],
+    ]);
+    const tokens = await records(await llm.generateTokens('prompt', 2));
+    expect(tokens.map(t => t.text)).toEqual(['', 'é']);
+    expect(tokens[0].alternatives.map(a => a.text)).toEqual(['\uFFFD', '!']);  // a lone partial character decodes as U+FFFD
+    expect(tokens.map(t => t.alternatives.length)).toEqual([2, 2]);
+    expect(llm.generator.mock.calls[0][1].return_full_text).toBe(false);
+    expect((await records(await llm.generateTokens('prompt', 0)))[1].alternatives).toEqual([]);
+  });
+
+  it('can be cancelled like text streams', async () => {
+    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const step = [-Infinity, ln(2), ln(1), -Infinity, -Infinity, -Infinity];
+    llm.generator = scriptedGenerator([step, step, step, step]);
+    const stream = await llm.chatTokens(messages);
+    await stream.read();
+    expect(await llm.cancel()).toBe(true);
+    expect((await records(stream)).length).toBeLessThan(3);
+  });
+});
+
 describe('BrowserLLM.embed()', () => {
   let llm;
 
@@ -980,7 +1063,9 @@ describe('isModelCached()', () => {
 
 describe('loadModelToCache()', () => {
   it('should be exposed globally', () => {
-    expect(typeof globalThis.loadModelToCache).toBe('function');
+    expect(typeof globalThis.lmLite.loadModelToCache).toBe('function');
+    expect(globalThis.loadModelToCache).toBeUndefined();  // only the lmLite namespace is global
+    expect(globalThis.createLLM).toBeUndefined();
   });
 
   it('should write files to the Cache API', async () => {
@@ -996,7 +1081,7 @@ describe('loadModelToCache()', () => {
       'vocab.json': new Uint8Array([4, 5, 6]),
     };
 
-    await globalThis.loadModelToCache('gpt2', files);
+    await globalThis.lmLite.loadModelToCache('gpt2', files);
 
     expect(mockCaches.open).toHaveBeenCalledWith('transformers-cache');
     expect(mockCache.put).toHaveBeenCalledTimes(2);
@@ -1015,7 +1100,7 @@ describe('loadModelToCache()', () => {
     };
     globalThis.caches = mockCaches;
 
-    await globalThis.loadModelToCache('acme/gpt2', {
+    await globalThis.lmLite.loadModelToCache('acme/gpt2', {
       'config.json': new Uint8Array([1, 2, 3]),
     });
 
@@ -1031,7 +1116,7 @@ describe('loadModelToCache()', () => {
       open: vi.fn(async () => mockCache),
     };
 
-    await globalThis.loadModelToCache('gpt2', {
+    await globalThis.lmLite.loadModelToCache('gpt2', {
       'onnx/model_quantized.onnx': new Uint8Array([1, 2, 3]),
     });
 
@@ -1134,8 +1219,8 @@ describe('getCachedModels()', () => {
     });
 
     expect(await getCachedModels()).toEqual([
-      { model_id: 'Xenova/gpt2', revision: 'main', model_type: null, task: null, files: ['config.json', 'onnx/model.onnx'], size: 100 },
-      { model_id: 'Xenova/gpt2', revision: 'v1', model_type: null, task: null, files: ['config.json'], size: 5 },
+      { model_id: 'Xenova/gpt2', revision: 'main', model_type: null, task: null, files: ['config.json', 'onnx/model.onnx'], file_sizes: { 'config.json': 10, 'onnx/model.onnx': 90 }, size: 100 },
+      { model_id: 'Xenova/gpt2', revision: 'v1', model_type: null, task: null, files: ['config.json'], file_sizes: { 'config.json': 5 }, size: 5 },
     ]);
   });
 
@@ -1149,6 +1234,7 @@ describe('getCachedModels()', () => {
 
     const [group] = await getCachedModels();
     expect(group.size).toBeNull();
+    expect(group.file_sizes).toEqual({ 'config.json': 10, 'vocab.json': null });
   });
 
   it('reads the architecture from cached config.json and the task from the Hub', async () => {
@@ -1173,7 +1259,7 @@ describe('getCachedModels()', () => {
     mockModelCaches({ 'transformers-cache': { [url]: 3 } });
 
     expect(await getCachedModels()).toEqual([
-      { model_id: null, revision: null, model_type: null, task: null, files: [url], size: 3 },
+      { model_id: null, revision: null, model_type: null, task: null, files: [url], file_sizes: { [url]: 3 }, size: 3 },
     ]);
   });
 });

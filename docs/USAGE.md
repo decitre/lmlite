@@ -258,6 +258,21 @@ async for chunk in llm.chat_stream([
 - **Errors** during generation are raised from the iterator.
 - **Backends**: streaming works with any generator model and backend. Cancellation is checked between tokens, so a slow first token (prompt processing on a long input) is not interrupted.
 
+### Token Probabilities
+
+`chat_tokens(messages, alternatives=1)` and `generate_tokens(prompt, alternatives=1)` stream one record per generated token instead of text chunks:
+
+```python
+async for token in llm.chat_tokens(messages, alternatives=1):
+    runner_up = token["alternatives"][0]
+    print(f"{token['text']}[{token['prob']:.2f}] (runner-up {runner_up['text']!r} {runner_up['prob']:.2f})")
+```
+
+- **Records**: `{"text": str, "prob": float, "alternatives": [{"text": str, "prob": float}, ...]}`. `alternatives` lists the `alternatives` most probable tokens other than the picked one, most probable first (pass `0` for none).
+- **Probabilities** are those the token picker used: the softmax of the final logits after repetition penalty and, when sampling, temperature. With `do_sample=False` the picked token is always the most probable, so the first alternative is the true runner-up. With sampling, an alternative can be more probable than the pick, and top-k sampling draws from probabilities renormalized over its k tokens.
+- **Text**: joined `text` values equal joined `chat_stream()` chunks. A token holding only part of a multi-byte character has empty `text`; the completed character appears with the next token. Special tokens such as end-of-turn are not reported. An alternative's `text` is decoded alone, so a partial character shows as `�`, and tokenizers that drop a word's leading space when decoding a single token (SentencePiece, e.g. Llama) show it without the space.
+- **Cost**: about a millisecond per token for a softmax over the vocabulary. Laziness, cancellation, concurrency and errors behave as in `chat_stream()`.
+
 ### Sentence Embeddings and Dtype Pinning
 
 `embed(text)` returns a flat, fixed-dimension sentence vector using attention-mask-weighted mean pooling and L2 normalization. Pooling makes token-level outputs suitable for sentence comparison; normalization makes dot products equivalent to cosine similarity for nonzero vectors. `similarity_search()` already normalizes when computing cosine scores.
@@ -366,4 +381,15 @@ for entry in await cached_models() or []:
 await clear_cache(model="Xenova/gpt2")  # {"model_id": ..., "deleted_files": [...]}
 ```
 
-`cached_models()` only lists the Transformers.js browser Cache API (not hosted model files or `/drive/models` ZIPs). It returns `None` if the Cache API is unavailable, and `size` is `None` when a file's size is unknown. `model_type` is the architecture from the cached `config.json` (e.g. `gpt2`, `bert`). `task` is the Hub pipeline tag (e.g. `text-generation`) and needs the network, so it is `None` offline. A cache manager widget built on these is demonstrated in `notebooks/model-info.ipynb`.
+`cached_models()` only lists the Transformers.js browser Cache API (not hosted model files or `/drive/models` ZIPs). It returns `None` if the Cache API is unavailable, and `size` is `None` when a file's size is unknown. `file_sizes` maps each file name to its size (`None` if unknown). `model_type` is the architecture from the cached `config.json` (e.g. `gpt2`, `bert`). `task` is the Hub pipeline tag (e.g. `text-generation`) and needs the network, so it is `None` offline. A cache manager widget built on these ships with lmLite and is demonstrated in `notebooks/ch99_model-info.ipynb`; clicking a model name expands its cached files and sizes:
+
+```python
+from IPython.display import display
+from lmlite.widgets import CacheManager
+
+manager = CacheManager()
+display(manager.view)
+await manager.refresh()
+```
+
+![Cache manager widget in JupyterLite: one row per cached model with architecture, task, an expandable model name and a Delete button; one row is expanded to its files and sizes, above the Load controls and a total of 8 cached models](cache-manager.png)

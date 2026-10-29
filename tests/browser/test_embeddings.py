@@ -85,7 +85,7 @@ def test_local_embeddings_are_pooled_normalized_and_use_requested_weights(source
                   }
                   globalThis.embeddingSmoke = {done: false};
                   (async () => {
-                    const llm = globalThis.createLLM({
+                    const llm = globalThis.lmLite.createLLM({
                       embedding_model: modelId,
                       embedding_backend: backend,
                       embedding_dtype: dtype,

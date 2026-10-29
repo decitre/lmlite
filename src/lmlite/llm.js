@@ -160,6 +160,77 @@ function modelFilePathFromUrl(requestUrl, modelId) {
   return pathname.split('/').pop();
 }
 
+// Softmax over one step's final logits: the probability of any token and the n most probable [id, prob].
+function tokenDistribution(logits, n) {
+  let max = -Infinity;
+  for (const x of logits) {
+    if (x > max) {
+      max = x;
+    }
+  }
+  let sum = 0;
+  const top = [];  // [id, logit], descending
+  for (let id = 0; id < logits.length; id++) {
+    const x = logits[id];
+    sum += Math.exp(x - max);
+    if (top.length < n || x > top.at(-1)[1]) {
+      let i = top.length;
+      while (i > 0 && top[i - 1][1] < x) {
+        i--;
+      }
+      top.splice(i, 0, [id, x]);
+      if (top.length > n) {
+        top.pop();
+      }
+    }
+  }
+  const prob = (x) => Math.exp(x - max) / sum;
+  return { prob: (id) => prob(logits[id]), top: top.map(([id, x]) => [id, prob(x)]) };
+}
+
+// generate() options that report each chosen token with its probability and the most probable
+// other tokens. Transformers.js calls a custom logits processor last, right before it picks a
+// token, then passes the pick to the streamer; probabilities are what the picker saw.
+function tokenRecorder(tokenizer, alternatives, onRecord) {
+  let step = null;
+  let prompt = true;
+  const ids = [];
+  let decoded = '';
+  return {
+    logits_processor: [(inputIds, logits) => {
+      step = tokenDistribution(logits.data, alternatives + 1);  // batch of one
+      return logits;
+    }],
+    streamer: {
+      put(value) {
+        if (prompt) {
+          prompt = false;
+          return;
+        }
+        const id = Number(value[0][0]);
+        ids.push(id);
+        // Decode the whole answer so multi-byte characters split across tokens come out whole.
+        const full = tokenizer.decode(ids, { skip_special_tokens: true });
+        const complete = !full.endsWith('\uFFFD');
+        const text = complete ? full.slice(decoded.length) : '';
+        if (complete) {
+          decoded = full;
+        }
+        if (!text && !tokenizer.decode([id], { skip_special_tokens: true })) {
+          return;  // special tokens such as end-of-turn
+        }
+        onRecord({
+          text,
+          prob: step.prob(id),
+          alternatives: step.top.filter(([other]) => other !== id).slice(0, alternatives)
+            .map(([other, prob]) => ({ text: tokenizer.decode([other]), prob })),
+        });
+      },
+      end() {},
+    },
+  };
+}
+
 // On WASM a generation step only awaits microtasks, which starves macrotasks: kernels resume
 // Python (streamed chunks, cancel() from a widget) through setTimeout. Yield one per step.
 function yieldBeforeEachStep(model) {
@@ -688,7 +759,7 @@ class BrowserLLM {
     }
   }
 
-  async generate(prompt, returnFullText = this.return_full_text, streamer = undefined) {
+  async generate(prompt, returnFullText = this.return_full_text, extra = {}) {
     if (!this.generator) {
       throw new Error("Generator model not initialized. Call init() first.");
     }
@@ -709,7 +780,7 @@ class BrowserLLM {
           temperature: this.temperature,
           top_k: this.top_k,
           do_sample: this.do_sample,
-          streamer,
+          ...extra,
           stopping_criteria: generation.stopping_criteria,
         });
       } finally {
@@ -766,8 +837,17 @@ class BrowserLLM {
     return this._stream(prompt);
   }
 
+  async chatTokens(messages, alternatives = 1) {
+    return this._stream(this._chatInput(messages), alternatives);
+  }
+
+  async generateTokens(prompt, alternatives = 1) {
+    return this._stream(prompt, alternatives);
+  }
+
   // Pull-based so both Python bridges can await chunks without JS→Python callbacks.
-  async _stream(input) {
+  // With `alternatives`, each chunk is a JSON token record instead of text.
+  async _stream(input, alternatives = null) {
     if (!this.generator) {
       throw new Error("Generator model not initialized. Call init() first.");
     }
@@ -778,14 +858,18 @@ class BrowserLLM {
       items.push(item);
       wake();
     };
-    const streamer = new TextStreamer(this.generator.tokenizer, {
-      skip_prompt: true,
-      skip_special_tokens: true,
-      callback_function: push,
-    });
-    this.generate(input, false, streamer).then(() => push(''), push);
+    const extra = alternatives === null
+      ? {
+        streamer: new TextStreamer(this.generator.tokenizer, {
+          skip_prompt: true,
+          skip_special_tokens: true,
+          callback_function: push,
+        }),
+      }
+      : tokenRecorder(this.generator.tokenizer, alternatives, (record) => push(JSON.stringify(record)));
+    this.generate(input, false, extra).then(() => push(''), push);
     return {
-      // Resolves to the next nonempty text chunk, '' once generation ends, or rejects with its error.
+      // Resolves to the next nonempty chunk, '' once generation ends, or rejects with its error.
       read: async () => {
         while (!items.length) {
           await new Promise((resolve) => { wake = resolve; });
@@ -967,12 +1051,13 @@ async function getCachedModels() {
       const [modelId, revision, file] = match ? match.slice(1) : [null, null, request.url];
       const key = `${modelId}@${revision}`;
       if (!groups.has(key)) {
-        groups.set(key, { model_id: modelId, revision, model_type: null, task: null, files: [], size: 0 });
+        groups.set(key, { model_id: modelId, revision, model_type: null, task: null, files: [], file_sizes: {}, size: 0 });
       }
       const group = groups.get(key);
       group.files.push(file);
       const response = await cache.match(request);
       const length = response?.headers.get('content-length');
+      group.file_sizes[file] = length == null ? null : Number(length);
       group.size = group.size === null || length == null ? null : group.size + Number(length);
       if (modelId && file === 'config.json') {
         group.model_type = (await response.json().catch(() => null))?.model_type ?? null;
@@ -1149,19 +1234,22 @@ async function getModelTask(modelName) {
   return (await fetchHubModel(resolveModelId(modelName).split('@')[0], 5000))?.pipeline_tag ?? null;
 }
 
-// --- expose globally (critical for Python) ---
+// --- expose to Python as globalThis.lmLite (critical) ---
 
-globalThis.BrowserLLM = BrowserLLM;
-globalThis.createLLM = createLLM;
-globalThis.isModelCached = isModelCached;
-globalThis.loadModelToCache = loadModelToCache;
-globalThis.clearModelCache = clearModelCache;
-globalThis.getCachedModels = getCachedModels;
-globalThis.cosineSimilarity = cosineSimilarity;
-globalThis.cosineSimilarityBatch = cosineSimilarityBatch;
-globalThis.getModelLatestRevision = getModelLatestRevision;
-globalThis.getHostedModelBase = getHostedModelBase;
-globalThis.getModelInfo = getModelInfo;
-globalThis.getModelTask = getModelTask;
+// One namespace keeps the kernel's global scope clean.
+globalThis.lmLite = {
+  BrowserLLM,
+  createLLM,
+  isModelCached,
+  loadModelToCache,
+  clearModelCache,
+  getCachedModels,
+  cosineSimilarity,
+  cosineSimilarityBatch,
+  getModelLatestRevision,
+  getHostedModelBase,
+  getModelInfo,
+  getModelTask,
+};
 
 undefined;

@@ -83,9 +83,7 @@ async def _get_latest_revision(model_id: str) -> str | None:
     """
     # Try JS fetch first (for Pyodide/JupyterLite environments)
     try:
-        import js as js_runtime
-
-        get_revision_js = getattr(js_runtime, "getModelLatestRevision", None)
+        get_revision_js = getattr(_runtime(), "getModelLatestRevision", None)
         if get_revision_js is not None:
             try:
                 result = await get_revision_js(model_id)
@@ -351,12 +349,22 @@ class ModelInfo:
     error: str | None = None
 
 
+def _check_alternatives(alternatives):
+    if isinstance(alternatives, bool) or not isinstance(alternatives, int) or alternatives < 0:
+        raise ValueError(f"alternatives must be a nonnegative integer, got {alternatives!r}")
+
+
+def _runtime():
+    """The JS runtime namespace, ``globalThis.lmLite``, or None when it is not loaded."""
+    import js
+
+    return getattr(js, "lmLite", None)
+
+
 def _js_function(name):
     ensure_runtime()
 
-    import js as js_runtime
-
-    fn = getattr(js_runtime, name, None)
+    fn = getattr(_runtime(), name, None)
     if fn is None:
         raise RuntimeError(f"JS runtime missing {name}; restart the kernel to reload lmLite")
     return fn
@@ -378,7 +386,8 @@ async def cached_models():
     """List models in the Transformers.js browser cache as dicts, or None if the Cache API is unavailable.
 
     Each dict has ``model_id``, ``revision``, ``model_type`` (from the cached config.json), ``task`` (the Hub
-    pipeline tag, None offline), ``files`` and ``size``. Hosted model files and /drive/models ZIPs are not included.
+    pipeline tag, None offline), ``files``, ``file_sizes`` (name to size, None if unknown) and ``size``.
+    Hosted model files and /drive/models ZIPs are not included.
     """
     return _to_python_deep(await _js_function("getCachedModels")())
 
@@ -446,9 +455,7 @@ class LLM:
         import sys
         import zipfile
 
-        ensure_runtime()
-
-        from js import createLLM
+        createLLM = _js_function("createLLM")
 
         config = {**cls.DEFAULTS, **overrides}
 
@@ -466,8 +473,7 @@ class LLM:
                     models_to_detect.append(model_name)
 
             if models_to_detect:
-                import js as js_runtime
-
+                js_runtime = _runtime()
                 is_model_cached = getattr(js_runtime, "isModelCached", None)
                 load_model_to_cache = getattr(js_runtime, "loadModelToCache", None)
                 hosted_model_base = None
@@ -710,12 +716,33 @@ class LLM:
         """Async iterator over newly generated text chunks, never including the prompt."""
         return self._stream("generateStream", prompt)
 
-    async def _stream(self, method, arg):
-        stream = await getattr(self.js, method)(arg)
+    def chat_tokens(self, messages, alternatives=1):
+        """Async iterator over ``chat()`` response tokens with their probabilities.
+
+        Yields ``{"text", "prob", "alternatives": [{"text", "prob"}, ...]}`` per token, where
+        ``alternatives`` are the ``alternatives`` most probable other tokens at that step.
+        Probabilities are those the token picker used (after repetition penalty, and temperature
+        when sampling). Joined ``text`` values equal joined ``chat_stream()`` chunks. Cancellation
+        and concurrency behave as in ``chat_stream()``.
+        """
+        import json
+
+        _check_alternatives(alternatives)
+        return self._stream("chatTokens", json.dumps(messages, allow_nan=False), alternatives, parse=json.loads)
+
+    def generate_tokens(self, prompt: str, alternatives=1):
+        """Like ``chat_tokens()`` for a plain prompt; never includes the prompt."""
+        import json
+
+        _check_alternatives(alternatives)
+        return self._stream("generateTokens", prompt, alternatives, parse=json.loads)
+
+    async def _stream(self, method, *args, parse=None):
+        stream = await getattr(self.js, method)(*args)
         finished = False
         try:
             while chunk := _to_python_deep(await stream.read()):
-                yield chunk
+                yield parse(chunk) if parse else chunk
             finished = True
         finally:
             if not finished:
@@ -754,7 +781,7 @@ class LLM:
         Returns:
             List of (doc, similarity_score) tuples, sorted by similarity descending
         """
-        from js import cosineSimilarityBatch
+        cosineSimilarityBatch = _js_function("cosineSimilarityBatch")
 
         query_vec = await self.embed(query)
 

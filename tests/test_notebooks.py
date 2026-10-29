@@ -60,6 +60,10 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             finally:
                 self.streaming = False
 
+        async def chat_tokens(self, messages, alternatives=1):
+            async for chunk in self.chat_stream(messages):
+                yield {"text": chunk, "prob": 0.6, "alternatives": [{"text": " alt", "prob": 0.3}][:alternatives]}
+
         async def cancel(self):
             running, self.streaming = getattr(self, "streaming", False), False
             return running
@@ -123,7 +127,8 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
                     "revision": "main",
                     "model_type": "gpt2",
                     "task": "text-generation",
-                    "files": ["config.json"],
+                    "files": ["config.json", "onnx/model.onnx"],
+                    "file_sizes": {"config.json": 1_000_000, "onnx/model.onnx": None},
                     "size": 1_000_000,
                 },
                 {
@@ -132,12 +137,16 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
                     "model_type": None,
                     "task": None,
                     "files": ["other.bin"],
+                    "file_sizes": {"other.bin": None},
                     "size": None,
                 },
             ]
         ),
         raising=False,
     )
+    # The cache manager widget imports these from lmlite.llm, not from the lmlite package.
+    for name in ("LLM", "cached_models", "clear_cache"):
+        monkeypatch.setattr(f"lmlite.widgets.{name}", getattr(sys.modules["lmlite"], name))
     installer = types.ModuleType("install")
     installer._ = AsyncMock()
     monkeypatch.setitem(sys.modules, "install", installer)
@@ -155,7 +164,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         result = eval(code, namespace)
         if inspect.isawaitable(result):
             await result
-    if path.name == "orchestration.ipynb":
+    if path.name == "ch09_orchestration.ipynb":
         panel = namespace["panel"]
         panel.question.value = "<script>alert('test')</script>"
         panel.send.click()
@@ -210,64 +219,49 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         panel.release.click()
         await panel.task
         assert panel.closed and panel.send.disabled and panel.release.disabled
-    if path.name == "model-info.ipynb":
-        manager = namespace["manager"]
-        clear_cache = namespace["clear_cache"]
-        assert [label.value for label in manager.header.children] == ["Architecture", "Task", "Model"]
-        (model_row,) = manager.rows.children  # the non-model entry is hidden
-        assert [label.value for label in model_row.children[:2]] == ["gpt2", "text-generation"]
-        assert model_row.children[2].value.startswith("Xenova/distilgpt2@main")
-        clear_cache.reset_mock()
-        model_row.children[-1].click()
-        assert manager.load.disabled
-        await manager.task
-        clear_cache.assert_awaited_once_with(model="Xenova/distilgpt2")
-        assert not manager.load.disabled and manager.status.value == "1 cached, 1.0 MB"
-        manager.load.click()
-        await manager.task
-        assert "Enter a model ID" in manager.status.value
-        manager.model.value = " Xenova/gpt2 "
-        manager.load.click()
-        await manager.task
-        assert instances[-1].config["generator_model"] == "Xenova/gpt2" and instances[-1].disposed
-        # Overrides pick the matching loader; SUPPORTED_TASKS go through LLM.pipeline().
-        for task, key, expected in [
-            ("feature-extraction", "embedding_model", "Xenova/gpt2"),
-            ("translation", "task", "translation"),
-        ]:
-            manager.task_choice.value = task
-            manager.load.click()
-            await manager.task
-            assert instances[-1].config[key] == expected and instances[-1].disposed
-        manager.task_choice.value = None
-        for tag, message in [(None, "No task found on the Hub"), ("image-to-text", "cannot load 'image-to-text'")]:
-            count = len(instances)
-            hub_tags["Xenova/gpt2"] = tag
-            manager.load.click()
-            await manager.task
-            assert message in manager.status.value and len(instances) == count
+    if path.name == "ch99_model-info.ipynb":
+        # Widget behavior is covered by test_widgets.py; check the notebook wires it up.
+        (model_row,) = namespace["manager"].rows.children
+        assert model_row.children[2].titles[0].startswith("Xenova/distilgpt2@main")
     assert instances
     assert all(instance.disposed for instance in instances)
-    if path.name == "demo.ipynb":
+    if path.name == "ch01_demo.ipynb":
         assert len(instances) == 1
         assert instances[0].config["generator_model"] == "distilgpt2"
         assert instances[0].config["embedding_model"] == "all-MiniLM-L6-v2"
         assert instances[0].config["backend"] == "wasm"
-    if path.name in {"demo.ipynb", "orchestration.ipynb", "generation-tinyllama.ipynb", "generation-lamini.ipynb"}:
+    if path.name in {
+        "ch01_demo.ipynb",
+        "ch09_orchestration.ipynb",
+        "ch04_generation-tinyllama.ipynb",
+        "ch05_generation-lamini.ipynb",
+    }:
         assert instances[0].config["return_full_text"] is False
-    if path.name == "model-info.ipynb":
+    if path.name == "ch99_model-info.ipynb":
         assert callable(instances[0].config["progress_callback"])
-    if path.name == "streaming.ipynb":
+    if path.name == "ch10_streaming.ipynb":
         assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-135M-Instruct"
         assert len(namespace["chunks"]) > 1
         assert namespace["task"].result() == ["Example "]
-    if path.name == "tasks.ipynb":
+    if path.name == "ch11_token-scores.ipynb":
+        assert instances[0].config["do_sample"] is False
+        assert namespace["runner_ups"] == [{"text": " alt", "prob": 0.3}] * 2
+    if path.name == "ch08_tasks.ipynb":
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]
-    if path.name == "orchestration.ipynb":
+    if path.name == "ch09_orchestration.ipynb":
         assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-360M-Instruct"
         assert instances[0].config["backend"] == "wasm"
         assert chats
         assert all(messages[0]["role"] == "system" for messages in chats)
         assert all(messages[-1]["role"] == "user" for messages in chats)
         assert not prompts
+
+
+def test_demo_lists_notebooks_in_file_order():
+    demo = json.loads((NOTEBOOKS / "ch01_demo.ipynb").read_text())
+    source = demo["cells"][0]["source"]
+    links = re.findall(r"\]\(([^)]+\.ipynb)\)", "".join(source) if isinstance(source, list) else source)
+    others = sorted(path.name for path in NOTEBOOKS.glob("ch*.ipynb") if path.name != "ch01_demo.ipynb")
+    assert links == others
+    assert links[-1] == "ch99_model-info.ipynb"
