@@ -763,7 +763,6 @@ class BrowserLLM {
     if (!this.generator) {
       throw new Error("Generator model not initialized. Call init() first.");
     }
-    const { InterruptableStoppingCriteria } = await import(TRANSFORMERS_URL);
     if (this._generation?.cancelled) {
       // An interrupted generation stops after its current token; let it finish.
       await this._generation.done;
@@ -771,9 +770,15 @@ class BrowserLLM {
     if (this._generation) {
       throw new Error("Another generation is running on this instance; await it or call cancel() first.");
     }
-    const generation = this._generation = { stopping_criteria: new InterruptableStoppingCriteria(), cancelled: false };
+    // Claim the instance before awaiting anything, so cancel() during the import below is not lost.
+    const generation = this._generation = { stopping_criteria: null, cancelled: false };
     const run = (async () => {
       try {
+        const { InterruptableStoppingCriteria } = await import(TRANSFORMERS_URL);
+        generation.stopping_criteria = new InterruptableStoppingCriteria();
+        if (generation.cancelled) {
+          generation.stopping_criteria.interrupt();
+        }
         return await this.generator(prompt, {
           max_new_tokens: this.max_new_tokens,
           return_full_text: returnFullText,
@@ -811,7 +816,7 @@ class BrowserLLM {
       return false;
     }
     generation.cancelled = true;
-    generation.stopping_criteria.interrupt();
+    generation.stopping_criteria?.interrupt();  // null until the runtime has loaded
     await generation.done;
     return true;
   }

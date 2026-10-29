@@ -840,6 +840,15 @@ describe('BrowserLLM streaming and cancel()', () => {
     expect((await first).length).toBeLessThan(3);
   });
 
+  it('cancel() right after starting is not lost while the runtime loads', async () => {
+    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    llm.generator = streamingGenerator(['a', 'b', 'c']);
+    const first = llm.chat(messages);
+    expect(await llm.cancel()).toBe(true);
+    expect((await first).length).toBeLessThan(3);
+    expect(await llm.chat(messages)).toBe('abc');
+  });
+
   it('rejects concurrent generations and surfaces stream errors from read()', async () => {
     const llm = new BrowserLLM({ generator_model: 'org/chat' });
     llm.generator = streamingGenerator(['a', 'b']);
