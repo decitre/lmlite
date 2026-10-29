@@ -2,6 +2,8 @@
 
 const DEFAULT_MODEL_NAMESPACE = 'Xenova';
 
+const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers';
+
 // Transformers.js tasks exposed through the generic pipeline interface.
 // Generation, embeddings and text classification keep their dedicated methods.
 const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation'];
@@ -158,6 +160,19 @@ function modelFilePathFromUrl(requestUrl, modelId) {
   return pathname.split('/').pop();
 }
 
+// On WASM a generation step only awaits microtasks, which starves macrotasks: kernels resume
+// Python (streamed chunks, cancel() from a widget) through setTimeout. Yield one per step.
+function yieldBeforeEachStep(model) {
+  if (typeof model?.forward !== 'function') {
+    return;
+  }
+  const forward = model.forward.bind(model);
+  model.forward = async (...args) => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return forward(...args);
+  };
+}
+
 class BrowserLLM {
   constructor(config) {
     this.generatorModel = config.generator_model;
@@ -241,9 +256,7 @@ class BrowserLLM {
       }
     };
     report('', 'initializing');
-    const { pipeline, env } = await import(
-      "https://cdn.jsdelivr.net/npm/@huggingface/transformers"
-    );
+    const { pipeline, env } = await import(TRANSFORMERS_URL);
 
     if (!['wasm', 'webgpu'].includes(this.backend)) {
       throw new Error(
@@ -289,6 +302,7 @@ class BrowserLLM {
             progress_callback: onProgress(generatorModelId)
           }
         );
+        yieldBeforeEachStep(this.generator.model);
         console.log(`Model loaded successfully: ${this.generatorModel}`);
         console.log(`Warming up model...`);
         report(generatorModelId, 'warming up');
@@ -674,20 +688,38 @@ class BrowserLLM {
     }
   }
 
-  async generate(prompt, returnFullText = this.return_full_text) {
+  async generate(prompt, returnFullText = this.return_full_text, streamer = undefined) {
     if (!this.generator) {
       throw new Error("Generator model not initialized. Call init() first.");
     }
+    const { InterruptableStoppingCriteria } = await import(TRANSFORMERS_URL);
+    if (this._generation?.cancelled) {
+      // An interrupted generation stops after its current token; let it finish.
+      await this._generation.done;
+    }
+    if (this._generation) {
+      throw new Error("Another generation is running on this instance; await it or call cancel() first.");
+    }
+    const generation = this._generation = { stopping_criteria: new InterruptableStoppingCriteria(), cancelled: false };
+    const run = (async () => {
+      try {
+        return await this.generator(prompt, {
+          max_new_tokens: this.max_new_tokens,
+          return_full_text: returnFullText,
+          temperature: this.temperature,
+          top_k: this.top_k,
+          do_sample: this.do_sample,
+          streamer,
+          stopping_criteria: generation.stopping_criteria,
+        });
+      } finally {
+        this._generation = null;
+      }
+    })();
+    generation.done = run.catch(() => {});
 
     try {
-      const output = await this.generator(prompt, {
-        max_new_tokens: this.max_new_tokens,
-        return_full_text: returnFullText,
-        temperature: this.temperature,
-        top_k: this.top_k,
-        do_sample: this.do_sample
-      });
-
+      const output = await run;
       return output[0].generated_text;
     } catch (error) {
       throw new Error(
@@ -701,7 +733,76 @@ class BrowserLLM {
     }
   }
 
+  // Stops the running generate()/chat()/stream after the current token; they return the partial text.
+  async cancel() {
+    const generation = this._generation;
+    if (!generation) {
+      return false;
+    }
+    generation.cancelled = true;
+    generation.stopping_criteria.interrupt();
+    await generation.done;
+    return true;
+  }
+
   async chat(messages) {
+    const input = this._chatInput(messages);
+    const output = await this.generate(input, false);
+    if (typeof input === 'string') {
+      return output.trim();
+    }
+    const answer = Array.isArray(output) ? output.at(-1) : null;
+    if (answer?.role !== 'assistant' || typeof answer.content !== 'string') {
+      throw new Error("Chat pipeline returned an invalid assistant message.");
+    }
+    return answer.content.trim();
+  }
+
+  async chatStream(messages) {
+    return this._stream(this._chatInput(messages));
+  }
+
+  async generateStream(prompt) {
+    return this._stream(prompt);
+  }
+
+  // Pull-based so both Python bridges can await chunks without JS→Python callbacks.
+  async _stream(input) {
+    if (!this.generator) {
+      throw new Error("Generator model not initialized. Call init() first.");
+    }
+    const { TextStreamer } = await import(TRANSFORMERS_URL);
+    const items = [];
+    let wake = () => {};
+    const push = (item) => {
+      items.push(item);
+      wake();
+    };
+    const streamer = new TextStreamer(this.generator.tokenizer, {
+      skip_prompt: true,
+      skip_special_tokens: true,
+      callback_function: push,
+    });
+    this.generate(input, false, streamer).then(() => push(''), push);
+    return {
+      // Resolves to the next nonempty text chunk, '' once generation ends, or rejects with its error.
+      read: async () => {
+        while (!items.length) {
+          await new Promise((resolve) => { wake = resolve; });
+        }
+        const item = items[0];
+        if (typeof item !== 'string') {
+          throw item;
+        }
+        if (item) {
+          items.shift();
+        }
+        return item;
+      },
+    };
+  }
+
+  _chatInput(messages) {
     if (!this.generator) {
       throw new Error("Generator model not initialized. Call init() first.");
     }
@@ -722,20 +823,13 @@ class BrowserLLM {
 
     if (this.generator.tokenizer?.chat_template) {
       // The pipeline applies the tokenizer's template and avoids duplicate special tokens.
-      const conversation = await this.generate(normalized, false);
-      const answer = Array.isArray(conversation) ? conversation.at(-1) : null;
-      if (answer?.role !== 'assistant' || typeof answer.content !== 'string') {
-        throw new Error("Chat pipeline returned an invalid assistant message.");
-      }
-      return answer.content.trim();
+      return normalized;
     }
 
-    const prompt = normalized.map(({ role, content }) => {
+    return normalized.map(({ role, content }) => {
       const label = role === 'user' ? 'User' : role === 'assistant' ? 'Assistant' : role;
       return `${label}: ${content}\n`;
     }).join('') + 'Assistant:';
-    const answer = await this.generate(prompt, false);
-    return answer.trim();
   }
 
   async embed(text) {
@@ -967,9 +1061,7 @@ async function getModelInfo(modelName, task = null, backend = 'wasm', dtype = nu
     cache_status: 'unknown', download_bytes: null, files: [], error: null,
   };
   try {
-    const { ModelRegistry, env } = await import(
-      "https://cdn.jsdelivr.net/npm/@huggingface/transformers"
-    );
+    const { ModelRegistry, env } = await import(TRANSFORMERS_URL);
     env.useBrowserCache = true;
     if (!info.task) {
       info.task = await getModelTask(modelId);

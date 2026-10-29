@@ -4,6 +4,15 @@ import './llm.js';
 vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers', () => ({
   pipeline: vi.fn(),
   env: {},
+  InterruptableStoppingCriteria: class {
+    interrupted = false;
+    interrupt() { this.interrupted = true; }
+  },
+  // Emits each streamed token as one chunk, like TextStreamer's callback_function.
+  TextStreamer: class {
+    constructor(tokenizer, options) { this.options = options; }
+    put(text) { this.options.callback_function(text); }
+  },
   ModelRegistry: {
     get_available_dtypes: vi.fn(),
     is_pipeline_cached_files: vi.fn(),
@@ -245,6 +254,22 @@ describe('BrowserLLM initialization progress', () => {
     expect(callback).toHaveBeenCalledWith('Xenova/gpt2', 'warming up', '', 0, 0);
     expect(generator).toHaveBeenCalledWith('test', { max_new_tokens: 1 });
     expect(callback).toHaveBeenLastCalledWith('', 'ready', '', 0, 0);
+  });
+
+  it('yields a macrotask before each generation step so kernels can resume between tokens', async () => {
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const events = [];
+    const forward = vi.fn(async function () { events.push(this === model ? 'forward' : 'unbound'); });
+    const model = { forward };
+    const generator = Object.assign(vi.fn(async () => []), { model });
+    pipeline.mockImplementation(async () => generator);
+    const llm = new BrowserLLM({ generator_model: 'gpt2' });
+    await llm.init();
+
+    setTimeout(() => events.push('macrotask'), 0);
+    await llm.generator.model.forward('inputs');
+    expect(events).toEqual(['macrotask', 'forward']);
+    expect(forward).toHaveBeenCalledWith('inputs');
   });
 
   it.each(['embedding_model', 'classification_model'])(
@@ -648,7 +673,7 @@ describe('BrowserLLM.generate()', () => {
 
     const result = await llm.generate('Hello');
 
-    expect(llm.generator).toHaveBeenCalledWith('Hello', { max_new_tokens: 100, return_full_text: true, temperature: 0.7, top_k: 50, do_sample: true });
+    expect(llm.generator).toHaveBeenCalledWith('Hello', { max_new_tokens: 100, return_full_text: true, temperature: 0.7, top_k: 50, do_sample: true, stopping_criteria: expect.anything() });
     expect(result).toBe('Hello world');
   });
 
@@ -658,7 +683,7 @@ describe('BrowserLLM.generate()', () => {
 
     expect(await llm.generate('Hello')).toBe('world');
     expect(llm.generator).toHaveBeenCalledWith('Hello', {
-      max_new_tokens: 50, return_full_text: false, temperature: 0.7, top_k: 50, do_sample: true
+      max_new_tokens: 50, return_full_text: false, temperature: 0.7, top_k: 50, do_sample: true, stopping_criteria: expect.anything()
     });
   });
 });
@@ -698,7 +723,7 @@ describe('BrowserLLM.chat()', () => {
     expect(await llm.chat(messages)).toBe('Embeddings represent meaning. Assistant: is a label.');
     expect(llm.generator).toHaveBeenCalledWith(
       [{ role: 'system', content: 'Be helpful.' }, ...messages.slice(1)],
-      { max_new_tokens: 50, return_full_text: false, temperature: 0.7, top_k: 50, do_sample: true }
+      { max_new_tokens: 50, return_full_text: false, temperature: 0.7, top_k: 50, do_sample: true, stopping_criteria: expect.anything() }
     );
     expect(llm.return_full_text).toBe(true);
     expect(messages[0].role).toBe('SYSTEM');
@@ -744,6 +769,92 @@ describe('BrowserLLM.chat()', () => {
     llm.generator = vi.fn(async () => [{ generated_text: 'unexpected string' }]);
     llm.generator.tokenizer = { chat_template: 'template' };
     await expect(llm.chat([{ role: 'user', content: 'Hi' }])).rejects.toThrow('invalid assistant message');
+  });
+});
+
+describe('BrowserLLM streaming and cancel()', () => {
+  // Emits one token per macrotask and honours the stopping criteria like model.generate().
+  function streamingGenerator(tokens) {
+    const generator = vi.fn(async (input, { streamer, stopping_criteria }) => {
+      let text = '';
+      for (const token of tokens) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (stopping_criteria.interrupted) {
+          break;
+        }
+        streamer?.put(token);
+        text += token;
+      }
+      return [{ generated_text: Array.isArray(input) ? [...input, { role: 'assistant', content: text }] : text }];
+    });
+    generator.tokenizer = { chat_template: 'template' };
+    return generator;
+  }
+
+  async function readAll(stream) {
+    const chunks = [];
+    for (let chunk; (chunk = await stream.read());) {
+      chunks.push(chunk);
+    }
+    return chunks;
+  }
+
+  const messages = [{ role: 'user', content: 'Hi' }];
+
+  it('streams chunks that join to the chat() answer', async () => {
+    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    llm.generator = streamingGenerator([' Hello', ' there', '! ']);
+    const stream = await llm.chatStream(JSON.stringify(messages));
+    const chunks = await readAll(stream);
+    expect(chunks).toEqual([' Hello', ' there', '! ']);
+    expect(await stream.read()).toBe('');
+    expect(chunks.join('').trim()).toBe(await llm.chat(messages));
+    expect(llm.generator.mock.calls[0][1].return_full_text).toBe(false);
+  });
+
+  it('streams plain text generation without the prompt', async () => {
+    const llm = new BrowserLLM({ generator_model: 'gpt2', return_full_text: true });
+    llm.generator = streamingGenerator(['a', 'b']);
+    expect(await readAll(await llm.generateStream('prompt'))).toEqual(['a', 'b']);
+    expect(llm.generator.mock.calls[0][1].return_full_text).toBe(false);
+  });
+
+  it('cancel() ends the stream early and leaves the instance reusable', async () => {
+    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    llm.generator = streamingGenerator(['a', 'b', 'c', 'd']);
+    expect(await llm.cancel()).toBe(false);
+    const stream = await llm.chatStream(messages);
+    expect(await stream.read()).toBe('a');
+    expect(await llm.cancel()).toBe(true);
+    expect((await readAll(stream)).length).toBeLessThan(3);
+    expect(await llm.chat(messages)).toBe('abcd');
+  });
+
+  it('a new generation waits for a cancelled one instead of failing', async () => {
+    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    llm.generator = streamingGenerator(['a', 'b', 'c']);
+    const first = llm.chat(messages);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    llm.cancel();  // fire-and-forget, as Python does when a stream is closed early
+    expect(await llm.chat(messages)).toBe('abc');
+    expect((await first).length).toBeLessThan(3);
+  });
+
+  it('rejects concurrent generations and surfaces stream errors from read()', async () => {
+    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    llm.generator = streamingGenerator(['a', 'b']);
+    const first = llm.chat(messages);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const second = await llm.chatStream(messages);
+    await expect(second.read()).rejects.toThrow('Another generation is running');
+    await expect(second.read()).rejects.toThrow('Another generation is running');
+    expect(await first).toBe('ab');
+  });
+
+  it('rejects streaming without a generator', async () => {
+    const llm = new BrowserLLM({});
+    await expect(llm.generateStream('x')).rejects.toThrow('Generator model not initialized');
+    await expect(llm.chatStream(messages)).rejects.toThrow('Generator model not initialized');
   });
 });
 

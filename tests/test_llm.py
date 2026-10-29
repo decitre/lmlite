@@ -496,6 +496,54 @@ class TestLLMChat:
             await LLM(instance).chat([{"role": "user", "content": "Hello"}])
 
 
+class TestLLMStreaming:
+    @staticmethod
+    def _instance(*chunks):
+        stream = MagicMock(read=AsyncMock(side_effect=chunks))
+        return MagicMock(chatStream=AsyncMock(return_value=stream), generateStream=AsyncMock(return_value=stream))
+
+    async def test_chat_stream_yields_chunks_until_end(self):
+        from lmlite import LLM
+
+        instance = self._instance(" Hel", "lo", "")
+        messages = [{"role": "user", "content": "Hi"}]
+        stream = LLM(instance).chat_stream(messages)
+        instance.chatStream.assert_not_called()  # lazy until iterated
+        assert [chunk async for chunk in stream] == [" Hel", "lo"]
+        instance.chatStream.assert_awaited_once_with(json.dumps(messages))
+        instance.cancel.assert_not_called()
+
+    async def test_generate_stream(self):
+        from lmlite import LLM
+
+        instance = self._instance("a", "")
+        assert [chunk async for chunk in LLM(instance).generate_stream("p")] == ["a"]
+        instance.generateStream.assert_awaited_once_with("p")
+
+    async def test_closing_stream_early_cancels(self):
+        from lmlite import LLM
+
+        instance = self._instance("a", "b", "")
+        stream = LLM(instance).chat_stream([{"role": "user", "content": "Hi"}])
+        assert await anext(stream) == "a"
+        await stream.aclose()
+        instance.cancel.assert_called_once_with()
+
+    async def test_stream_error_propagates(self):
+        from lmlite import LLM
+
+        instance = self._instance("a", RuntimeError("generation failed"))
+        with pytest.raises(RuntimeError, match="generation failed"):
+            [chunk async for chunk in LLM(instance).chat_stream([{"role": "user", "content": "Hi"}])]
+
+    async def test_cancel(self):
+        from lmlite import LLM
+
+        instance = MagicMock(cancel=AsyncMock(return_value=True))
+        assert await LLM(instance).cancel() is True
+        instance.cancel.assert_awaited_once_with()
+
+
 class TestLLMAutoDetect:
     """Test auto-detection and cache injection of local models."""
 

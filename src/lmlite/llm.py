@@ -695,6 +695,41 @@ class LLM:
         # dict conversion options; JavaScript parses it into plain objects.
         return await self.js.chat(json.dumps(messages, allow_nan=False))
 
+    def chat_stream(self, messages):
+        """Async iterator over ``chat()`` response text chunks as they are generated.
+
+        ``"".join(chunks).strip()`` is the ``chat()`` answer. Generation starts on the
+        first iteration; leaving the loop early (``break``, an exception or an interrupt)
+        cancels it. One generation runs per instance at a time.
+        """
+        import json
+
+        return self._stream("chatStream", json.dumps(messages, allow_nan=False))
+
+    def generate_stream(self, prompt: str):
+        """Async iterator over newly generated text chunks, never including the prompt."""
+        return self._stream("generateStream", prompt)
+
+    async def _stream(self, method, arg):
+        stream = await getattr(self.js, method)(arg)
+        finished = False
+        try:
+            while chunk := _to_python_deep(await stream.read()):
+                yield chunk
+            finished = True
+        finally:
+            if not finished:
+                # Not awaited: the interrupt is synchronous in JS, and a generator closed
+                # by garbage collection cannot await.
+                self.js.cancel()
+
+    async def cancel(self):
+        """Stop the running generation after its current token; return False if none was running.
+
+        Streams end early without error and ``generate()``/``chat()`` return the partial text.
+        """
+        return bool(_to_python_deep(await self.js.cancel()))
+
     async def embed(self, text: str):
         vec = await self.js.embed(text)
         return list(vec)

@@ -79,6 +79,7 @@ lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in
 
 > **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a supported browser-based Python environment (xeus-python or the JupyterLite Pyodide kernel) with JavaScript interoperability. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
 
+
 ## Feedback and Contributions
 
 lmLite is an experimental project exploring Python access to browser-native machine learning through Transformers.js.
@@ -91,6 +92,12 @@ Feedback is particularly welcome on:
 - Potential applications beyond JupyterLite.
 
 Please share suggestions, bug reports, and use cases through [GitHub Issues](https://github.com/decitre/lmlite/issues).
+
+### AI-Assisted Development
+
+Parts of this project were developed with the assistance of generative AI tools. The maintainer is responsible for the architecture, review, testing, and published code.
+
+AI-assisted contributions are welcome, provided contributors understand, review, and test their changes and take responsibility for their submissions.
 
 ## Documentation
 
@@ -107,7 +114,8 @@ Try lmLite directly in your browser, without installing anything.
 - **[Basic demo](https://decitre.github.io/lmlite/xeus/lab/index.html?path=demo.ipynb)** — Text generation, embeddings, classification, and similarity search.
 - **[Task pipelines](https://decitre.github.io/lmlite/xeus/lab/index.html?path=tasks.ipynb)** — Zero-shot classification, translation and speech recognition with `LLM.pipeline()`.
 - **[Model info and cache manager](https://decitre.github.io/lmlite/xeus/lab/index.html?path=model-info.ipynb)** — Download size and cache status before loading, loading progress from Python, and a widget to list, load and delete cached models.
-- **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
+- **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory and streamed, stoppable answers, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
+- **[Streaming chat](https://decitre.github.io/lmlite/xeus/lab/index.html?path=streaming.ipynb)** — Print a chat answer as it is generated, stop early with `break`, and cancel a running generation with `cancel()`, using SmolLM2-135M-Instruct (WASM).
 
 These examples run locally in the browser using Transformers.js.
 

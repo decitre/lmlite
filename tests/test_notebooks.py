@@ -4,6 +4,7 @@
 """Exercise example control flow without downloading models or requiring a browser."""
 
 import ast
+import asyncio
 import inspect
 import json
 import re
@@ -47,6 +48,21 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             assert not self.disposed and self.config.get("generator_model")
             chats.append(messages)
             return "Example completion."
+
+        async def chat_stream(self, messages):
+            self.streaming = True
+            try:
+                for chunk in (await self.chat(messages)).split(" "):
+                    if not self.streaming:
+                        return
+                    yield chunk + " "
+                    await asyncio.sleep(0)
+            finally:
+                self.streaming = False
+
+        async def cancel(self):
+            running, self.streaming = getattr(self, "streaming", False), False
+            return running
 
         async def embed(self, text):
             assert not self.disposed and self.config.get("embedding_model")
@@ -154,6 +170,21 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert "&lt;script&gt;" in panel.transcript.children[0].value
         assert namespace["memory"].get()[-1]["content"] == "Example completion."
         assert "Example completion." in panel.transcript.children[-1].value
+        assert panel.stop.disabled
+
+        original_chat = instances[0].chat
+        instances[0].chat = AsyncMock(return_value="one two three four five six")
+        panel.question.value = "Stop early"
+        panel.send.click()
+        assert not panel.stop.disabled
+        while "Assistant" not in panel.transcript.children[-1].value:
+            await asyncio.sleep(0)  # wait for the first streamed chunk
+        panel.stop.click()
+        await panel.task
+        partial = namespace["memory"].get()[-1]["content"]
+        assert partial and "one two three four five six".startswith(partial) and partial != "one two three four five six"
+        assert panel.status.value.startswith("Stopped") and panel.stop.disabled and not panel.busy
+        instances[0].chat = original_chat
         panel.clear.click()
         assert not panel.transcript.children and not namespace["memory"].get()
 
@@ -224,6 +255,10 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert instances[0].config["return_full_text"] is False
     if path.name == "model-info.ipynb":
         assert callable(instances[0].config["progress_callback"])
+    if path.name == "streaming.ipynb":
+        assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-135M-Instruct"
+        assert len(namespace["chunks"]) > 1
+        assert namespace["task"].result() == ["Example "]
     if path.name == "tasks.ipynb":
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]

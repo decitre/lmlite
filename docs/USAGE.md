@@ -239,6 +239,25 @@ answer = await llm.chat([
 
 Models without a tokenizer chat template retain the generic `User:` / `Assistant:` format; this does not make completion models instruction-tuned. Invalid messages, unsupported template roles, and template failures raise errors without retrying with a different format. Chat does not manage memory or retrieve documents automatically; the lcLite notebook demonstrates those separately.
 
+### Streaming and Cancellation
+
+`chat_stream(messages)` and `generate_stream(prompt)` are async iterators that yield text chunks as Transformers.js generates them, so the notebook shows output while the model runs.
+
+```python
+async for chunk in llm.chat_stream([
+    {"role": "user", "content": "Explain embeddings simply."},
+]):
+    print(chunk, end="", flush=True)
+```
+
+- **Chunks** are nonempty strings from Transformers.js's `TextStreamer` (special tokens skipped). It emits whole words, so a chunk is usually a word with its whitespace, not a single token. `"".join(chunks).strip()` is the `chat()` answer for the same tokens. `generate_stream()` never includes the prompt, whatever `return_full_text` is.
+- **Laziness**: generation starts when you first iterate, not when you call `chat_stream()`.
+- **Cancellation**: `await llm.cancel()` stops the running `generate()`, `chat()` or stream after its current token and returns `False` if nothing was running. A cancelled stream ends early without error; `generate()`/`chat()` return the partial text. The instance remains usable.
+- **Early exit**: leaving the loop (`break`, an exception, or a kernel interrupt) cancels the generation. Kernel interrupts reach Python only between chunks and only where the kernel supports interrupts; if one never arrives, restart the kernel.
+- **Concurrency**: one generation runs per instance at a time. Starting another while one is running raises an error (for streams, on the first chunk); a generation started right after a cancellation waits for it to stop instead.
+- **Errors** during generation are raised from the iterator.
+- **Backends**: streaming works with any generator model and backend. Cancellation is checked between tokens, so a slow first token (prompt processing on a long input) is not interrupted.
+
 ### Sentence Embeddings and Dtype Pinning
 
 `embed(text)` returns a flat, fixed-dimension sentence vector using attention-mask-weighted mean pooling and L2 normalization. Pooling makes token-level outputs suitable for sentence comparison; normalization makes dot products equivalent to cosine similarity for nonzero vectors. `similarity_search()` already normalizes when computing cosine scores.
