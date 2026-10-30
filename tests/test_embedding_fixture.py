@@ -30,3 +30,13 @@ def test_bundled_embedding_fixture_integrity_and_size():
     config = json.loads((root / "config.json").read_text())
     assert config["hidden_size"] == manifest["hidden_size"]
     assert config["num_hidden_layers"] == 1
+
+
+def test_tokenizer_fixture_matches_its_reference_ids():
+    root = Path(__file__).parent / "fixtures/models/lmlite/tiny-unigram"
+    manifest = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
+    # Editing tokenizer.json without rerunning the generator would leave stale expected ids.
+    for name, asset in manifest["assets"].items():
+        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == asset["sha256"], name
+    texts = [case["text"] for case in manifest["cases"]]
+    assert "" in texts and any(len(text) > 1000 for text in texts)

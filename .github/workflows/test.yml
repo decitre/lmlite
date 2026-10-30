@@ -105,12 +105,17 @@ jobs:
       - name: Run embedding smoke tests
         run: pixi run embedding-smoke --junitxml=embedding-smoke.xml
 
+      - name: Run tokenizer smoke tests
+        run: pixi run tokenizer-smoke --junitxml=tokenizer-smoke.xml
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: embedding-smoke-results
-          path: embedding-smoke.xml
+          path: |
+            embedding-smoke.xml
+            tokenizer-smoke.xml
           retention-days: 7
 
   task-smoke:

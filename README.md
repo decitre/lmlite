@@ -117,6 +117,7 @@ Try lmLite directly in your browser, without installing anything.
 - **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch09_orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory and streamed, stoppable answers, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
 - **[Streaming chat](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_streaming.ipynb)** — Print a chat answer as it is generated, stop early with `break`, and cancel a running generation with `cancel()`, using SmolLM2-135M-Instruct (WASM).
 - **[Token probabilities](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch11_token-scores.ipynb)** — Stream each generated token with its probability, plus the runner-up token at every step, using SmolLM2-135M-Instruct (WASM).
+- **[Tokenizers](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch12_tokenizers.ipynb)** — Load only the tokenizers of GPT-2, multilingual BERT and POTION (no weights), compare how they split text, and count tokens synchronously with `LLM.tokenizer()`.
 
 These examples run locally in the browser using Transformers.js.
 

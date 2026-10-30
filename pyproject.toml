@@ -155,6 +155,19 @@ torch = "==2.8.0"
 transformers = "==4.57.1"
 onnx = "==1.19.1"
 onnxruntime = "==1.23.2"
+tokenizers = "==0.22.1"
+
+[tool.pixi.feature.xeus-site.dependencies]
+python = "3.13.*"
+python-libarchive-c = "*"
+
+[tool.pixi.feature.xeus-site.pypi-dependencies]
+jupyter_server = "*"
+jupyterlite-core = "==0.8.6"
+jupyterlite-xeus = "==5.1.0"
+
+[tool.pixi.feature.xeus-site.tasks]
+xeus-tokenizer-smoke = "pytest tests/browser/test_tokenizer_xeus.py -m browser -v -s"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
@@ -165,6 +178,7 @@ python = "3.13.*"
 [tool.pixi.environments]
 default = ["dev"]
 model-fixture = ["dev", "model-fixture"]
+xeus-site = ["dev", "xeus-site"]
 py311 = ["py311", "dev"]
 py312 = ["py312", "dev"]
 py313 = ["py313", "dev"]
@@ -184,6 +198,8 @@ model-smoke = "pytest tests/browser/test_model_loading.py -m browser -v"
 embedding-smoke = "pytest tests/browser/test_embeddings.py -m browser -v"
 task-smoke = "pytest tests/browser/test_tasks.py -m browser -v"
 generate-embedding-fixture = "python scripts/generate_embedding_fixture.py"
+tokenizer-smoke = "pytest tests/browser/test_tokenizer.py -m browser -v"
+generate-tokenizer-fixture = "python scripts/generate_tokenizer_fixture.py"
 coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py --ignore=tests/browser -m 'not browser' && coverage report -m"
 lint = "ruff check src tests scripts --fix && ruff format src tests scripts"
 lint-check = "ruff check src tests scripts && ruff format src tests scripts --check"

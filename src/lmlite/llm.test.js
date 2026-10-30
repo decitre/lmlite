@@ -1,7 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import './llm.js';
 
-vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers', () => ({
+vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers', () => {
+  class PreTrainedTokenizer {
+    constructor(json, config) { this.json = json; this.config = config; }
+    get_vocab() { return new Map(this.json.model.vocab.map((token, id) => [token, id])); }
+    encode(text, { add_special_tokens = true } = {}) { return [...text].map(c => c.charCodeAt(0)).concat(add_special_tokens ? [0] : []); }
+    decode(ids) { return String.fromCharCode(...ids); }
+  }
+  class BertTokenizer extends PreTrainedTokenizer {}
+  return {
+  PreTrainedTokenizer,
+  BertTokenizer,
   pipeline: vi.fn(),
   env: {},
   InterruptableStoppingCriteria: class {
@@ -18,7 +28,8 @@ vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers', () => ({
     is_pipeline_cached_files: vi.fn(),
     get_file_metadata: vi.fn(),
   },
-}));
+  };
+});
 
 const {
   BrowserLLM,
@@ -32,6 +43,7 @@ const {
   getHostedModelBase,
   getModelInfo,
   getModelTask,
+  loadTokenizer,
 } = globalThis.lmLite;
 
 describe('Hosted model discovery', () => {
@@ -1448,5 +1460,82 @@ describe('getModelTask()', () => {
   ])('returns null for %s models', async (_case, response) => {
     vi.stubGlobal('fetch', vi.fn(response));
     expect(await getModelTask('org/model')).toBeNull();
+  });
+});
+
+describe('loadTokenizer()', () => {
+  const tokenizerJson = { model: { type: 'Unigram', vocab: ['<pad>', 'a', 'b'] } };
+  const json = (body) => new Response(JSON.stringify(body));
+  let requests;
+
+  // Serves the given URL suffixes; everything else is a 404.
+  const serve = (files) => {
+    requests = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      requests.push(String(url));
+      const match = Object.entries(files).find(([suffix]) => String(url).endsWith(suffix));
+      return match ? json(match[1]) : new Response('', { status: 404, statusText: 'Not Found' });
+    }));
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('loads a hosted model tokenizer without weights or a Hub lookup', async () => {
+    serve({
+      '/models/manifest.json': { models: ['org/potion'] },
+      '/models/org/potion/tokenizer.json': tokenizerJson,
+      '/models/org/potion/tokenizer_config.json': { tokenizer_class: 'BertTokenizerFast' },
+    });
+    const tokenizer = await loadTokenizer('org/potion', null, null, 'https://example.test/models/');
+
+    expect(requests.slice(1).sort()).toEqual([
+      'https://example.test/models/org/potion/tokenizer.json',
+      'https://example.test/models/org/potion/tokenizer_config.json',
+    ]);
+    expect(tokenizer.vocab_size).toBe(3);
+    expect(JSON.parse(tokenizer.encode('ab'))).toEqual([97, 98]);
+    expect(JSON.parse(tokenizer.encode('ab', true))).toEqual([97, 98, 0]);
+    expect(tokenizer.decode('[97,98]')).toBe('ab');
+  });
+
+  it('fetches Hub files at the requested revision and tolerates a missing tokenizer_config.json', async () => {
+    serve({ '/tokenizer.json': tokenizerJson });
+    const tokenizer = await loadTokenizer('gpt2@v1');
+
+    expect(requests.sort()).toEqual([
+      'https://huggingface.co/Xenova/gpt2/resolve/v1/tokenizer.json',
+      'https://huggingface.co/Xenova/gpt2/resolve/v1/tokenizer_config.json',
+    ]);
+    expect(tokenizer.vocab_size).toBe(3);
+  });
+
+  it('resolves tokenizer_json paths against the JupyterLite site root', async () => {
+    vi.stubGlobal('location', new URL('https://example.test/demo/extensions/kernel/worker.js'));
+    serve({ '/tok.json': tokenizerJson });
+    await loadTokenizer(null, 'files/models/org/potion/tok.json');
+
+    expect(requests).toEqual(['https://example.test/demo/files/models/org/potion/tok.json']);
+  });
+
+  it('picks the configured tokenizer class and falls back to the base class', async () => {
+    const transformers = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const construct = vi.spyOn(transformers.BertTokenizer.prototype, 'get_vocab');
+    serve({ '/tok.json': tokenizerJson, '/bert.json': { tokenizer_class: 'BertTokenizerFast' }, '/x.json': { tokenizer_class: 'pipeline' } });
+
+    await loadTokenizer(null, 'https://example.test/tok.json', 'https://example.test/bert.json');
+    expect(construct).toHaveBeenCalledTimes(1);
+    await loadTokenizer(null, 'https://example.test/tok.json', 'https://example.test/x.json');
+    expect(construct).toHaveBeenCalledTimes(1);
+    construct.mockRestore();
+  });
+
+  it.each([
+    [[null, 'https://example.test/missing.json'], '404 Not Found'],
+    [[null, 'https://example.test/tok.json', 'https://example.test/missing.json'], '404 Not Found'],
+    [[null, 'data:application/json,{}'], 'HTTP(S)'],
+  ])('fails at load time with the source in the message (%j)', async (args, message) => {
+    serve({ '/tok.json': tokenizerJson });
+    await expect(loadTokenizer(...args)).rejects.toThrow(`Failed to load tokenizer from '${args[1]}'`);
+    await expect(loadTokenizer(...args)).rejects.toThrow(message);
   });
 });

@@ -1918,3 +1918,62 @@ class TestAudioInput:
             _audio_input("missing.wav")
         with pytest.raises(ValueError, match="PCM WAV"):
             _audio_input(b"not a wav file")
+
+
+class TestTokenizer:
+    @pytest.fixture
+    def js(self, monkeypatch):
+        import sys
+
+        js = types.ModuleType("js")
+        handle = types.SimpleNamespace(
+            vocab_size=3,
+            encode=MagicMock(side_effect=lambda text, special: json.dumps([len(text)] + ([1] if special else []))),
+            decode=MagicMock(return_value="ab"),
+        )
+        js.lmLite = types.SimpleNamespace(loadTokenizer=AsyncMock(return_value=handle))
+        monkeypatch.setitem(sys.modules, "js", js)
+        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        return js
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"model": "org/m", "tokenizer_json": "t.json"}, {"model": "org/m", "tokenizer_config": "c.json"}],
+    )
+    async def test_argument_rules_fail_before_loading(self, js, kwargs):
+        from lmlite import LLM
+
+        with pytest.raises(ValueError):
+            await LLM.tokenizer(**kwargs)
+        js.lmLite.loadTokenizer.assert_not_awaited()
+
+    async def test_encode_is_sync_and_returns_plain_ints(self, js):
+        from lmlite import LLM, Tokenizer
+
+        tok = await LLM.tokenizer(tokenizer_json="files/models/org/m/tokenizer.json")
+
+        js.lmLite.loadTokenizer.assert_awaited_once_with(None, "files/models/org/m/tokenizer.json", None, None)
+        assert isinstance(tok, Tokenizer) and tok.vocab_size == 3
+        ids = tok.encode("abc")
+        assert ids == [3] and all(type(i) is int for i in ids)
+        assert tok.encode("abc", add_special_tokens=True) == [3, 1]
+        assert tok.decode([1, 2]) == "ab"
+        tok._js.decode.assert_called_once_with("[1, 2]")
+        with pytest.raises(TypeError):
+            tok.encode(b"abc")
+
+    async def test_close_is_idempotent_and_blocks_use(self, js):
+        from lmlite import LLM
+
+        tok = await LLM.tokenizer("org/m")
+        tok.close()
+        tok.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            tok.encode("a")
+
+    async def test_bridge_without_sync_results_fails_at_load_time(self, js):
+        from lmlite import LLM
+
+        js.lmLite.loadTokenizer.return_value.encode = MagicMock(return_value=object())  # e.g. a Promise proxy
+        with pytest.raises(RuntimeError, match="synchronously"):
+            await LLM.tokenizer("org/m")

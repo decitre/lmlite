@@ -126,6 +126,24 @@ WebGPU requires support in the browser, execution environment, model, and dtype;
 
 #### Task Pipeline Smoke Tests
 
+The opt-in `tokenizer-smoke` task checks `LLM.tokenizer()` in Chromium. It compares Transformers.js ids with reference ids from the Rust `tokenizers` library for a small bundled Unigram/Metaspace tokenizer (`tests/fixtures/models/lmlite/tiny-unigram/`). It also checks that no weight file or Hub request is made, and that `encode()` returns plain Python ints in Pyodide, which it loads from the jsDelivr CDN:
+
+```bash
+pixi run tokenizer-smoke
+```
+
+`xeus-tokenizer-smoke` runs the same checks in a real xeus-python kernel. It builds a JupyterLite xeus site from the current `src/lmlite` into a temporary directory, so it needs the `xeus-site` environment and network access to emscripten-forge:
+
+```bash
+pixi run -e xeus-site xeus-tokenizer-smoke
+```
+
+Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after changing the spec or test texts:
+
+```bash
+pixi run --environment model-fixture generate-tokenizer-fixture
+```
+
 The opt-in `task-smoke` task loads each `LLM.pipeline()` task (zero-shot classification, translation and speech recognition) through the browser runtime, with real models downloaded from the Hub:
 
 ```bash

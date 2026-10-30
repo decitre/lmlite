@@ -23,6 +23,7 @@ NOTEBOOKS = Path(__file__).resolve().parents[1] / "notebooks"
 @pytest.mark.parametrize("path", sorted(NOTEBOOKS.glob("*.ipynb")), ids=lambda path: path.stem)
 async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     instances = []
+    tokenizers = []
     prompts = []
     chats = []
     hub_tags = {}  # model -> Hub pipeline tag; unlisted models are text generation
@@ -115,6 +116,34 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
 
         async def dispose(self):
             self.disposed = True
+
+        @classmethod
+        async def tokenizer(cls, model=None, **options):
+            tokenizer = ExampleTokenizer(model)
+            tokenizers.append(tokenizer)
+            return tokenizer
+
+    class ExampleTokenizer:
+        vocab_size = 100
+
+        def __init__(self, model):
+            self.model = model
+            self.closed = False
+
+        def encode(self, text, *, add_special_tokens=False):
+            assert not self.closed and isinstance(text, str)
+            return (
+                [0, *range(1, len(text.split()) + 1), 0]
+                if add_special_tokens
+                else list(range(1, len(text.split()) + 1))
+            )
+
+        def decode(self, ids):
+            assert not self.closed
+            return " ".join(f"t{i}" for i in ids)
+
+        def close(self):
+            self.closed = True
 
     monkeypatch.setattr("lmlite.LLM", ExampleLLM)
     monkeypatch.setattr("lmlite.clear_cache", AsyncMock(return_value={"deleted_caches": [], "deleted_databases": []}))
@@ -223,8 +252,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         # Widget behavior is covered by test_widgets.py; check the notebook wires it up.
         (model_row,) = namespace["manager"].rows.children
         assert model_row.children[2].titles[0].startswith("Xenova/distilgpt2@main")
-    assert instances
+    assert instances or tokenizers
     assert all(instance.disposed for instance in instances)
+    assert all(tokenizer.closed for tokenizer in tokenizers)
     if path.name == "ch01_demo.ipynb":
         assert len(instances) == 1
         assert instances[0].config["generator_model"] == "distilgpt2"
@@ -246,6 +276,13 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     if path.name == "ch11_token-scores.ipynb":
         assert instances[0].config["do_sample"] is False
         assert namespace["runner_ups"] == [{"text": " alt", "prob": 0.3}] * 2
+    if path.name == "ch12_tokenizers.ipynb":
+        assert not instances, "The tokenizer notebook must not load model weights"
+        assert [t.model for t in tokenizers] == [
+            "gpt2",
+            "Xenova/bert-base-multilingual-cased",
+            "minishlab/potion-base-8M",
+        ]
     if path.name == "ch08_tasks.ipynb":
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]

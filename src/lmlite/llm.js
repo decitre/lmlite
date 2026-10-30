@@ -102,6 +102,16 @@ function modelIdCandidates(modelName) {
   return [...new Set([resolveModelId(modelName), modelName].filter(Boolean))];
 }
 
+// The JupyterLite site root URL (ending in '/'), or null when the page or worker URL does not identify it.
+function siteRoot() {
+  const location = globalThis.location;
+  if (!location || !['http:', 'https:'].includes(location.protocol)) {
+    return null;
+  }
+  const marker = location.pathname.match(/\/(?:extensions|lab|retro|tree)\//);
+  return marker ? `${location.origin}${location.pathname.slice(0, marker.index)}/` : null;
+}
+
 async function getHostedModelBase(modelName, configuredBase = null) {
   const [modelId, revision] = resolveModelId(modelName).split('@', 2);
   // Hosted trees represent one snapshot, not arbitrary Hub revisions.
@@ -110,15 +120,11 @@ async function getHostedModelBase(modelName, configuredBase = null) {
   }
   let base = configuredBase;
   if (!base) {
-    const location = globalThis.location;
-    if (!location || !['http:', 'https:'].includes(location.protocol)) {
+    const root = siteRoot();
+    if (!root) {
       return null;
     }
-    const marker = location.pathname.match(/\/(?:extensions|lab|retro|tree)\//);
-    if (!marker) {
-      return null;
-    }
-    base = `${location.origin}${location.pathname.slice(0, marker.index)}/files/models/`;
+    base = `${root}files/models/`;
   }
   const url = new URL(base.endsWith('/') ? base : `${base}/`, globalThis.location?.href);
   if (!['http:', 'https:'].includes(url.protocol)) {
@@ -1190,6 +1196,68 @@ async function getModelInfo(modelName, task = null, backend = 'wasm', dtype = nu
   return info;
 }
 
+// --- Tokenize-only handles ---
+
+async function fetchTokenizerFile(url, optional = false) {
+  const response = await fetch(url);
+  if (optional && response.status === 404) {
+    return {};
+  }
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText} for ${url}`);
+  }
+  return response.json();
+}
+
+// Fetches only tokenizer.json and tokenizer_config.json: no weights, no Hub task lookup, and nothing
+// written to the Cache API, where a tokenizer-only entry would make isModelCached() report the model cached.
+async function loadTokenizer(modelName = null, tokenizerJson = null, tokenizerConfig = null, hostedModelsUrl = null) {
+  try {
+    let jsonUrl, configUrl;
+    if (modelName) {
+      const [modelId, revision = 'main'] = resolveModelId(modelName).split('@', 2);
+      const base = await getHostedModelBase(modelName, hostedModelsUrl);
+      const root = base ? new URL(`${modelId}/`, base).href : `https://huggingface.co/${modelId}/resolve/${revision}/`;
+      [jsonUrl, configUrl] = [`${root}tokenizer.json`, `${root}tokenizer_config.json`];
+    } else {
+      // Relative paths resolve against the JupyterLite site root, like hosted files/models/.
+      const resolve = (path) => {
+        const url = new URL(path, siteRoot() ?? globalThis.location?.href);
+        if (!['http:', 'https:'].includes(url.protocol)) {
+          throw new Error(`tokenizer files must be HTTP(S) URLs, got ${url.href}`);
+        }
+        return url.href;
+      };
+      jsonUrl = resolve(tokenizerJson);
+      configUrl = tokenizerConfig ? resolve(tokenizerConfig) : null;
+    }
+    const [transformers, json, config] = await Promise.all([
+      import(TRANSFORMERS_URL),
+      fetchTokenizerFile(jsonUrl),
+      // A model without tokenizer_config.json still tokenizes from tokenizer.json alone.
+      configUrl ? fetchTokenizerFile(configUrl, Boolean(modelName)) : {},
+    ]);
+    // Pick the tokenizer class as AutoTokenizer does.
+    const { PreTrainedTokenizer } = transformers;
+    const name = config.tokenizer_class?.replace(/Fast$/, '');
+    const named = name ? transformers[name] : null;
+    const Tokenizer = named?.prototype instanceof PreTrainedTokenizer ? named : PreTrainedTokenizer;
+    const tokenizer = new Tokenizer(json, config);
+    return {
+      vocab_size: tokenizer.get_vocab().size,
+      // JSON keeps ids plain Python ints across both kernel bridges.
+      encode: (text, addSpecialTokens = false) =>
+        JSON.stringify(tokenizer.encode(text, { add_special_tokens: addSpecialTokens })),
+      decode: (ids) => tokenizer.decode(JSON.parse(ids)),
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to load tokenizer from '${modelName ?? tokenizerJson}': ${String(error?.message ?? error)}`,
+      { cause: error },
+    );
+  }
+}
+
 // --- Factory ---
 
 function createLLM(config) {
@@ -1255,6 +1323,7 @@ globalThis.lmLite = {
   getHostedModelBase,
   getModelInfo,
   getModelTask,
+  loadTokenizer,
 };
 
 undefined;
