@@ -27,6 +27,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     prompts = []
     chats = []
     hub_tags = {}  # model -> Hub pipeline tag; unlisted models are text generation
+    hosted_checks = []
 
     class ExampleLLM:
         def __init__(self, config):
@@ -93,6 +94,11 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
                 {"name": "onnx/model.onnx", "size": None, "cached": False},
             ]
             return ModelInfo(model, "main", task, backend, dtype, "partial", None, files)
+
+        @classmethod
+        async def hosted_base(cls, model_id, *, hosted_models_url=None):
+            hosted_checks.append(model_id)
+            return None
 
         @classmethod
         async def pipeline(cls, task, model, **options):
@@ -269,6 +275,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert instances[0].config["return_full_text"] is False
     if path.name == "ch99_model-info.ipynb":
         assert callable(instances[0].config["progress_callback"])
+        assert hosted_checks == ["Xenova/distilgpt2"]
     if path.name == "ch10_streaming.ipynb":
         assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-135M-Instruct"
         assert len(namespace["chunks"]) > 1

@@ -208,6 +208,8 @@ llm = await LLM.create(
 )
 ```
 
+To check where a model would load from without loading it, `await LLM.hosted_base("org/name")` returns the hosted base URL serving that model (for example `"https://my-site.com/files/models/"`), or `None` when it is not hosted. It accepts `hosted_models_url=` and starts the lmLite bridge if needed.
+
 ## Advanced Features
 
 ### Generation Without Prompt Echo

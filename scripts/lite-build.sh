@@ -90,6 +90,9 @@ bundle_models() {
     cp -R "$HOSTED_MODELS_DIR/." "$content_dir/models/"
 }
 
+JL_FORGE_VERSION="==0.2.0"
+XEUS_PREFIX="$WORKSPACE/xeus-root/envs/xeus-kernels"
+
 process_for_xeus() {
     printf "${YELLOW}Create venv-xeus${NC}\n"
     pushd "$WORKSPACE"
@@ -98,31 +101,22 @@ process_for_xeus() {
     source venv-xeus/bin/activate
 
     printf "${YELLOW}Install jupyter/xeus packages:${NC}\n"
-    $pip_cmd install jupyter_server jupyterlite-core jupyterlite-xeus libarchive-c
+    $pip_cmd install "jl-forge[xeus]$JL_FORGE_VERSION" jupyter_server jupyterlite-core libarchive-c
 
     printf "${YELLOW}Copy static content for jupyterlite-xeus site${NC}\n"
     cp "$NOTEBOOKS_DIR"/*.ipynb "$XEUS_WORKSPACE"
     bundle_models "$XEUS_WORKSPACE"
     ls -l "$XEUS_WORKSPACE"
 
-    cat << eof > environment.yml
-name: xeus-kernels
-channels:
-  - https://prefix.dev/emscripten-forge-dev
-  - https://prefix.dev/conda-forge
-dependencies:
-  - xeus-python
-  - tqdm
-  - ipywidgets
-
-eof
+    printf "${YELLOW}Create xeus-python environment${NC}\n"
+    jl-forge xeus-env --root-prefix "$WORKSPACE/xeus-root" --pyproject "$ROOT_DIR/pyproject.toml"
 
     jupyter lite build \
         --contents "$XEUS_WORKSPACE" \
         --output-dir "$XEUS_PUBLIC_DIR" \
-        --XeusAddon.environment_file=$(pwd)/environment.yml \
+        --XeusAddon.prefix="$XEUS_PREFIX" \
         --XeusAddon.mount_jupyterlite_content=True \
-        --XeusAddon.mounts="$ROOT_DIR/src/lmlite:/lib/python3.13/site-packages/lmlite"
+        --XeusAddon.mounts="$(jl-forge xeus-mount "$ROOT_DIR/src/lmlite" --prefix "$XEUS_PREFIX")"
 
     deactivate
     popd
@@ -137,7 +131,7 @@ process_for_pyodide() {
 
     printf "${YELLOW}Install jupyter/pyodide packages:${NC}\n"
     # https://pyodide.org/en/stable/usage/packages-in-pyodide.html
-    $pip_cmd install build -e '..' \
+    $pip_cmd install build "jl-forge$JL_FORGE_VERSION" -e '..' \
       jupyter_server jupyterlab_server jupyterlite-core jupyterlite-pyodide-kernel libarchive-c
 
     printf "${YELLOW}Build lmlite wheel${NC}\n"
@@ -146,16 +140,10 @@ process_for_pyodide() {
     printf "${YELLOW}Copy static content for jupyterlite-pyodide site${NC}\n"
     cp "$NOTEBOOKS_DIR"/*.ipynb "$PYODIDE_WORKSPACE"
 
-    printf "${YELLOW}Generate install.py${NC}\n"
-    $PYTHON_CMD "$SCRIPT_DIR/generate_install.py" \
-        --pyproject "$ROOT_DIR/pyproject.toml" \
-        --output "$PYODIDE_WORKSPACE/install.py" \
-        --wheel-dir "$PYODIDE_WORKSPACE" \
-        --package-name lmlite
-
-    printf "${YELLOW}Patch notebooks${NC}\n"
-    $PYTHON_CMD "$SCRIPT_DIR/patch_notebooks.py" \
-        --notebooks-dir "$PYODIDE_WORKSPACE"
+    printf "${YELLOW}Generate install.py and patch notebooks${NC}\n"
+    jl-forge pyodide-install --pyproject "$ROOT_DIR/pyproject.toml" \
+        --package-name lmlite --wheel-dir "$PYODIDE_WORKSPACE"
+    jl-forge notebooks "$PYODIDE_WORKSPACE" --pyodide-install
 
     bundle_models "$PYODIDE_WORKSPACE"
     ls -l "$PYODIDE_WORKSPACE"
@@ -165,6 +153,7 @@ process_for_pyodide() {
         --output-dir "$PYODIDE_PUBLIC_DIR" \
         --lite-dir "$PYODIDE_PUBLIC_DIR"
 
+    jl-forge urls "$PUBLIC_DIR"
     deactivate
     popd
 }
@@ -173,14 +162,3 @@ process_for_xeus
 process_for_pyodide
 
 printf "${YELLOW}Done${NC}\n"
-
-echo ""
-echo "Serve locally:"
-echo "python -m http.server 8000 --directory $PUBLIC_DIR 2>/dev/null"
-echo ""
-echo "JupyterLab Xeus UI:"
-echo "http://localhost:8000/xeus/"
-echo ""
-echo "JupyterLab Pyodide UI:"
-echo "http://localhost:8000/pyodide/"
-echo ""

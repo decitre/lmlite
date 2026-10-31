@@ -1977,3 +1977,33 @@ class TestTokenizer:
         js.lmLite.loadTokenizer.return_value.encode = MagicMock(return_value=object())  # e.g. a Promise proxy
         with pytest.raises(RuntimeError, match="synchronously"):
             await LLM.tokenizer("org/m")
+
+
+class TestHostedBase:
+    @pytest.fixture
+    def js(self, monkeypatch):
+        import sys
+
+        js = types.ModuleType("js")
+        js.lmLite = types.SimpleNamespace(getHostedModelBase=AsyncMock(return_value="https://example.test/models/"))
+        monkeypatch.setitem(sys.modules, "js", js)
+        ensure = MagicMock()
+        monkeypatch.setattr("lmlite.llm.ensure_runtime", ensure)
+        js.ensure_runtime = ensure
+        return js
+
+    async def test_returns_base_after_initializing_bridge(self, js):
+        from lmlite import LLM
+
+        assert await LLM.hosted_base("org/m", hosted_models_url="https://example.test/models") == (
+            "https://example.test/models/"
+        )
+        js.ensure_runtime.assert_called_once()
+        js.lmLite.getHostedModelBase.assert_awaited_once_with("org/m", "https://example.test/models")
+
+    async def test_returns_none_when_not_hosted(self, js):
+        from lmlite import LLM
+
+        js.lmLite.getHostedModelBase.return_value = None
+        assert await LLM.hosted_base("org/m") is None
+        js.lmLite.getHostedModelBase.assert_awaited_once_with("org/m", None)

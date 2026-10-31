@@ -732,6 +732,17 @@ class LLM:
             raise RuntimeError(f"This kernel cannot call the tokenizer for {source!r} synchronously: {exc!r}") from exc
         return tokenizer
 
+    @classmethod
+    async def hosted_base(cls, model_id, *, hosted_models_url=None):
+        """Return the hosted models base URL serving ``model_id``, or None if it is not hosted.
+
+        Uses the same discovery as ``LLM.create()``: the site's ``files/models/manifest.json``, or
+        ``hosted_models_url`` when given. Revisions other than ``@main`` are never hosted. Raises
+        when an explicit ``hosted_models_url`` manifest is missing or invalid.
+        """
+        base = await _js_function("getHostedModelBase")(model_id, hosted_models_url)
+        return str(base) if base else None
+
     # --- core API ---
 
     async def dispose(self):
