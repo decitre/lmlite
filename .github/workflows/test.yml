@@ -166,11 +166,16 @@ jobs:
         with:
           environments: default
 
+      # The month matches lite-build.sh's monthly xeus environment, so each new one is saved.
+      - name: Get month
+        id: month
+        run: echo "month=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
       - name: Cache jl-forge downloads
         uses: actions/cache@v4
         with:
           path: ~/.cache/jl-forge
-          key: jl-forge-${{ hashFiles('pyproject.toml', 'scripts/lite-build.sh', 'src/lmlite/llm.js') }}
+          key: jl-forge-${{ steps.month.outputs.month }}-${{ hashFiles('pyproject.toml', 'scripts/lite-build.sh', 'src/lmlite/llm.js') }}
           restore-keys: jl-forge-
 
       - name: Create page

@@ -87,7 +87,8 @@ else
   $PYTHON_CMD -m pip -q install --upgrade pip
 fi
 
-JL_FORGE_VERSION="==0.3.3"
+# jl-forge makes breaking changes only in minor releases before 1.0 (its Compatibility Guarantees).
+JL_FORGE_VERSION="~=0.3.6"
 # Kept between builds: xeus environments, Pyodide release and wheel downloads, Transformers.js files.
 JL_FORGE_CACHE="${JL_FORGE_CACHE:-$HOME/.cache/jl-forge}"
 
@@ -104,7 +105,7 @@ if [ ! -f "$TRANSFORMERS_DIR/.complete" ]; then
   ort_version=$(curl -fsSL "$npm_url/@huggingface/transformers@$TRANSFORMERS_VERSION/package.json" \
       | $PYTHON_CMD -c 'import json, sys; print(json.load(sys.stdin)["dependencies"]["onnxruntime-web"])')
   # Transformers.js names the files of the onnxruntime-web version it bundles: a range could fetch another one.
-  if [[ ! "$ort_version" =~ ^[0-9] ]]; then
+  if [[ ! "$ort_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
     printf '%b\n' "${RED}onnxruntime-web dependency is not an exact version: $ort_version${NC}" >&2
     exit 1
   fi
@@ -143,8 +144,11 @@ process_for_xeus() {
     ls -l "$XEUS_WORKSPACE"
 
     printf "${YELLOW}Create xeus-python environment${NC}\n"
-    # Unpinned specs are not refreshed while cached: delete $JL_FORGE_CACHE/xeus to pick up new releases.
-    XEUS_PREFIX=$(jl-forge xeus-env --cache-dir "$JL_FORGE_CACHE/xeus" --pyproject "$ROOT_DIR/pyproject.toml")
+    # jl-forge reuses a cached environment while the (unpinned) specs are unchanged: a cache per month picks up
+    # new xeus-python and dependency releases at least monthly. Delete it to refresh sooner.
+    local xeus_cache="$JL_FORGE_CACHE/xeus-$(date +%Y-%m)"
+    find "$JL_FORGE_CACHE" -mindepth 1 -maxdepth 1 -name 'xeus*' ! -path "$xeus_cache" -exec rm -rf {} +
+    XEUS_PREFIX=$(jl-forge xeus-env --cache-dir "$xeus_cache" --pyproject "$ROOT_DIR/pyproject.toml")
 
     jupyter lite build \
         --contents "$XEUS_WORKSPACE" \
@@ -168,9 +172,9 @@ process_for_pyodide() {
 
     printf "${YELLOW}Install jupyter/pyodide packages:${NC}\n"
     # https://pyodide.org/en/stable/usage/packages-in-pyodide.html
-    # Kernel pinned to 0.8.6, the version jl-forge 0.3.3 tests self-hosted Pyodide with.
+    # Kernel 0.8.x (Python 3.14, no Voici) is a jl-forge supported combination, tested weekly against the latest release.
     $pip_cmd install build "jl-forge$JL_FORGE_VERSION" -e '..' \
-      jupyter_server jupyterlab_server jupyterlite-core jupyterlite-pyodide-kernel==0.8.6 libarchive-c
+      jupyter_server jupyterlab_server jupyterlite-core "jupyterlite-pyodide-kernel~=0.8.6" libarchive-c
 
     printf "${YELLOW}Build lmlite wheel${NC}\n"
     $PYTHON_CMD -m build "$ROOT_DIR" --wheel --outdir "$PYODIDE_WORKSPACE" --skip-dependency-check
