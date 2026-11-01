@@ -320,7 +320,14 @@ def test_package_cli_rejects_unknown_selected_model(tmp_path, capsys):
 
     with pytest.raises(SystemExit):
         model_assets.main(
-            ["--source-dir", str(tmp_path / "models"), "--output-dir", str(tmp_path / "hosted"), "--model", "org/nope:q4"]
+            [
+                "--source-dir",
+                str(tmp_path / "models"),
+                "--output-dir",
+                str(tmp_path / "hosted"),
+                "--model",
+                "org/nope:q4",
+            ]
         )
 
     assert "models not found under" in capsys.readouterr().err
