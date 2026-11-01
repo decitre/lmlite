@@ -1,7 +1,7 @@
 # This workflow installs dependencies via pixi and runs tests, lint and coverage.
 # See https://pixi.prefix.dev/latest/integration/ci/github_actions/
 
-name: Python package
+name: Tests
 
 on:
   push:

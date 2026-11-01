@@ -3,4 +3,6 @@ lmLite
 This project includes code developed by Emmanuel Decitre.
 
 It uses Transformers.js (Apache License 2.0).
+docs/badge-pyodide.svg is the JupyterLite "try lite now" badge with its text changed
+(JupyterLite, BSD-3-Clause, https://github.com/jupyterlite/jupyterlite).
 Models loaded at runtime may be subject to their own licenses.
