@@ -183,23 +183,35 @@ def pack_models(source_dir: Path, output_dir: Path) -> list[Path]:
     return result
 
 
-def host_models(source_dir: Path, output_dir: Path, dtypes: list[str] | None = None) -> list[Path]:
+def host_models(
+    source_dir: Path,
+    output_dir: Path,
+    dtypes: list[str] | None = None,
+    selected: dict[str, list[str] | None] | None = None,
+) -> list[Path]:
     """Copy individual model assets and write their HTTP-discovery manifest.
 
     With ``dtypes``, only the ONNX weights of the first listed dtype each model has are copied.
+    With ``selected`` (model id -> dtypes or None), only those models are hosted; their own dtypes replace ``dtypes``.
     """
     models = discover_models(source_dir)
     if not models:
         raise ValueError("individual-file hosting requires model directories; use ZIP mode for archive-only sources")
+    if selected:
+        missing = sorted(set(selected) - {model_id for model_id, _ in models})
+        if missing:
+            raise ValueError(f"models not found under {source_dir}: {', '.join(missing)}")
+        models = [(model_id, source) for model_id, source in models if model_id in selected]
     output_dir = Path(output_dir)
     if output_dir.resolve().is_relative_to(Path(source_dir).resolve()):
         raise ValueError("hosted output must be outside the model source directory")
     copied = []
     for model_id, source in models:
         files = model_files(source)
-        if dtypes:
+        model_dtypes = (selected or {}).get(model_id) or dtypes
+        if model_dtypes:
             try:
-                files = select_dtype(files, dtypes)
+                files = select_dtype(files, model_dtypes)
             except ValueError as error:
                 raise ValueError(f"{model_id}: {error}") from None
         for path, relative_path in files:
@@ -224,13 +236,25 @@ def main(argv: list[str] | None = None) -> None:
         choices=list(DTYPE_SUFFIXES),
         help="files format: host only the ONNX weights of the first of these dtypes each model has",
     )
+    parser.add_argument(
+        "--model",
+        action="append",
+        metavar="ID[:DTYPE]",
+        help="files format, repeatable: host only these models, each pinned to DTYPE when given (overrides --dtype)",
+    )
     args = parser.parse_args(argv)
-    if args.dtype and args.format != "files":
-        parser.error("--dtype only applies to --format files")
+    if (args.dtype or args.model) and args.format != "files":
+        parser.error("--dtype and --model only apply to --format files")
+    selected = {}
+    for spec in args.model or []:
+        model_id, _, dtype = spec.partition(":")
+        if dtype and dtype not in DTYPE_SUFFIXES:
+            parser.error(f"--model {spec}: unknown dtype {dtype!r}; choose from {', '.join(DTYPE_SUFFIXES)}")
+        selected[model_id] = [dtype] if dtype else None
 
     try:
         if args.format == "files":
-            host_models(args.source_dir, args.output_dir, args.dtype)
+            host_models(args.source_dir, args.output_dir, args.dtype, selected)
             return
         archives = pack_models(args.source_dir, args.output_dir)
     except (NotADirectoryError, ValueError, zipfile.BadZipFile) as error:

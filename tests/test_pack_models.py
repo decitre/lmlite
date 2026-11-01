@@ -296,6 +296,36 @@ def test_package_cli_hosts_only_first_available_dtype(tmp_path):
     ]
 
 
+def test_package_cli_hosts_selected_models_with_per_model_dtypes(tmp_path):
+    source = tmp_path / "models"
+    for model_id in ["org/embed", "org/chat", "org/unused"]:
+        model = _write_model(source, model_id)
+        (model / "onnx" / "model_quantized.onnx").write_bytes(b"onnx")
+    output = tmp_path / "hosted"
+
+    model_assets.main(
+        ["--source-dir", str(source), "--output-dir", str(output), "--model", "org/embed:q8", "--model", "org/chat:q4"]
+    )
+
+    assert sorted(path.relative_to(output).as_posix() for path in output.rglob("*.onnx")) == [
+        "org/chat/onnx/model_q4.onnx",
+        "org/embed/onnx/model_quantized.onnx",
+    ]
+    assert (output / "org/chat/tokenizer.json").is_file()
+    assert json.loads((output / "manifest.json").read_text()) == {"models": ["org/chat", "org/embed"]}
+
+
+def test_package_cli_rejects_unknown_selected_model(tmp_path, capsys):
+    _write_model(tmp_path / "models", "org/model")
+
+    with pytest.raises(SystemExit):
+        model_assets.main(
+            ["--source-dir", str(tmp_path / "models"), "--output-dir", str(tmp_path / "hosted"), "--model", "org/nope:q4"]
+        )
+
+    assert "models not found under" in capsys.readouterr().err
+
+
 def test_package_cli_rejects_model_without_requested_dtype(tmp_path, capsys):
     _write_model(tmp_path / "models", "org/model")
 

@@ -223,6 +223,8 @@ lmlite-models --source-dir /path/to/models --output-dir /path/to/site/files/mode
 
 `--dtype q8 int8 fp32` hosts only the ONNX weights of the first listed dtype each model has, plus all its other assets; a model with none of them fails. When a model has `onnx/model*.onnx` files, only those decide which dtypes it has, as Transformers.js loads them and not the legacy `decoder_model*` exports.
 
+`--model Xenova/multilingual-e5-small:q8 --model HuggingFaceTB/SmolLM2-360M-Instruct:q4` hosts only the listed models, each at its own dtype (a bare `--model ID` uses `--dtype`, or hosts every variant); `manifest.json` lists exactly the hosted models, and a model missing from the source fails.
+
 The output must be outside the source directory. Publish it over HTTP and pass its URL as `hosted_models_url` when automatic discovery does not apply.
 
 Use `--format zip` explicitly to prepare portable model archives instead; ZIP mode caches archives in the source directory and reuses them on subsequent runs.
