@@ -15,7 +15,7 @@
 
 # lmLite
 
-Package version: `0.9.2`
+Package version: `0.10.0`
 
 **A Python bridge to Transformers.js for JupyterLite** — run language models and embedding workflows entirely in your browser.
 
