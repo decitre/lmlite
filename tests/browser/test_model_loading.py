@@ -83,7 +83,7 @@ def test_hosted_config_loads_directly_over_http(source_server):
                     hosted_models: ['org/test-model'],
                   }).init();
                   const { AutoConfig } = await import(
-                    'https://cdn.jsdelivr.net/npm/@huggingface/transformers'
+                    'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2'
                   );
                   const progress = [];
                   const config = await AutoConfig.from_pretrained('org/test-model', {

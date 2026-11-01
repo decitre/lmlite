@@ -2,7 +2,9 @@
 
 const DEFAULT_MODEL_NAMESPACE = 'Xenova';
 
-const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers';
+// Pinned: scripts/lite-build.sh self-hosts this exact version (and its onnxruntime-web files) in each site.
+const TRANSFORMERS_VERSION = '4.3.2';
+const TRANSFORMERS_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSFORMERS_VERSION}`;
 
 // Transformers.js tasks exposed through the generic pipeline interface.
 // Generation, embeddings and text classification keep their dedicated methods.
@@ -110,6 +112,60 @@ function siteRoot() {
   }
   const marker = location.pathname.match(/\/(?:extensions|lab|retro|tree)\//);
   return marker ? `${location.origin}${location.pathname.slice(0, marker.index)}/` : null;
+}
+
+let transformersModule = null;
+
+// Hosted model id -> base URL of its hosted files.
+const hostedModelBases = new Map();
+
+// Transformers.js 4.3 checks whether tokenizer_config.json exists on the Hub even for local_files_only models
+// (get_tokenizer_files ignores the option, and skips the local check for an HTTP localModelPath). Serve Hub
+// requests for hosted models from the hosted files, so a site works where huggingface.co is blocked.
+function routeHostedModels(env) {
+  if (env.fetch.lmliteHosted) {
+    return;
+  }
+  const fetchFn = env.fetch;
+  const routed = (input, init) => {
+    const match = typeof input === 'string' && input.match(/^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/main\/(.+)$/);
+    const base = match && hostedModelBases.get(match[1]);
+    return fetchFn(base ? `${base}${match[1]}/${match[2]}` : input, init);
+  };
+  routed.lmliteHosted = true;
+  env.fetch = routed;
+}
+
+// Transformers.js from the site's vendor/transformers/ when the build put it there, else from jsDelivr.
+function loadTransformers() {
+  transformersModule ??= (async () => {
+    const root = siteRoot();
+    if (root) {
+      const base = `${root}vendor/transformers/`;
+      let transformers = null;
+      try {
+        transformers = await import(`${base}transformers.min.js`);
+      } catch {
+        // Not self-hosted: fall back to the CDN below.
+      }
+      if (transformers) {
+        // Transformers.js points onnxruntime-web at jsDelivr, picking the file variant for the browser; keep the
+        // variant, serve it from the site.
+        const wasm = transformers.env.backends.onnx.wasm;
+        if (wasm.wasmPaths && typeof wasm.wasmPaths === 'object') {
+          wasm.wasmPaths = Object.fromEntries(
+            Object.entries(wasm.wasmPaths).map(([kind, url]) => [kind, base + url.split('/').pop()])
+          );
+        }
+        return transformers;
+      }
+    }
+    return import(TRANSFORMERS_URL);
+  })().catch((error) => {
+    transformersModule = null;  // let the next call retry, e.g. after a network error
+    throw error;
+  });
+  return transformersModule;
 }
 
 async function getHostedModelBase(modelName, configuredBase = null) {
@@ -333,7 +389,7 @@ class BrowserLLM {
       }
     };
     report('', 'initializing');
-    const { pipeline, env } = await import(TRANSFORMERS_URL);
+    const { pipeline, env } = await loadTransformers();
 
     if (!['wasm', 'webgpu'].includes(this.backend)) {
       throw new Error(
@@ -357,6 +413,10 @@ class BrowserLLM {
     env.allowLocalModels = Boolean(this.hostedModelBase);
     if (this.hostedModelBase) {
       env.localModelPath = this.hostedModelBase;
+      for (const model of this.hostedModels) {
+        hostedModelBases.set(model, this.hostedModelBase);
+      }
+      routeHostedModels(env);
     }
     env.useBrowserCache = true;
     console.log('Using browser cache (Hugging Face Cache API - Transformers.js v4)');
@@ -780,7 +840,7 @@ class BrowserLLM {
     const generation = this._generation = { stopping_criteria: null, cancelled: false };
     const run = (async () => {
       try {
-        const { InterruptableStoppingCriteria } = await import(TRANSFORMERS_URL);
+        const { InterruptableStoppingCriteria } = await loadTransformers();
         generation.stopping_criteria = new InterruptableStoppingCriteria();
         if (generation.cancelled) {
           generation.stopping_criteria.interrupt();
@@ -862,7 +922,7 @@ class BrowserLLM {
     if (!this.generator) {
       throw new Error("Generator model not initialized. Call init() first.");
     }
-    const { TextStreamer } = await import(TRANSFORMERS_URL);
+    const { TextStreamer } = await loadTransformers();
     const items = [];
     let wake = () => {};
     const push = (item) => {
@@ -1157,7 +1217,7 @@ async function getModelInfo(modelName, task = null, backend = 'wasm', dtype = nu
     cache_status: 'unknown', download_bytes: null, files: [], error: null,
   };
   try {
-    const { ModelRegistry, env } = await import(TRANSFORMERS_URL);
+    const { ModelRegistry, env } = await loadTransformers();
     env.useBrowserCache = true;
     if (!info.task) {
       info.task = await getModelTask(modelId);
@@ -1232,7 +1292,7 @@ async function loadTokenizer(modelName = null, tokenizerJson = null, tokenizerCo
       configUrl = tokenizerConfig ? resolve(tokenizerConfig) : null;
     }
     const [transformers, json, config] = await Promise.all([
-      import(TRANSFORMERS_URL),
+      loadTransformers(),
       fetchTokenizerFile(jsonUrl),
       // A model without tokenizer_config.json still tokenizes from tokenizer.json alone.
       configUrl ? fetchTokenizerFile(configUrl, Boolean(modelName)) : {},

@@ -12,9 +12,13 @@ from pathlib import Path
 
 
 class TestModelBundlingOptions:
-    def test_hosted_files_are_staged_for_both_builds(self, tmp_path):
+    def test_hosted_files_are_added_to_both_built_sites(self, tmp_path):
         build_script = Path("scripts/lite-build.sh").read_text()
-        bundle_function = build_script.split("bundle_models() {", 1)[1].split("\nprocess_for_xeus()", 1)[0]
+        assets_function = build_script.split("add_site_assets() {", 1)[1].split("\nprocess_for_xeus()", 1)[0]
+        transformers = tmp_path / "transformers"
+        transformers.mkdir()
+        (transformers / "transformers.min.js").write_text("js")
+        (transformers / ".complete").write_text("")
         hosted = tmp_path / "hosted-models"
         model = hosted / "org" / "model" / "onnx"
         model.mkdir(parents=True)
@@ -22,26 +26,29 @@ class TestModelBundlingOptions:
         (hosted / "manifest.json").write_text('{"models": ["org/model"]}')
 
         for kernel in ("xeus", "pyodide"):
-            content = tmp_path / f"content-{kernel}"
+            site = tmp_path / "public" / kernel
             result = subprocess.run(
                 [
                     "bash",
                     "-c",
-                    "set -e\nBUNDLE_MODELS=1\n"
-                    'HOSTED_MODELS_DIR="$1"\nbundle_models() {' + bundle_function + '\nbundle_models "$2"\n',
-                    "stage-models",
+                    'set -e\nBUNDLE_MODELS=1\nHOSTED_MODELS_DIR="$1"\nTRANSFORMERS_DIR="$2"\n'
+                    "add_site_assets() {" + assets_function + '\nadd_site_assets "$3"\n',
+                    "add-assets",
                     str(hosted),
-                    str(content),
+                    str(transformers),
+                    str(site),
                 ],
                 capture_output=True,
                 text=True,
             )
 
             assert result.returncode == 0, result.stderr
-            assert (content / "models/org/model/onnx/model.onnx").read_bytes() == b"weights"
-            assert (content / "models/manifest.json").read_text() == '{"models": ["org/model"]}'
+            assert (site / "files/models/org/model/onnx/model.onnx").read_bytes() == b"weights"
+            assert (site / "files/models/manifest.json").read_text() == '{"models": ["org/model"]}'
+            assert sorted(path.name for path in (site / "vendor/transformers").iterdir()) == ["transformers.min.js"]
+            # After the build, so xeus doesn't pack the models into the kernel's mounted contents.
             process = build_script.split(f"process_for_{kernel}() {{", 1)[1].split("\n}\n", 1)[0]
-            assert process.index("bundle_models ") < process.index("jupyter lite build")
+            assert process.index("jupyter lite build") < process.index("add_site_assets ")
         assert "publish_models" not in build_script
 
     def test_zip_build_option_is_rejected(self):

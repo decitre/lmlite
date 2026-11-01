@@ -14,6 +14,56 @@ from pathlib import Path
 
 _EXCLUDED_PARTS = {".cache", ".git", "__pycache__"}
 
+# ONNX file-name suffix per dtype, as Transformers.js names them (onnx/<base><suffix>.onnx[_data[_N]]).
+DTYPE_SUFFIXES = {
+    "fp32": "",
+    "fp16": "_fp16",
+    "int8": "_int8",
+    "uint8": "_uint8",
+    "q8": "_quantized",
+    "q4": "_q4",
+    "q4f16": "_q4f16",
+    "q2": "_q2",
+    "q2f16": "_q2f16",
+    "q1": "_q1",
+    "q1f16": "_q1f16",
+    "bnb4": "_bnb4",
+}
+
+
+def onnx_weight(relative_path: Path) -> tuple[str, str] | None:
+    """Return ``(base, dtype)`` of an ONNX weight file (``model``, ``int8`` for model_int8.onnx), else None."""
+    stem, dot, extension = relative_path.name.partition(".")
+    if not dot or not (extension == "onnx" or extension.startswith("onnx_data")):
+        return None
+    # Longest suffix first, so "_q4f16" is not read as fp16; "" (fp32) matches last.
+    for dtype, suffix in sorted(DTYPE_SUFFIXES.items(), key=lambda item: -len(item[1])):
+        if stem.endswith(suffix):
+            return stem[: len(stem) - len(suffix)], dtype
+    return None
+
+
+def onnx_dtype(relative_path: Path) -> str | None:
+    """Return the dtype of an ONNX weight file, or None for any other model asset."""
+    weight = onnx_weight(relative_path)
+    return weight[1] if weight else None
+
+
+def select_dtype(files: list[tuple[Path, Path]], dtypes: list[str]) -> list[tuple[Path, Path]]:
+    """Keep the ONNX weights of the first dtype in ``dtypes`` the model has, and every non-ONNX asset."""
+    weights = {weight for _, relative_path in files if (weight := onnx_weight(relative_path))}
+    # Transformers.js loads onnx/model<suffix>.onnx when the model has one (decoder-only and encoder-only models);
+    # their decoder_model*<suffix>.onnx files are legacy exports it never loads, so they don't make a dtype available.
+    # shortcut: other components count from any file of the dtype; check the bases the model class loads if a
+    # model with several components fails to load a hosted dtype.
+    if any(base == "model" for base, _ in weights):
+        weights = {(base, dtype) for base, dtype in weights if base == "model"}
+    available = {dtype for _, dtype in weights}
+    chosen = next((dtype for dtype in dtypes if dtype in available), None)
+    if chosen is None:
+        raise ValueError(f"none of the dtypes {', '.join(dtypes)} found; available: {', '.join(sorted(available))}")
+    return [(path, rel) for path, rel in files if onnx_dtype(rel) in (None, chosen)]
+
 
 def discover_models(source_dir: Path) -> list[tuple[str, Path]]:
     """Find model directories in a ``<namespace>/<model>/config.json`` tree."""
@@ -133,8 +183,11 @@ def pack_models(source_dir: Path, output_dir: Path) -> list[Path]:
     return result
 
 
-def host_models(source_dir: Path, output_dir: Path) -> list[Path]:
-    """Copy individual model assets and write their HTTP-discovery manifest."""
+def host_models(source_dir: Path, output_dir: Path, dtypes: list[str] | None = None) -> list[Path]:
+    """Copy individual model assets and write their HTTP-discovery manifest.
+
+    With ``dtypes``, only the ONNX weights of the first listed dtype each model has are copied.
+    """
     models = discover_models(source_dir)
     if not models:
         raise ValueError("individual-file hosting requires model directories; use ZIP mode for archive-only sources")
@@ -143,12 +196,19 @@ def host_models(source_dir: Path, output_dir: Path) -> list[Path]:
         raise ValueError("hosted output must be outside the model source directory")
     copied = []
     for model_id, source in models:
-        for path, relative_path in model_files(source):
+        files = model_files(source)
+        if dtypes:
+            try:
+                files = select_dtype(files, dtypes)
+            except ValueError as error:
+                raise ValueError(f"{model_id}: {error}") from None
+        for path, relative_path in files:
             destination = output_dir / model_id / relative_path
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, destination)
             copied.append(destination)
-        print(f"hosting {model_id}")
+        hosted_dtypes = sorted({onnx_dtype(relative_path) for _, relative_path in files} - {None})
+        print(f"hosting {model_id} ({', '.join(hosted_dtypes) or 'no ONNX weights'})")
     (output_dir / "manifest.json").write_text(json.dumps({"models": [model_id for model_id, _ in models]}) + "\n")
     return copied
 
@@ -158,11 +218,19 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--source-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--format", choices=["files", "zip"], default="files")
+    parser.add_argument(
+        "--dtype",
+        nargs="+",
+        choices=list(DTYPE_SUFFIXES),
+        help="files format: host only the ONNX weights of the first of these dtypes each model has",
+    )
     args = parser.parse_args(argv)
+    if args.dtype and args.format != "files":
+        parser.error("--dtype only applies to --format files")
 
     try:
         if args.format == "files":
-            host_models(args.source_dir, args.output_dir)
+            host_models(args.source_dir, args.output_dir, args.dtype)
             return
         archives = pack_models(args.source_dir, args.output_dir)
     except (NotADirectoryError, ValueError, zipfile.BadZipFile) as error:

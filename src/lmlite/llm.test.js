@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import './llm.js';
 
-vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers', () => {
+vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2', () => {
   class PreTrainedTokenizer {
     constructor(json, config) { this.json = json; this.config = config; }
     get_vocab() { return new Map(this.json.model.vocab.map((token, id) => [token, id])); }
@@ -13,7 +13,7 @@ vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers', () => {
   PreTrainedTokenizer,
   BertTokenizer,
   pipeline: vi.fn(),
-  env: {},
+  env: { fetch: vi.fn(async () => new Response('{}')) },
   InterruptableStoppingCriteria: class {
     interrupted = false;
     interrupt() { this.interrupted = true; }
@@ -218,7 +218,7 @@ describe('BrowserLLM dtype handling', () => {
 
 describe('BrowserLLM initialization progress', () => {
   it('uses individual hosted files for selected models and preserves remote fallback for others', async () => {
-    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async (_task, _model, options) => {
       options.progress_callback({ status: 'progress', file: 'model.onnx', loaded: 1, total: 2 });
       return vi.fn(async () => []);
@@ -244,8 +244,28 @@ describe('BrowserLLM initialization progress', () => {
     expect(env.allowLocalModels).toBe(false);
   });
 
+  it('serves Hub requests for hosted models from the hosted files', async () => {
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+    pipeline.mockImplementation(async () => vi.fn(async () => []));
+    const original = vi.fn(async () => new Response('{}'));
+    env.fetch = original;
+    await new BrowserLLM({
+      generator_model: 'gpt2',
+      hosted_model_base: 'https://example.test/demo/models/',
+      hosted_models: ['Xenova/gpt2'],
+    }).init();
+
+    await env.fetch('https://huggingface.co/Xenova/gpt2/resolve/main/tokenizer_config.json', { method: 'GET' });
+    await env.fetch('https://huggingface.co/org/other/resolve/main/tokenizer_config.json');
+
+    expect(original.mock.calls).toEqual([
+      ['https://example.test/demo/models/Xenova/gpt2/tokenizer_config.json', { method: 'GET' }],
+      ['https://huggingface.co/org/other/resolve/main/tokenizer_config.json', undefined],
+    ]);
+  });
+
   it('forwards download progress and warm-up status to the notebook callback', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     const generator = vi.fn(async () => []);
     pipeline.mockImplementation(async (_task, _model, options) => {
       options.progress_callback({
@@ -269,7 +289,7 @@ describe('BrowserLLM initialization progress', () => {
   });
 
   it('yields a macrotask before each generation step so kernels can resume between tokens', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     const events = [];
     const forward = vi.fn(async function () { events.push(this === model ? 'forward' : 'unbound'); });
     const model = { forward };
@@ -287,7 +307,7 @@ describe('BrowserLLM initialization progress', () => {
   it.each(['embedding_model', 'classification_model'])(
     'forwards progress for %s',
     async (modelKey) => {
-      const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+      const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
       pipeline.mockImplementation(async (_task, _model, options) => {
         options.progress_callback({
           status: 'progress', file: 'model.onnx', loaded: 5, total: 10,
@@ -303,7 +323,7 @@ describe('BrowserLLM initialization progress', () => {
   );
 
   it('still initializes without a progress callback', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async (_task, _model, options) => {
       options.progress_callback({ status: 'downloading', file: 'model.onnx' });
       return vi.fn(async () => []);
@@ -318,7 +338,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     ['wasm', 'webgpu', null],
     ['WEBGPU', 'wasm', 'q8'],
   ])('loads embeddings on %s independently of backend=%s', async (embedding_backend, backend, embedding_dtype) => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async () => vi.fn(async () => []));
     pipeline.mockClear();
     const llm = new BrowserLLM({
@@ -348,7 +368,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
   });
 
   it.each(['cpu', ''])('rejects invalid embedding backend %j before loading models', async (embedding_backend) => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockClear();
 
     await expect(new BrowserLLM({ embedding_model: 'org/embedding', embedding_backend }).init())
@@ -357,7 +377,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
   });
 
   it('does not fall back to WASM when WebGPU embedding loading fails', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockRejectedValue(new Error('WebGPU unavailable'));
     pipeline.mockClear();
 
@@ -369,7 +389,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
   });
 
   it('surfaces a pinned dtype failure without retrying', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockRejectedValue(new Error('Could not locate file model_quantized.onnx'));
     pipeline.mockClear();
 
@@ -388,7 +408,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
   });
 
   it('loads feature-extraction with no dtype by default', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async () => vi.fn(async () => ({ data: [0] })));
     pipeline.mockClear();
 
@@ -400,7 +420,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
   });
 
   it('pins the feature-extraction dtype when embedding_dtype is set', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     const embedder = vi.fn(async () => ({ data: [0] }));
     pipeline.mockImplementation(async () => embedder);
     pipeline.mockClear();
@@ -416,7 +436,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
   it('embedding_dtype is NOT overridden by the generator dtype / dtype_fallbacks', async () => {
     // dtype and dtype_fallbacks target the generator/classifier pipelines. They
     // must never leak into the embedding pin — the embedding dtype must stay q8.
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async () => vi.fn(async () => ({ data: [0] })));
     pipeline.mockClear();
 
@@ -435,7 +455,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
   it('does not pass a backend/device to the embedding pipeline (preserves prior behavior)', async () => {
     // The embedding pipeline keeps Transformers.js's default device selection;
     // `backend` applies only to the generator/classifier pipelines.
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async () => vi.fn(async () => ({ data: [0] })));
     pipeline.mockClear();
 
@@ -544,7 +564,7 @@ describe('BrowserLLM.classify()', () => {
 
 describe('BrowserLLM task pipelines', () => {
   it('loads a supported task with the shared backend, dtype and hosted options', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     const taskPipeline = vi.fn();
     pipeline.mockReset();
     pipeline.mockResolvedValue(taskPipeline);
@@ -566,7 +586,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('rejects unsupported tasks and missing models before loading', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockReset();
     await expect(new BrowserLLM({ task: 'image-to-text', task_model: 'm' }).init())
       .rejects.toThrow("Unsupported task 'image-to-text'. Supported pipeline tasks are: zero-shot-classification");
@@ -575,7 +595,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('reports the task and model when loading fails', async () => {
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockReset();
     pipeline.mockRejectedValue(new Error('Unsupported model type: foo'));
     await expect(new BrowserLLM({ task: 'translation', task_model: 'org/foo' }).init())
@@ -1337,7 +1357,7 @@ describe('getModelInfo()', () => {
   let registry;
 
   beforeEach(async () => {
-    ({ ModelRegistry: registry } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers'));
+    ({ ModelRegistry: registry } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2'));
     registry.get_available_dtypes.mockReset().mockResolvedValue(['fp32', 'q8', 'q4']);
     registry.get_file_metadata.mockReset().mockImplementation(async (_id, file) => ({ exists: true, size: SIZES[file] }));
     registry.is_pipeline_cached_files.mockReset();
@@ -1518,7 +1538,7 @@ describe('loadTokenizer()', () => {
   });
 
   it('picks the configured tokenizer class and falls back to the base class', async () => {
-    const transformers = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+    const transformers = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     const construct = vi.spyOn(transformers.BertTokenizer.prototype, 'get_vocab');
     serve({ '/tok.json': tokenizerJson, '/bert.json': { tokenizer_class: 'BertTokenizerFast' }, '/x.json': { tokenizer_class: 'pipeline' } });
 

@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/decitre/lmlite/main/docs/logo.svg"
+       alt="lmLite — a Python bridge to Transformers.js for JupyterLite"
+       width="600">
+</p>
+
 [![Python package][ci-badge]][ci-url]
 [![codecov-python][codecov-python-badge]][codecov-url]
 [![codecov-js][codecov-js-badge]][codecov-url]

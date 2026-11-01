@@ -276,6 +276,38 @@ def test_package_cli_defaults_to_hosted_files(tmp_path):
     assert not list(source.glob("*.zip"))
 
 
+def test_package_cli_hosts_only_first_available_dtype(tmp_path):
+    source = tmp_path / "models"
+    model = _write_model(source, "org/model")
+    names = ["model.onnx", "model_int8.onnx", "model_q4f16.onnx", "model_fp16.onnx", "model_int8.onnx_data_1"]
+    for name in [*names, "decoder_model_quantized.onnx"]:
+        (model / "onnx" / name).write_bytes(b"onnx")
+    output = tmp_path / "hosted"
+
+    # Transformers.js loads model_quantized.onnx for q8, which is missing (as for Xenova/gpt2): int8 comes first.
+    model_assets.main(["--source-dir", str(source), "--output-dir", str(output), "--dtype", "q8", "int8", "fp32"])
+
+    assert sorted(path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()) == [
+        "manifest.json",
+        "org/model/config.json",
+        "org/model/onnx/model_int8.onnx",
+        "org/model/onnx/model_int8.onnx_data_1",
+        "org/model/tokenizer.json",
+    ]
+
+
+def test_package_cli_rejects_model_without_requested_dtype(tmp_path, capsys):
+    _write_model(tmp_path / "models", "org/model")
+
+    with pytest.raises(SystemExit) as error:
+        model_assets.main(
+            ["--source-dir", str(tmp_path / "models"), "--output-dir", str(tmp_path / "hosted"), "--dtype", "q8"]
+        )
+
+    assert error.value.code == 2
+    assert "org/model: none of the dtypes q8 found; available: q4" in capsys.readouterr().err
+
+
 def test_package_cli_supports_explicit_zip(tmp_path):
     source = tmp_path / "models"
     _write_model(source, "org/model")

@@ -69,7 +69,7 @@ def test_local_embeddings_are_pooled_normalized_and_use_requested_weights(source
             page.evaluate(
                 """async ({base, modelId, backend, dtype, bundled}) => {
                   if (bundled) {
-                    const {env} = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+                    const {env} = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
                     const fetch = env.fetch;
                     // The upstream metadata helper does not probe HTTP localModelPath.
                     // Redirect its metadata probes to actual bundled assets, not mock responses.

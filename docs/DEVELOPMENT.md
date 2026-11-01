@@ -203,7 +203,9 @@ Download the configuration, tokenizer assets, and the ONNX variant you intend to
 pixi run jupyterlite -M /path/to/models
 ```
 
-The `-m`/`-M` options stage individual model files in `content-xeus/models/` and `content-pyodide/models/` before invoking JupyterLite's builds. JupyterLite publishes them at each site's HTTP `files/models/<namespace>/<model>/` URLs. A `files/models/manifest.json` lets `LLM.create(...)` discover the hosted models and load their files directly over HTTP with browser caching and download progress, bypassing the `/drive` filesystem. Missing files in a hosted model produce an error rather than downloading a different copy from Hugging Face.
+The `-m`/`-M` options copy individual model files into each built site, at its HTTP `files/models/<namespace>/<model>/` URLs. They are added after `jupyter lite build` rather than to its contents, so the xeus kernel doesn't pack them into its mounted files, and they don't appear in the file browser. Every file of each model is hosted, including all its ONNX variants: download only the ones you load, or set `MODEL_DTYPES` to host only the ONNX weights of the first listed dtype each model has, e.g. `MODEL_DTYPES="q8 int8 fp32" pixi run jupyterlite -m` (the runtime's default order). The build prints the dtypes hosted for each model. A `files/models/manifest.json` lets `LLM.create(...)` discover the hosted models and load their files directly over HTTP with browser caching and download progress, bypassing the `/drive` filesystem. Missing files in a hosted model produce an error rather than downloading a different copy from Hugging Face.
+
+Every build also self-hosts Transformers.js: the version `src/lmlite/llm.js` pins (`TRANSFORMERS_VERSION`) and the onnxruntime-web files it loads go into each site's `vendor/transformers/`, downloaded once into `~/.cache/jl-forge/lmlite-transformers/`. `llm.js` imports them from the site, and falls back to jsDelivr outside such a site. With `-m`, a site built this way makes no request to another host: `pytest tests/browser/test_self_hosted_site.py -m browser` checks it, generating with the hosted model in both sites while blocking every other host.
 
 The build requires individual model directories containing configuration, tokenizer assets, and the selected ONNX weights.
 
@@ -219,13 +221,15 @@ The installed package includes `lmlite-models`; no repository checkout is requir
 lmlite-models --source-dir /path/to/models --output-dir /path/to/site/files/models
 ```
 
+`--dtype q8 int8 fp32` hosts only the ONNX weights of the first listed dtype each model has, plus all its other assets; a model with none of them fails. When a model has `onnx/model*.onnx` files, only those decide which dtypes it has, as Transformers.js loads them and not the legacy `decoder_model*` exports.
+
 The output must be outside the source directory. Publish it over HTTP and pass its URL as `hosted_models_url` when automatic discovery does not apply.
 
 Use `--format zip` explicitly to prepare portable model archives instead; ZIP mode caches archives in the source directory and reuses them on subsequent runs.
 
 The same CLI is available through `python -m lmlite.model_assets`. Python callers can use `host_models` and `pack_models` from `lmlite.model_assets`.
 
-The JupyterLite build invokes `lmlite-models` directly with `--format files`. When using `-m` or `-M`, lmLite must be installed and `lmlite-models` must be available on `PATH`; builds without model hosting do not require the CLI. The build script does not invoke Pixi.
+The JupyterLite build invokes `lmlite-models` directly with `--format files`, and `--dtype $MODEL_DTYPES` when set. When using `-m` or `-M`, lmLite must be installed and `lmlite-models` must be available on `PATH`; builds without model hosting do not require the CLI. The build script does not invoke Pixi.
 
 ## Troubleshooting
 

@@ -58,6 +58,7 @@ workspace/
 venv/
 .pixi/
 pixi.lock
+uv.lock
 
 # npm
 node_modules/
