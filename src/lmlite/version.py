@@ -1,4 +1,4 @@
 # Copyright 2026 Emmanuel Decitre
 # SPDX-License-Identifier: Apache-2.0
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
