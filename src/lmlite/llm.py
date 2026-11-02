@@ -391,9 +391,35 @@ def _check_alternatives(alternatives):
 
 def _runtime():
     """The JS runtime namespace, ``globalThis.lmLite``, or None when it is not loaded."""
-    import js
+    try:
+        import js
+    except ImportError as exc:
+        raise ModuleNotFoundError(
+            "This lmlite call needs a browser kernel (JupyterLite pyodide or xeus-python). Outside the browser, "
+            "only LLM.create() embed()/classify()/generate() and LLM.tokenizer() run, with pip install 'lmlite[native]'.",
+            name="js",
+        ) from exc
 
     return getattr(js, "lmLite", None)
+
+
+def _native(requested=False):
+    """The native backend module, used when requested or when there is no browser JS runtime; else None."""
+    if not requested:
+        try:
+            import js  # noqa: F401
+
+            return None
+        except ImportError:
+            pass
+    try:
+        from . import native
+    except ImportError as exc:
+        raise ModuleNotFoundError(
+            f"No browser JS runtime and the native backend is unavailable ({exc}). "
+            "Install it with: pip install 'lmlite[native]'"
+        ) from exc
+    return native
 
 
 def _js_function(name):
@@ -472,7 +498,11 @@ class LLM:
     @classmethod
     async def create(cls, progress_callback=None, **overrides):
         """Load models. ``progress_callback`` receives a dict per loading event, ending with
-        status ``"ready"`` or ``"error"``."""
+        status ``"ready"`` or ``"error"``.
+
+        Outside a browser kernel, or with ``backend="native"``, the ``lmlite[native]`` onnxruntime backend
+        runs the same ONNX files for embed()/classify()/generate(). It reads models from a directory path,
+        ``local_models_path/<model id>/``, or the Hugging Face Hub cache."""
         with _loading_progress() as progress:
             try:
                 return await cls._create(progress, progress_callback, **overrides)
@@ -490,13 +520,13 @@ class LLM:
         import sys
         import zipfile
 
-        createLLM = _js_function("createLLM")
-
         config = {**cls.DEFAULTS, **overrides}
+        native = _native(config.get("backend") == "native")
+        createLLM = None if native else _js_function("createLLM")
 
         # Auto-detect local zip and inject files directly into the browser Cache API.
         # This avoids any filesystem extraction: bytes flow zip → memory → Cache API.
-        if config.get("auto_detect_local", True):
+        if not native and config.get("auto_detect_local", True):
             models_to_detect = []
             for model_name in (
                 config.get("generator_model"),
@@ -665,7 +695,7 @@ class LLM:
             proxy = callback = create_proxy(report_progress)
 
         try:
-            instance = createLLM(js_config)
+            instance = native.NativeLLM(config) if native else createLLM(js_config)
             await instance.init(callback)
             progress.bar_format = "{desc}{percentage:3.0f}%|{bar}|"
             progress.reset(total=1)
@@ -722,9 +752,9 @@ class LLM:
         if model and tokenizer_config:
             raise ValueError("tokenizer_config= requires tokenizer_json=; model= loads the model's own config.")
         source = model or tokenizer_json
-        tokenizer = Tokenizer(
-            await _js_function("loadTokenizer")(model, tokenizer_json, tokenizer_config, hosted_models_url), source
-        )
+        native = _native()
+        load_tokenizer = native.load_tokenizer if native else _js_function("loadTokenizer")
+        tokenizer = Tokenizer(await load_tokenizer(model, tokenizer_json, tokenizer_config, hosted_models_url), source)
         # Fail at load time, not on the first call, if this kernel's bridge cannot call encode synchronously.
         try:
             tokenizer.encode("a")

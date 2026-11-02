@@ -68,6 +68,7 @@ print(results)
 - **Task pipelines**: Zero-shot classification, speech recognition and translation via `LLM.pipeline(task, model=...)`
 - **Model caching**: Browser-cached downloads, portable ZIP export/import, and cache inspection before loading (`LLM.model_info()`, `cached_models()`, per-model `clear_cache()`) with Python progress callbacks
 - **Pythonic API**: Clean, async Python interface
+- **Headless native backend**: `pip install 'lmlite[native]'` runs the same ONNX files with onnxruntime outside the browser for fast tuning loops, checked for parity against the browser
 
 ## What is lmLite?
 

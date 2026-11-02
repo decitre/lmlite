@@ -212,6 +212,22 @@ To check where a model would load from without loading it, `await LLM.hosted_bas
 
 On a site built with `scripts/lite-build.sh`, Transformers.js and its WebAssembly runtime load from the site, so hosted models work where jsDelivr and huggingface.co are blocked. Elsewhere, Transformers.js loads from jsDelivr.
 
+### Native Backend (Headless Tuning)
+
+Outside a browser kernel, `pip install 'lmlite[native]'` adds an onnxruntime backend that runs the same ONNX files and `tokenizer.json` the browser loads, for fast headless iteration. It is picked automatically when no browser JS runtime exists, or explicitly with `backend="native"`:
+
+```python
+llm = await LLM.create(
+    embedding_model="intfloat/multilingual-e5-small",  # or a model directory path
+    embedding_dtype="q8",
+    local_models_path="site/files/models",  # looks in <path>/<model id>/, then the Hugging Face Hub cache
+)
+vec = await llm.embed("query: sushi next to a pharmacy")
+tok = await LLM.tokenizer(tokenizer_json="site/files/models/org/name/tokenizer.json")
+```
+
+It supports `embed()`, `classify()`, `generate()` (greedy, or top-k sampling with temperature and `repetition_penalty`) and `LLM.tokenizer()`; other calls raise. dtype selection follows the browser: `embedding_dtype`, else the model's `transformers.js_config` dtype, else `q8`; `dtype`/`dtype_fallbacks`, else `q8`, `int8`, `fp32` for generation and classification. Sampled text cannot match the browser token for token (different random generators); use `do_sample=False` to compare. The browser remains the source of truth; `tests/browser/test_native_parity.py` (`pixi run native-parity`) checks the two agree.
+
 ## Advanced Features
 
 ### Generation Without Prompt Echo

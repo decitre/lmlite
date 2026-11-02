@@ -45,6 +45,10 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+# Headless CPython backend running the browser's ONNX files; not needed in JupyterLite.
+native = ["onnxruntime", "tokenizers", "huggingface_hub", "numpy"]
+
 [project.scripts]
 lmlite-models = "lmlite.model_assets:main"
 
@@ -184,7 +188,7 @@ py312 = ["py312", "dev"]
 py313 = ["py313", "dev"]
 
 [tool.pixi.pypi-dependencies]
-lmlite = { path = ".", editable = true }
+lmlite = { path = ".", editable = true, extras = ["native"] }
 
 [tool.pixi.tasks]
 set-version = { cmd = "python scripts/set_version.py {{ version }}", args = ["version"] }
@@ -199,6 +203,7 @@ embedding-smoke = "pytest tests/browser/test_embeddings.py -m browser -v"
 task-smoke = "pytest tests/browser/test_tasks.py -m browser -v"
 generate-embedding-fixture = "python scripts/generate_embedding_fixture.py"
 tokenizer-smoke = "pytest tests/browser/test_tokenizer.py -m browser -v"
+native-parity = "pytest tests/browser/test_native_parity.py -m browser -v"
 generate-tokenizer-fixture = "python scripts/generate_tokenizer_fixture.py"
 coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py --ignore=tests/browser -m 'not browser' && coverage report -m"
 lint = "ruff check src tests scripts --fix && ruff format src tests scripts"

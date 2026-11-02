@@ -124,6 +124,14 @@ LMLITE_TEST_EMBEDDING_BACKEND=webgpu pixi run embedding-smoke
 
 WebGPU requires support in the browser, execution environment, model, and dtype; the test does not skip failures or fall back to WASM. Optional MiniLM model files stay under `models/Xenova/all-MiniLM-L6-v2/`; missing files fail with preparation instructions. Chromium and the Transformers.js/ONNX runtime dependencies must also be available. Runtime dependencies are loaded from the CDN, so the test is not fully offline. Only the optional MiniLM run also needs Hub metadata access.
 
+#### Native Backend Parity
+
+`pixi run native-parity` runs the same inputs through the browser and the native onnxruntime backend. Embeddings must agree within an L2 distance of `1e-4`, and a nearest-anchor margin gate must make identical accept/reject decisions on a calibration set. A greedy GPT-2 generation check also runs when `models/Xenova/gpt2` exists (`pixi run hf Xenova/gpt2`). To gate a real model at its tuned threshold:
+
+```bash
+LMLITE_TEST_EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2 LMLITE_PARITY_MARGIN=0.05 pixi run native-parity
+```
+
 #### Task Pipeline Smoke Tests
 
 The opt-in `tokenizer-smoke` task checks `LLM.tokenizer()` in Chromium. It compares Transformers.js ids with reference ids from the Rust `tokenizers` library for a small bundled Unigram/Metaspace tokenizer (`tests/fixtures/models/lmlite/tiny-unigram/`). It also checks that no weight file or Hub request is made, and that `encode()` returns plain Python ints in Pyodide, which it loads from the jsDelivr CDN:
