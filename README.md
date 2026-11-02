@@ -8,7 +8,6 @@
 [![codecov-python][codecov-python-badge]][codecov-url]
 [![codecov-js][codecov-js-badge]][codecov-url]
 [![Transformers.js][transformers-badge]][transformers-url]
-
 [![Try xeus-python][xeus-badge]][xeus-url]
 [![Try Pyodide][pyodide-badge]][pyodide-url]
 
