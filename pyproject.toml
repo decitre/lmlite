@@ -128,6 +128,10 @@ name = "lmlite"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64"]
 
+# onnxruntime >= 1.24 ships macOS wheels only for macOS 14+ arm64; osx-64 stays on 1.23.2.
+[tool.pixi.system-requirements]
+macos = "14.0"
+
 [tool.pixi.dependencies]
 python = ">=3.11,<3.14"
 xeus-python = "*"
