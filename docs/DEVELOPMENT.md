@@ -126,7 +126,7 @@ WebGPU requires support in the browser, execution environment, model, and dtype;
 
 #### Native Backend Parity
 
-`pixi run native-parity` runs the same inputs through the browser and the native onnxruntime backend. Embeddings must agree within an L2 distance of `1e-4`, and a nearest-anchor margin gate must make identical accept/reject decisions on a calibration set. A greedy GPT-2 generation check also runs when `models/Xenova/gpt2` exists (`pixi run hf Xenova/gpt2`). To gate a real model at its tuned threshold:
+`pixi run native-parity` runs the same inputs through the browser and the native onnxruntime backend. Embeddings must agree within an L2 distance of `1e-4` for fp32, `1e-3` for fp16 (skipped when the model has no fp16 weights) and `0.1` for q8 (dynamic quantization amplifies ulp-level kernel differences, see "Native Backend" in `docs/USAGE.md`), and a nearest-anchor margin gate must make identical accept/reject decisions on a calibration set. A greedy fp32 GPT-2 generation check also runs when `models/Xenova/gpt2` exists (`pixi run hf Xenova/gpt2`). To gate a real model at its tuned threshold:
 
 ```bash
 LMLITE_TEST_EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2 LMLITE_PARITY_MARGIN=0.05 pixi run native-parity

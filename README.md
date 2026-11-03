@@ -110,6 +110,7 @@ AI-assisted contributions are welcome, provided contributors understand, review,
 - **[Usage Guide](https://github.com/decitre/lmlite/blob/main/docs/USAGE.md)** - Detailed API examples and configuration
 - **[Model Guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md)** - Recommended models and dtype selection
 - **[Runtime & Integration](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md)** - Platform support and integration boundaries
+- **[Native Tuning](https://github.com/decitre/lmlite/blob/main/docs/NATIVE.md)** - Tune headless with the native backend, then ship to the browser
 - **[Glossary](https://github.com/decitre/lmlite/blob/main/docs/GLOSSARY.md)** - Key concepts and terminology
 
 ## Interactive Notebooks
