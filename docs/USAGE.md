@@ -174,6 +174,8 @@ llm = await LLM.create(
 
 Model support depends on the current Transformers.js runtime and the ONNX/dtype files available for that model. If a model fails to load, check the Transformers.js WebGPU and dtype guides for compatible browser models.
 
+The fastest generation dtype depends on the backend: `q4` on WebGPU, `fp16` (or `q8` for files over 2 GB) on WASM, where `q4` is 4 to 8× slower than `q8`. The default fallback order starts with `q8`, the slowest WebGPU choice, so pass `dtype="q4"` with `backend="webgpu"`. Measurements are in [MODELS.md](MODELS.md#generation-dtype-selection).
+
 If you hit ONNX runtime errors such as `Missing required scale ... DequantizeLinear` on WASM, try `backend="webgpu", dtype="fp32"` or set `dtype_fallbacks=["fp32"]` to avoid quantized variants.
 
 ```python
