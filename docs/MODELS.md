@@ -95,6 +95,13 @@ The fastest dtype depends on the backend, and the two backends want opposite cho
 - **WebGPU: use `q4`.** It is the fastest variant on every model measured (`q4f16`, where available, was as fast), 10 to 15× faster than `q8`. `q8` is the slowest WebGPU choice, slower than `q8` on WASM, yet it is first in the default fallback order: pass `dtype="q4"` with `backend="webgpu"`. Firefox cannot run 4-bit models on WebGPU (its 9-storage-buffer limit is one short of what the kernels need); use `fp16` there.
 - **WASM: avoid `q4`.** WASM 4-bit kernels are 4 to 8× slower than `q8` and 7 to 11× slower than `fp16`. Use `fp16` when the model's fp16 file is under 2 GB (it runs as fast as fp32 at half the download), otherwise `q8`, which is first in the default fallback order. A single file over 2 GB cannot load in a browser at all (`ArrayBuffer size exceeds the supported range`).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="generation-dtype-speed-dark.png">
+  <img src="generation-dtype-speed.png" alt="Generation speed in tokens per second by dtype (q4, q8, fp16, fp32) for SmolLM2-135M, SmolLM2-360M and TinyLlama-1.1B on WebGPU and WASM. WebGPU q4 points sit in the top-left quadrant (small download, fast); WASM q4 and WebGPU q8 fall below 10 tokens per second; WASM fp16 and fp32 are fast but larger downloads.">
+</picture>
+
+The chart is regenerated with `uv run scripts/plot_generation_dtypes.py`. The same data:
+
 Seconds to generate 32 greedy tokens in Chrome 156 on an Apple M-series Mac (WASM single-threaded, models served locally, so download time is excluded). Sizes in parentheses are the q4 / q8 / fp16 / fp32 files:
 
 | model | backend | `q4` | `q8` | `fp16` | `fp32` |
