@@ -89,19 +89,29 @@ def model_files(source: Path) -> list[tuple[Path, Path]]:
     if not source.is_dir():
         raise NotADirectoryError(f"model directory not found: {source}")
 
-    files = []
+    files, skipped = [], []
     for path in sorted(source.rglob("*")):
-        if path.is_symlink() or not path.is_file():
-            continue
         relative_path = path.relative_to(source)
         if any(part in _EXCLUDED_PARTS for part in relative_path.parts) or path.suffix == ".bak":
             continue
-        files.append((path, relative_path))
+        if path.is_symlink():
+            target = path.resolve()
+            # Copy link targets only from inside the model directory, so a link cannot publish unrelated files.
+            if not (target.is_file() and target.is_relative_to(source.resolve())):
+                print(f"skipping symlink {relative_path} -> {target}: not a file inside {source}", file=sys.stderr)
+                skipped.append(relative_path.as_posix())
+                continue
+        if path.is_file():
+            files.append((path, relative_path))
 
     if not any(relative_path.as_posix() == "config.json" for _, relative_path in files):
         raise ValueError(f"model directory is missing config.json: {source}")
-    if not files:
-        raise ValueError(f"no packable model files under {source}")
+    # A model without weights cannot load in the browser, so fail the build instead of publishing it.
+    if not any(onnx_dtype(relative_path) for _, relative_path in files):
+        found = ", ".join(relative_path.as_posix() for _, relative_path in files)
+        raise ValueError(
+            f"no ONNX weights under {source}; found: {found}; skipped symlinks: {', '.join(skipped) or 'none'}"
+        )
     return files
 
 
@@ -220,7 +230,7 @@ def host_models(
             shutil.copy2(path, destination)
             copied.append(destination)
         hosted_dtypes = sorted({onnx_dtype(relative_path) for _, relative_path in files} - {None})
-        print(f"hosting {model_id} ({', '.join(hosted_dtypes) or 'no ONNX weights'})")
+        print(f"hosting {model_id} ({', '.join(hosted_dtypes)})")
     (output_dir / "manifest.json").write_text(json.dumps({"models": [model_id for model_id, _ in models]}) + "\n")
     return copied
 

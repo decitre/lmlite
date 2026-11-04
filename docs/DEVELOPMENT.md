@@ -233,6 +233,8 @@ lmlite-models --source-dir /path/to/models --output-dir /path/to/site/files/mode
 
 `--model Xenova/multilingual-e5-small:q8 --model HuggingFaceTB/SmolLM2-360M-Instruct:q4` hosts only the listed models, each at its own dtype (a bare `--model ID` uses `--dtype`, or hosts every variant); `manifest.json` lists exactly the hosted models, and a model missing from the source fails.
 
+A model with no ONNX weights fails, in both formats, instead of being listed and failing to load in the browser. Symlinks are copied as their target file when it lies inside the model directory; others (such as a Hugging Face cache `snapshots/` tree pointing into `blobs/`) are skipped and named. Dereference those first, for example with `cp -rL`.
+
 The output must be outside the source directory. Publish it over HTTP and pass its URL as `hosted_models_url` when automatic discovery does not apply.
 
 Use `--format zip` explicitly to prepare portable model archives instead; ZIP mode caches archives in the source directory and reuses them on subsequent runs.
