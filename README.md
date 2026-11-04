@@ -124,6 +124,7 @@ Try lmLite directly in your browser, without installing anything.
 - **[Streaming chat](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_streaming.ipynb)** — Print a chat answer as it is generated, stop early with `break`, and cancel a running generation with `cancel()`, using SmolLM2-135M-Instruct (WASM).
 - **[Token probabilities](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch11_token-scores.ipynb)** — Stream each generated token with its probability, plus the runner-up token at every step, using SmolLM2-135M-Instruct (WASM).
 - **[Tokenizers](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch12_tokenizers.ipynb)** — Load only the tokenizers of GPT-2, multilingual BERT and POTION (no weights), compare how they split text, and count tokens synchronously with `LLM.tokenizer()`.
+- **[Proving GPU inference](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch13_webgpu.ipynb)** — Show that WebGPU inference really runs on the GPU: the hardware adapter, model tensors held in GPU memory, and WebGPU vs WASM timing for the same greedy generation, using SmolLM2-135M-Instruct (q4).
 
 These examples run locally in the browser using Transformers.js.
 

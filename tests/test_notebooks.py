@@ -33,6 +33,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         def __init__(self, config):
             self.config = config
             self.disposed = False
+            self.js = types.SimpleNamespace(backend=config.get("backend"))  # the BrowserLLM handle
             instances.append(self)
 
         @classmethod
@@ -185,6 +186,18 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     installer = types.ModuleType("install")
     installer._ = AsyncMock()
     monkeypatch.setitem(sys.modules, "install", installer)
+    browser = types.ModuleType("js")
+
+    def js_eval(source):
+        # The GPU notebook's JavaScript probes: the adapter, then per-backend tensor locations.
+        if "requestAdapter" in source:
+            return AsyncMock(return_value='{"vendor": "example", "fallback": false}')
+        return AsyncMock(
+            side_effect=lambda llm: '{"cpu": 1, "gpu-buffer": 2}' if llm.backend == "webgpu" else '{"cpu": 3}'
+        )
+
+    browser.eval = js_eval
+    monkeypatch.setitem(sys.modules, "js", browser)
     notebook = json.loads(path.read_text())
     namespace = {}
     for cell in notebook["cells"]:
@@ -290,6 +303,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             "Xenova/bert-base-multilingual-cased",
             "minishlab/potion-base-8M",
         ]
+    if path.name == "ch13_webgpu.ipynb":
+        assert [instance.config["backend"] for instance in instances] == ["webgpu", "wasm"]
+        assert instances[0].config["dtype"] == instances[1].config["dtype"] and prompts[0] == prompts[1]
     if path.name == "ch08_tasks.ipynb":
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]
