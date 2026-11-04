@@ -86,7 +86,27 @@ Transformers.js only runs models with ONNX weights and a browser-supported archi
 3. [`Xenova/TinyLlama-1.1B-Chat-v1.0`](https://huggingface.co/Xenova/TinyLlama-1.1B-Chat-v1.0)  
    Compact LLaMA-family chat model for conversational responses and simple instruction-following experiments. At 1.1 billion parameters it still needs substantially more browser memory than GPT-2 or SmolLM2-360M; download size depends on the chosen ONNX dtype. Use the model's intended chat format for best results, and expect limitations in reasoning and factual accuracy.
 4. [`HuggingFaceTB/SmolLM2-360M-Instruct`](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct)  
-   Compact instruction-tuned model for lightweight English tasks such as short responses, simple rewriting, and basic extraction or classification through prompts. Its small size makes it a candidate for browser demos with limited memory; use `dtype="q4"` when bundling the `model_q4.onnx` variant shown below. Do not rely on it for complex reasoning, factual accuracy, or consistently valid structured output; validate generated results.
+   Compact instruction-tuned model for lightweight English tasks such as short responses, simple rewriting, and basic extraction or classification through prompts. Its small size makes it a candidate for browser demos with limited memory. The `model_q4.onnx` variant shown below is the fastest on WebGPU but slow on WASM; see [Generation dtype selection](#generation-dtype-selection). Do not rely on it for complex reasoning, factual accuracy, or consistently valid structured output; validate generated results.
+
+### Generation dtype selection
+
+The fastest dtype depends on the backend, and the two backends want opposite choices:
+
+- **WebGPU: use `q4`.** It is the fastest variant on every model measured (`q4f16`, where available, was as fast), 10 to 15× faster than `q8`. `q8` is the slowest WebGPU choice, slower than `q8` on WASM, yet it is first in the default fallback order: pass `dtype="q4"` with `backend="webgpu"`. Firefox cannot run 4-bit models on WebGPU (its 9-storage-buffer limit is one short of what the kernels need); use `fp16` there.
+- **WASM: avoid `q4`.** WASM 4-bit kernels are 4 to 8× slower than `q8` and 7 to 11× slower than `fp16`. Use `fp16` when the model's fp16 file is under 2 GB (it runs as fast as fp32 at half the download), otherwise `q8`, which is first in the default fallback order. A single file over 2 GB cannot load in a browser at all (`ArrayBuffer size exceeds the supported range`).
+
+Seconds to generate 32 greedy tokens in Chrome 156 on an Apple M-series Mac (WASM single-threaded, models served locally, so download time is excluded). Sizes in parentheses are the q4 / q8 / fp16 / fp32 files:
+
+| model | backend | `q4` | `q8` | `fp16` | `fp32` |
+|---|---|---|---|---|---|
+| SmolLM2-135M-Instruct (182 / 137 / 270 / 540 MB) | WASM | 4.35 | 0.98 | **0.59** | 0.57 |
+| | WebGPU | **0.20** | 2.39 | 0.45 | 0.55 |
+| SmolLM2-360M-Instruct (388 / 365 / 725 MB) | WASM | 12.5 | 2.25 | **1.16** | |
+| | WebGPU | **0.29** | 4.12 | 0.74 | |
+| TinyLlama-1.1B-Chat (910 / 1101 / 2200 MB) | WASM | 43.1 | **5.72** | too large | |
+| | WebGPU | **0.49** | 7.58 | too large | |
+
+The WASM pattern is the same in other browsers. SmolLM2-135M on WASM takes 4.9 / 1.0 / 0.69 / 0.61 s in Safari 26.6 and 4.6 / 1.2 / 0.58 / 0.56 s in Firefox 159 (q4 / q8 / fp16 / fp32). On WebGPU, Safari takes 0.58 s with `q4` and 5.8 s with `q8`. The sizes give one more reason to skip 4-bit on WASM: these `q4` files are not much smaller than `q8`, and for SmolLM2-360M they are larger.
 
 ## Downloading and bundling models
 
@@ -139,6 +159,8 @@ pixi run hf Xenova/TinyLlama-1.1B-Chat-v1.0 -- \
 Load with `generator_model="Xenova/TinyLlama-1.1B-Chat-v1.0", dtype="q4"`. This variant does not require a separate `.onnx_data` file. The q4 variant has not been confirmed by the earlier browser smoke run, which used the default dtype fallback order.
 
 ### Minimal SmolLM2 download (q4)
+
+q4 suits `backend="webgpu"`. For WASM, download `onnx/model_fp16.onnx` instead and pass `dtype="fp16"` (see [Generation dtype selection](#generation-dtype-selection)).
 
 ```bash
 pixi run hf HuggingFaceTB/SmolLM2-360M-Instruct -- \
