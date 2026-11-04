@@ -345,6 +345,56 @@ def test_package_cli_rejects_model_without_requested_dtype(tmp_path, capsys):
     assert "org/model: none of the dtypes q8 found; available: q4" in capsys.readouterr().err
 
 
+def _weight_source(tmp_path, weight):
+    """A model whose only weight, onnx/model_q4.onnx, is a real file, a symlink inside or outside it, or missing."""
+    source = tmp_path / "models"
+    model = _write_model(source, "org/model")
+    link = model / "onnx" / "model_q4.onnx"
+    if weight == "inside":
+        link.rename(model / "weights.bin")
+        link.symlink_to("../weights.bin")
+    elif weight == "outside":
+        link.rename(tmp_path / "weights.bin")
+        link.symlink_to(tmp_path / "weights.bin")
+    elif weight == "missing":
+        link.unlink()
+    return source
+
+
+@pytest.mark.parametrize("args", [["--format", "files"], ["--format", "files", "--dtype", "q4"], ["--format", "zip"]])
+@pytest.mark.parametrize("weight", ["real", "inside"])
+def test_package_cli_hosts_real_and_inside_symlinked_weights(tmp_path, weight, args):
+    source = _weight_source(tmp_path, weight)
+    output = tmp_path / "out"
+
+    model_assets.main(["--source-dir", str(source), "--output-dir", str(output), *args])
+
+    if args[1] == "zip":
+        with zipfile.ZipFile(output / "model-org-model.zip") as archive:
+            assert archive.read("org/model/onnx/model_q4.onnx") == b"onnx"
+    else:
+        hosted = output / "org/model/onnx/model_q4.onnx"
+        assert not hosted.is_symlink() and hosted.read_bytes() == b"onnx"
+        assert json.loads((output / "manifest.json").read_text()) == {"models": ["org/model"]}
+
+
+@pytest.mark.parametrize("args", [["--format", "files"], ["--format", "files", "--dtype", "q4"], ["--format", "zip"]])
+@pytest.mark.parametrize("weight", ["outside", "missing"])
+def test_package_cli_rejects_model_without_hostable_weights(tmp_path, capsys, weight, args):
+    source = _weight_source(tmp_path, weight)
+    output = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as error:
+        model_assets.main(["--source-dir", str(source), "--output-dir", str(output), *args])
+
+    err = capsys.readouterr().err
+    assert error.value.code == 2
+    assert "no ONNX weights under" in err
+    skipped = "onnx/model_q4.onnx" if weight == "outside" else "none"
+    assert f"skipped symlinks: {skipped}" in err
+    assert not (output / "manifest.json").exists()
+
+
 def test_package_cli_supports_explicit_zip(tmp_path):
     source = tmp_path / "models"
     _write_model(source, "org/model")
