@@ -88,7 +88,7 @@ else
 fi
 
 # jl-forge makes breaking changes only in minor releases before 1.0 (its Compatibility Guarantees).
-JL_FORGE_VERSION="~=0.3.6"
+JL_FORGE_VERSION="~=0.5.0"
 # Kept between builds: xeus environments, Pyodide release and wheel downloads, Transformers.js files.
 JL_FORGE_CACHE="${JL_FORGE_CACHE:-$HOME/.cache/jl-forge}"
 
