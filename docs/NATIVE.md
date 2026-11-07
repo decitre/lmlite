@@ -78,17 +78,25 @@ lmlite does not send them today, so the browser runs single-threaded. With them,
 | multilingual-e5-small | 276 ms | 83 ms |
 | all-mpnet-base-v2 | 832 ms | 243 ms |
 
-Isolation is set by the web server or host that serves the JupyterLite site, not by lmlite. Measured on the lmlite 0.11.0 sites (JupyterLite 0.8.7, jupyterlite-xeus 5.1.0) with all-MiniLM-L6-v2 fp16 on the long input, run in the JupyterLite REPL:
+Isolation is set by the web server or host that serves the JupyterLite site, not by lmlite. Measured on the lmlite 0.11.0 Pyodide site (JupyterLite 0.8.7) with all-MiniLM-L6-v2 fp16 on the long input, run in the JupyterLite REPL:
 
-| browser | Pyodide site, no headers | Pyodide, `credentialless` | Pyodide, `require-corp` | xeus site, isolated |
-|---|---|---|---|---|
-| Chrome (Chromium) | 129 ms | 50 ms | 50 ms | kernel never starts |
-| Firefox 159 | 120 ms | 38 ms | 38 ms | kernel never starts |
-| Safari 26.6.2 | 136 ms | 137 ms (not isolated) | 76 ms | kernel never starts |
-| WebKit 26.6 (Playwright) | 131 ms | 130 ms (not isolated) | 52 ms | kernel never starts |
+| browser | Pyodide site, no headers | Pyodide, `credentialless` | Pyodide, `require-corp` |
+|---|---|---|---|
+| Chrome (Chromium) | 129 ms | 50 ms | 50 ms |
+| Firefox 159 | 120 ms | 38 ms | 38 ms |
+| Safari 26.6.2 | 136 ms | 137 ms (not isolated) | 76 ms |
+| WebKit 26.6 (Playwright) | 131 ms | 130 ms (not isolated) | 52 ms |
 
-- **Pyodide site:** works in every browser tested, and models still download from the Hugging Face Hub. Safari ignores `credentialless` and stays single-threaded but working, so `credentialless` speeds up Chrome and Firefox without breaking Safari. `require-corp` also isolates Safari (1.8× faster in Safari itself), but blocks any cross-origin resource that is not served with CORS or a `Cross-Origin-Resource-Policy` header (for example images linked from notebooks).
-- **xeus-python site: do not serve it with these headers.** On an isolated page, jupyterlite-xeus starts the kernel in a different worker, and that kernel dies (`generic_type: type "XKernel" is already registered!`), so even `print()` gets no output, in the REPL and in notebooks. A site with only xeus-python fails the same way, so this is a jupyterlite-xeus bug, not lmlite. Tracked upstream as [jupyterlite/xeus#378](https://github.com/jupyterlite/xeus/issues/378).
+The xeus-python site, measured the same way on the lmlite 0.12.0 site built with jl-forge 0.6.0 (xeus-python 0.19.0, pyjs 4.1.0 from emscripten-forge 4x), in Playwright's browsers:
+
+| browser | xeus site, no headers | xeus, `credentialless` | xeus, `require-corp` |
+|---|---|---|---|
+| Chromium 153 | 140 ms | 57 ms | 54 ms |
+| Firefox 155 | 137 ms | 49 ms | 49 ms |
+| WebKit 26.6 | 136 ms | 135 ms (not isolated) | 50 ms |
+
+- **Both sites** work isolated in every browser tested, and models still download from the Hugging Face Hub. Safari ignores `credentialless` and stays single-threaded but working, so `credentialless` speeds up Chrome and Firefox without breaking Safari. `require-corp` also isolates Safari (1.8× faster in Safari itself on the Pyodide site), but blocks any cross-origin resource that is not served with CORS or a `Cross-Origin-Resource-Policy` header (for example images linked from notebooks).
+- **xeus-python site: needs pyjs 4.1.0 or later.** With older xeus-python environments (jl-forge 0.5.0 and earlier, pyjs 3.2.0), the kernel dies on an isolated page (`generic_type: type "XKernel" is already registered!`), so even `print()` gets no output. Fixed upstream in [jupyterlite/xeus#378](https://github.com/jupyterlite/xeus/issues/378). The xeus site was not retested in Safari itself.
 
 Static hosts such as GitHub Pages cannot set response headers; a service worker that adds them would compete with JupyterLite's own `service-worker.js`. Check that every other cross-origin resource your site loads still works with these headers.
 

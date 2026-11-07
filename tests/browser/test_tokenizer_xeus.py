@@ -24,7 +24,7 @@ FIXTURE_DIR = REPO_ROOT / "tests/fixtures/models/lmlite/tiny-unigram"
 TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "300000"))
 ENVIRONMENT = """name: xeus-kernels
 channels:
-  - https://prefix.dev/emscripten-forge-dev
+  - https://prefix.dev/emscripten-forge-4x
   - https://prefix.dev/conda-forge
 dependencies:
   - xeus-python
