@@ -48,8 +48,9 @@ dynamic = ["version"]
 [project.optional-dependencies]
 # Headless CPython backend running the browser's ONNX files; not needed in JupyterLite.
 native = ["onnxruntime", "tokenizers", "huggingface_hub", "numpy"]
-# What the example notebooks use beyond the package itself: NumPy for OnnxModel, Pillow to decode images.
-notebooks = ["numpy", "pillow"]
+# Working with images: Pillow decodes and draws them, NumPy holds their pixels and feeds OnnxModel. The image
+# pipelines themselves only need the browser; the notebooks that show images need both.
+images = ["numpy", "pillow"]
 
 [project.scripts]
 lmlite-models = "lmlite.model_assets:main"

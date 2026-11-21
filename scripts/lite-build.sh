@@ -151,7 +151,7 @@ process_for_xeus() {
     local xeus_cache="$JL_FORGE_CACHE/xeus-$(date +%Y-%m)"
     find "$JL_FORGE_CACHE" -mindepth 1 -maxdepth 1 -name 'xeus*' ! -path "$xeus_cache" -exec rm -rf {} +
     XEUS_PREFIX=$(jl-forge xeus-env --cache-dir "$xeus_cache" --pyproject "$ROOT_DIR/pyproject.toml" \
-        --extras notebooks)
+        --extras images)
 
     jupyter lite build \
         --contents "$XEUS_WORKSPACE" \
@@ -187,7 +187,7 @@ process_for_pyodide() {
 
     printf "${YELLOW}Generate install.py and patch notebooks${NC}\n"
     jl-forge pyodide-install --pyproject "$ROOT_DIR/pyproject.toml" \
-        --package-name lmlite --wheel-dir "$PYODIDE_WORKSPACE" --extras notebooks
+        --package-name lmlite --wheel-dir "$PYODIDE_WORKSPACE" --extras images
     jl-forge notebooks "$PYODIDE_WORKSPACE" --pyodide-install
 
     ls -l "$PYODIDE_WORKSPACE"
@@ -195,7 +195,7 @@ process_for_pyodide() {
     printf "${YELLOW}Bundle PyPI wheels and self-hosted Pyodide${NC}\n"
     # jupyter lite build indexes <lite-dir>/pypi, so piplite installs these from the site.
     jl-forge pyodide-wheels --pyproject "$ROOT_DIR/pyproject.toml" \
-        --cache-dir "$JL_FORGE_CACHE" --out-dir "$WORKSPACE/lite-pyodide/pypi" --extras notebooks
+        --cache-dir "$JL_FORGE_CACHE" --out-dir "$WORKSPACE/lite-pyodide/pypi" --extras images
     PYODIDE_DIST=$(jl-forge pyodide-dist --pyproject "$ROOT_DIR/pyproject.toml" \
         --cache-dir "$JL_FORGE_CACHE/pyodide" --out "$WORKSPACE/pyodide-dist.tar.bz2")
 
