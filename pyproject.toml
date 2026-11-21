@@ -177,6 +177,7 @@ jupyterlite-xeus = "==5.1.0"
 
 [tool.pixi.feature.xeus-site.tasks]
 xeus-tokenizer-smoke = "pytest tests/browser/test_tokenizer_xeus.py -m browser -v -s"
+xeus-onnx-smoke = "pytest tests/browser/test_onnx_model_xeus.py -m browser -v -s"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"

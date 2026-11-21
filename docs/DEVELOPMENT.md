@@ -152,7 +152,7 @@ Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after c
 pixi run --environment model-fixture generate-tokenizer-fixture
 ```
 
-The opt-in `onnx-smoke` task runs a 150-byte model (`tests/fixtures/onnx/scale_add.onnx`, regenerated with `uv run --with onnx python scripts/generate_onnx_fixture.py`) through `OnnxModel`'s browser code on WASM and WebGPU, downloading onnxruntime-web from jsDelivr.
+The opt-in `onnx-smoke` task runs a 150-byte model (`tests/fixtures/onnx/scale_add.onnx`, regenerated with `uv run --with onnx python scripts/generate_onnx_fixture.py`) through `OnnxModel`'s browser code on WASM and WebGPU, and through the Python bridge in Pyodide. It downloads onnxruntime-web from jsDelivr. `xeus-onnx-smoke` runs the same model through the xeus-python bridge (`pixi run -e xeus-site xeus-onnx-smoke`); it shares one site build with `xeus-tokenizer-smoke` when both run in one session.
 
 The opt-in `task-smoke` task loads each `LLM.pipeline()` task (zero-shot classification, translation, speech recognition, and the four vision tasks) through the browser runtime, with real models downloaded from the Hub:
 
