@@ -89,7 +89,7 @@ top_results = await llm.similarity_search(
 
 ### Task Pipelines
 
-`LLM.pipeline(task, model=...)` loads one additional Transformers.js task and returns an awaitable callable. Supported tasks are listed in `lmlite.SUPPORTED_TASKS`: `"zero-shot-classification"`, `"automatic-speech-recognition"` and `"translation"`. Other task names raise a `ValueError` that lists the supported tasks; generation, embeddings and text classification keep their dedicated methods.
+`LLM.pipeline(task, model=...)` loads one additional Transformers.js task and returns an awaitable callable. Supported tasks are listed in `lmlite.SUPPORTED_TASKS`: `"zero-shot-classification"`, `"automatic-speech-recognition"`, `"translation"` and the vision tasks `"image-classification"`, `"zero-shot-image-classification"`, `"image-feature-extraction"` and `"object-detection"`. Other task names raise a `ValueError` that lists the supported tasks; generation, embeddings and text classification keep their dedicated methods.
 
 ```python
 classifier = await LLM.pipeline("zero-shot-classification", model="mobilebert-uncased-mnli")
@@ -106,6 +106,14 @@ transcriber = await LLM.pipeline("automatic-speech-recognition", model="whisper-
 await transcriber("https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav")
 # {'text': ' And so my fellow Americans ask not what your country can do for you...'}
 
+clip = await LLM.pipeline("zero-shot-image-classification", model="clip-vit-base-patch32")
+await clip(jpeg_bytes, candidate_labels=["a photo of a person's face", "a photo of food"])
+# [{'label': 'a photo of food', 'score': 0.97}, {'label': "a photo of a person's face", 'score': 0.03}]
+
+detector = await LLM.pipeline("object-detection", model="detr-resnet-50")
+await detector(jpeg_bytes, threshold=0.5)
+# [{'label': 'cat', 'score': 0.99, 'box': {'xmin': 11, 'ymin': 54, 'xmax': 316, 'ymax': 472}}, ...]
+
 await classifier.dispose()
 ```
 
@@ -117,7 +125,13 @@ Keyword arguments to a pipeline call are forwarded as Transformers.js options fo
 |------|-------|-------------------------|--------|
 | `zero-shot-classification` | string or list of strings | `candidate_labels` (required), `hypothesis_template`, `multi_label` | `{"sequence", "labels", "scores"}` sorted by score, or a list for list input |
 | `translation` | string or list of strings | generation options such as `max_new_tokens`; `src_lang`/`tgt_lang` for multilingual models (e.g. NLLB, M2M100) | `{"translation_text"}`, or a list for list input |
+| `image-classification` | image (see below) or list of images | `top_k` | `[{"label", "score"}]`, or a list of those for list input |
+| `zero-shot-image-classification` | image or list of images | `candidate_labels` (required), `hypothesis_template` | `[{"label", "score"}]` sorted by score |
+| `image-feature-extraction` | image or list of images | `pool=True` to use the model's pooled output, for models that have a pooler layer (default: the first, CLS, token's vector) | a list of floats per image, or a list of those for list input |
+| `object-detection` | image or list of images | `threshold`, `percentage` (default `False`: box coordinates in pixels) | `[{"label", "score", "box": {"xmin", "ymin", "xmax", "ymax"}}]` |
 | `automatic-speech-recognition` | audio (see below) | `return_timestamps`, `chunk_length_s`, `stride_length_s`, `language`/`task` for multilingual Whisper | `{"text"}`, plus `"chunks"` with timestamps |
+
+Image tasks accept encoded image bytes (JPEG, PNG, WebP, GIF or BMP), an HTTP(S) URL, a path to a file in the JupyterLite file system, a `uint8` NumPy array of shape `(H, W, 3)` or `(H, W, 4)`, a PIL image, or a list of any of these. Encoded bytes are the recommended form: they cross the Python/JavaScript bridge as one buffer, and a 250 px JPEG is about 15 KB against about 190 KB of RGB pixels. Bytes that are not an image raise a `ValueError`. Image tasks are not available in the native backend. Output sizes can be large for detectors with many anchors, so call a pipeline once per image rather than in large batches.
 
 Speech recognition accepts an HTTP(S) URL, a path to a PCM WAV file (e.g. a file uploaded to the JupyterLite file browser), WAV bytes, or a sequence of mono float samples at 16 kHz. WAV files are decoded in Python, mixed down to mono and linearly resampled to 16 kHz. Notebook kernels run in a Web Worker without `AudioContext`, so URLs are fetched and decoded the same way and must point to WAV files. Compressed formats (MP3, OGG, M4A) are not decoded in the kernel: convert them to WAV first. URL fetches must be allowed by CORS. Whisper processes 30-second windows, so pass `chunk_length_s=30` for longer recordings.
 

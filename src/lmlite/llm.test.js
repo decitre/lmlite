@@ -13,6 +13,11 @@ vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2', () => {
   PreTrainedTokenizer,
   BertTokenizer,
   pipeline: vi.fn(),
+  RawImage: class {
+    constructor(data, width, height, channels) { Object.assign(this, { data, width, height, channels }); }
+    static fromBlob = vi.fn(async (blob) => ({ blob }));
+    static read = vi.fn(async (url) => ({ url }));
+  },
   env: { fetch: vi.fn(async () => new Response('{}')) },
   InterruptableStoppingCriteria: class {
     interrupted = false;
@@ -612,6 +617,57 @@ describe('BrowserLLM task pipelines', () => {
     expect(llm.taskPipeline).toHaveBeenCalledWith('text', ['technology', 'sports'], { multi_label: true });
     expect(result).toBe(output);
     await expect(llm.runTask('text', '{}')).rejects.toThrow('requires candidate_labels');
+  });
+
+  it('passes candidate_labels positionally for zero-shot image classification', async () => {
+    const llm = new BrowserLLM({ task: 'zero-shot-image-classification' });
+    llm.taskPipeline = vi.fn(async () => [{ label: 'food', score: 1 }]);
+
+    await llm.runTask('https://example.test/a.jpg', JSON.stringify({ candidate_labels: ['food', 'face'] }));
+
+    expect(llm.taskPipeline).toHaveBeenCalledWith({ url: 'https://example.test/a.jpg' }, ['food', 'face'], {});
+    await expect(llm.runTask('https://example.test/a.jpg', '{}')).rejects.toThrow('requires candidate_labels');
+  });
+
+  it('decodes encoded bytes, raw pixels and batches into RawImage inputs', async () => {
+    const llm = new BrowserLLM({ task: 'object-detection' });
+    llm.taskPipeline = vi.fn(async () => []);
+    const bytes = new Uint8Array([1, 2, 3]);
+
+    await llm.runTask(bytes, '{"threshold": 0.5, "percentage": false}');
+    expect(llm.taskPipeline.mock.calls[0][0].blob).toBeInstanceOf(Blob);
+    expect(llm.taskPipeline.mock.calls[0][1]).toEqual({ threshold: 0.5, percentage: false });
+
+    await llm.runTask(['raw', new Uint8Array(24), 3, 2, 4]);
+    expect(llm.taskPipeline.mock.calls[1][0]).toMatchObject({ width: 3, height: 2, channels: 4 });
+
+    await llm.runTask([bytes, 'https://example.test/a.jpg']);
+    expect(llm.taskPipeline.mock.calls[2][0]).toHaveLength(2);
+  });
+
+  it('reports undecodable image bytes', async () => {
+    const { RawImage } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+    RawImage.fromBlob.mockRejectedValueOnce(new Error('bad data'));
+    const llm = new BrowserLLM({ task: 'image-classification' });
+    llm.taskPipeline = vi.fn();
+
+    await expect(llm.runTask(new Uint8Array([0]))).rejects.toThrow('The image could not be decoded: bad data');
+    expect(llm.taskPipeline).not.toHaveBeenCalled();
+  });
+
+  it('returns one plain vector per image for image feature extraction', async () => {
+    const llm = new BrowserLLM({ task: 'image-feature-extraction' });
+    // [images, tokens, dim] without pooling: keep the first token; [images, dim] when pooled.
+    llm.taskPipeline = vi.fn(async (inputs, options) => ({
+      tolist: () => {
+        const vectors = [[0.5, 1.5], [2, 3]].slice(0, Array.isArray(inputs) ? 2 : 1);
+        return options.pool ? vectors : vectors.map(vector => [vector, [9, 9]]);
+      },
+    }));
+
+    expect(await llm.runTask('https://example.test/a.jpg')).toEqual([0.5, 1.5]);
+    expect(await llm.runTask(['https://example.test/a.jpg', 'https://example.test/b.jpg'])).toEqual([[0.5, 1.5], [2, 3]]);
+    expect(await llm.runTask('https://example.test/a.jpg', '{"pool": true}')).toEqual([0.5, 1.5]);
   });
 
   it('unwraps a single translation and keeps batched results', async () => {

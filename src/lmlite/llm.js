@@ -8,7 +8,8 @@ const TRANSFORMERS_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers
 
 // Transformers.js tasks exposed through the generic pipeline interface.
 // Generation, embeddings and text classification keep their dedicated methods.
-const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation'];
+const IMAGE_TASKS = ['image-classification', 'zero-shot-image-classification', 'image-feature-extraction', 'object-detection'];
+const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation', ...IMAGE_TASKS];
 
 function unsupportedTaskError(task) {
   return new Error(
@@ -137,6 +138,23 @@ function routeHostedModels(env) {
 }
 
 // Transformers.js from the site's vendor/transformers/ when the build put it there, else from jsDelivr.
+// Encoded bytes (ArrayBuffer/Uint8Array), a URL string, or ["raw", pixels, width, height, channels] -> RawImage.
+async function toRawImage(value) {
+  const { RawImage } = await loadTransformers();
+  if (typeof value === 'string') {
+    return await RawImage.read(value);
+  }
+  if (Array.isArray(value) && value[0] === 'raw') {
+    const [, pixels, width, height, channels] = value;
+    return new RawImage(new Uint8ClampedArray(pixels), width, height, channels);
+  }
+  try {
+    return await RawImage.fromBlob(new Blob([value]));
+  } catch (error) {
+    throw new Error(`The image could not be decoded: ${String(error?.message ?? error)}`, { cause: error });
+  }
+}
+
 function loadTransformers() {
   transformersModule ??= (async () => {
     const root = siteRoot();
@@ -1033,13 +1051,26 @@ class BrowserLLM {
       // Raw samples (e.g. a Python list or Float64Array) become the Float32Array audio input.
       inputs = Float32Array.from(inputs);
     }
-    if (this.task === 'zero-shot-classification') {
+    if (IMAGE_TASKS.includes(this.task)) {
+      const isBatch = Array.isArray(inputs) && inputs[0] !== 'raw';
+      inputs = isBatch ? await Promise.all(inputs.map(toRawImage)) : await toRawImage(inputs);
+    }
+    if (this.task === 'zero-shot-classification' || this.task === 'zero-shot-image-classification') {
       const labels = options.candidate_labels;
       delete options.candidate_labels;
       if (labels === undefined || labels === null) {
-        throw new TypeError("zero-shot-classification requires candidate_labels.");
+        throw new TypeError(`${this.task} requires candidate_labels.`);
       }
       return await this._callTask(inputs, labels, options);
+    }
+    if (this.task === 'image-feature-extraction') {
+      // One plain list of floats per image. Many exports have no pooler layer, so by default take the
+      // first (CLS) token of the last hidden state; `pool: true` asks the model for its pooled output.
+      let features = (await this._callTask(inputs, options)).tolist();
+      if (Array.isArray(features[0]?.[0])) {
+        features = features.map(tokens => tokens[0]);
+      }
+      return Array.isArray(inputs) ? features : features[0];
     }
     const output = await this._callTask(inputs, options);
     // A single translation input returns one result, like the other tasks.

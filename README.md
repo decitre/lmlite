@@ -65,7 +65,7 @@ print(results)
 - **Multiple backends**: WebAssembly (WASM) or WebGPU
 - **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
 - **Embeddings & classification**: Sentence vectors and text classification
-- **Task pipelines**: Zero-shot classification, speech recognition and translation via `LLM.pipeline(task, model=...)`
+- **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection) via `LLM.pipeline(task, model=...)`
 - **Model caching**: Browser-cached downloads, portable ZIP export/import, and cache inspection before loading (`LLM.model_info()`, `cached_models()`, per-model `clear_cache()`) with Python progress callbacks
 - **Pythonic API**: Clean, async Python interface
 - **Headless native backend**: `pip install 'lmlite[native]'` runs the same ONNX files with onnxruntime outside the browser for fast tuning loops, checked for parity against the browser
@@ -119,6 +119,7 @@ Try lmLite directly in your browser, without installing anything.
 
 - **[Basic demo](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch01_demo.ipynb)** — Text generation, embeddings, classification, and similarity search.
 - **[Task pipelines](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08_tasks.ipynb)** — Zero-shot classification, translation and speech recognition with `LLM.pipeline()`.
+- **[Vision pipelines](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08b_vision.ipynb)** — Image classification, zero-shot image classification, image features and object detection with `LLM.pipeline()`.
 - **[Model info and cache manager](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch99_model-info.ipynb)** — Download size and cache status before loading, loading progress from Python, and a widget to list, load and delete cached models.
 - **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch09_orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory and streamed, stoppable answers, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
 - **[Streaming chat](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_streaming.ipynb)** — Print a chat answer as it is generated, stop early with `break`, and cancel a running generation with `cancel()`, using SmolLM2-135M-Instruct (WASM).

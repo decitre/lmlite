@@ -152,13 +152,13 @@ Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after c
 pixi run --environment model-fixture generate-tokenizer-fixture
 ```
 
-The opt-in `task-smoke` task loads each `LLM.pipeline()` task (zero-shot classification, translation and speech recognition) through the browser runtime, with real models downloaded from the Hub:
+The opt-in `task-smoke` task loads each `LLM.pipeline()` task (zero-shot classification, translation, speech recognition, and the four vision tasks) through the browser runtime, with real models downloaded from the Hub:
 
 ```bash
 pixi run task-smoke
 ```
 
-It runs each task on WASM and WebGPU. WebGPU runs are skipped when Chromium exposes no WebGPU adapter. Set `LMLITE_TEST_TASK_BACKENDS=wasm` to restrict backends. Override the models with `LMLITE_TEST_ZERO_SHOT_MODEL`, `LMLITE_TEST_TRANSLATION_MODEL` and `LMLITE_TEST_ASR_MODEL`.
+It runs each task on WASM and WebGPU. WebGPU runs are skipped when Chromium exposes no WebGPU adapter. Set `LMLITE_TEST_TASK_BACKENDS=wasm` to restrict backends. Override the models with `LMLITE_TEST_ZERO_SHOT_MODEL`, `LMLITE_TEST_TRANSLATION_MODEL`, `LMLITE_TEST_ASR_MODEL`, `LMLITE_TEST_IMAGE_CLASSIFICATION_MODEL`, `LMLITE_TEST_ZERO_SHOT_IMAGE_MODEL`, `LMLITE_TEST_IMAGE_FEATURES_MODEL` and `LMLITE_TEST_OBJECT_DETECTION_MODEL`.
 
 Set `LMLITE_MODEL_TIMEOUT_MS` to adjust the inference wait limit (default: 900000 ms). None of the browser smoke tasks run in the default non-browser test suite.
 
