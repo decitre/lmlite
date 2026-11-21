@@ -1915,6 +1915,105 @@ class TestImageInput:
         assert js.runTask.call_args.args[0] == [self.JPEG, self.PNG, "https://example.test/a.jpg"]
 
 
+class TestPipelineMap:
+    JPEG = b"\xff\xd8\xff\xe0" + b"0" * 8
+
+    @staticmethod
+    def pipeline(task="translation", bad=("bad",), cancel_after=None):
+        """A Pipeline whose fake ``runTasks`` mirrors the JavaScript loop: batches, progress, per-input errors."""
+        from lmlite.llm import Pipeline
+
+        async def run_tasks(items, batch_size, options, callback, continue_on_error):
+            results, errors = [], []
+            for start in range(0, len(items), batch_size):
+                batch = items[start : start + batch_size]
+                for offset, item in enumerate(batch):
+                    if item in bad and not continue_on_error:
+                        raise RuntimeError(f"{task} failed: {item}")
+                    results.append(None if item in bad else f"{item}|{options}")
+                    if item in bad:
+                        errors.append([start + offset, f"{task} failed: {item}"])
+                callback(len(results), len(items))
+                if cancel_after and len(results) >= cancel_after:
+                    break
+            return {"results": results, "errors": errors, "cancelled": len(results) < len(items)}
+
+        js = types.SimpleNamespace(runTasks=AsyncMock(side_effect=run_tasks), cancel=AsyncMock(return_value=True))
+        return Pipeline(types.SimpleNamespace(js=js, cancel=AsyncMock(return_value=True)), task, "m"), js
+
+    async def test_results_follow_input_order_with_options_and_progress_per_batch(self):
+        pipe, js = self.pipeline()
+        progress = []
+
+        out = await pipe.map(iter("abcde"), batch_size=2, progress_callback=lambda *a: progress.append(a), max_len=4)
+
+        assert out == [f'{x}|{{"max_len": 4}}' for x in "abcde"]
+        assert js.runTasks.call_args.args[:2] == (list("abcde"), 2)
+        assert progress == [(2, 5), (4, 5), (5, 5)]  # ceil(5 / 2) calls
+
+    async def test_on_error_raise_skip_and_return(self):
+        pipe, _ = self.pipeline()
+
+        with pytest.raises(RuntimeError, match="translation failed: bad"):
+            await pipe.map(["a", "bad", "c"])
+        skipped = await pipe.map(["a", "bad", "c"], on_error="skip")
+        returned = await pipe.map(["a", "bad", "c"], on_error="return")
+
+        assert [x.split("|")[0] for x in skipped] == ["a", "c"]
+        assert returned[0].startswith("a") and returned[2].startswith("c")
+        assert isinstance(returned[1], RuntimeError) and "bad" in str(returned[1])
+
+    async def test_inputs_that_cannot_be_prepared_follow_on_error_and_count_as_done(self):
+        pipe, js = self.pipeline("image-classification", bad=())
+        progress = []
+
+        with pytest.raises(ValueError, match="could not be decoded"):
+            await pipe.map([self.JPEG, b"not an image"])
+        js.runTasks.assert_not_awaited()
+        out = await pipe.map(
+            [b"not an image", self.JPEG, "missing.jpg"],
+            on_error="return",
+            progress_callback=lambda *a: progress.append(a),
+        )
+
+        assert isinstance(out[0], ValueError) and isinstance(out[2], FileNotFoundError)
+        assert out[1].startswith(str(self.JPEG))
+        assert js.runTasks.call_args.args[0] == [self.JPEG]  # only the valid input reaches JavaScript
+        assert progress == [(3, 3)]  # the two that failed count as done
+        assert await pipe.map([b"not an image"], on_error="skip") == []
+
+    async def test_text_inputs_must_be_strings(self):
+        pipe, _ = self.pipeline()
+
+        with pytest.raises(TypeError, match="must be strings"):
+            await pipe.map(["a", 3])
+
+    async def test_cancel_returns_the_inputs_run_so_far_and_cancel_is_forwarded(self):
+        pipe, _ = self.pipeline(cancel_after=2)
+
+        out = await pipe.map("abcd", batch_size=2)
+
+        assert [x.split("|")[0] for x in out] == ["a", "b"]
+        assert await pipe.cancel() is True
+        pipe.llm.cancel.assert_awaited_once()
+
+    @pytest.mark.parametrize("batch_size", [0, -1, 1.5, True, "2"])
+    async def test_batch_size_must_be_a_positive_integer(self, batch_size):
+        pipe, js = self.pipeline()
+
+        with pytest.raises(ValueError, match="batch_size"):
+            await pipe.map(["a"], batch_size=batch_size)
+        with pytest.raises(ValueError, match="on_error"):
+            await pipe.map(["a"], on_error="ignore")
+        js.runTasks.assert_not_awaited()
+
+    async def test_empty_input_makes_no_javascript_call(self):
+        pipe, js = self.pipeline()
+
+        assert await pipe.map([]) == []
+        js.runTasks.assert_not_awaited()
+
+
 class TestTokenizer:
     @pytest.fixture
     def js(self, monkeypatch):

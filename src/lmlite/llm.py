@@ -1,6 +1,7 @@
 # Copyright 2026 Emmanuel Decitre
 # SPDX-License-Identifier: Apache-2.0
 
+import contextlib
 from dataclasses import dataclass
 
 from .bridge.runtime import ensure_runtime
@@ -375,6 +376,82 @@ class Pipeline:
         result = await self.llm.js.runTask(inputs, options)
         return _to_python_deep(result)
 
+    def _prepare(self, item):
+        """One input of ``map()`` in the form the JavaScript task takes."""
+        if self.task == "automatic-speech-recognition":
+            return _audio_input(item)
+        if self.task in IMAGE_TASKS:
+            return _image_input(item)
+        if not isinstance(item, str):
+            raise TypeError(f"map() inputs for {self.task} must be strings, got {type(item).__name__}")
+        return item
+
+    async def map(self, inputs, batch_size=8, progress_callback=None, on_error="raise", **kwargs):
+        """Run the task over many inputs, with the loop in JavaScript so a notebook makes one call.
+
+        ``batch_size`` inputs go to each Transformers.js call (1 runs them one by one).
+        ``progress_callback(done, total)`` is called after each batch. ``on_error`` is ``"raise"`` (the first
+        error is raised), ``"skip"`` (failed inputs are left out of the results) or ``"return"`` (an exception
+        object takes the place of a failed input's result). Keyword arguments are task options, as in a
+        normal call. Results are in input order, as many as ran: ``await pipe.cancel()`` stops after the
+        current batch and ``map()`` returns what it has.
+        """
+        import json
+
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size < 1:
+            raise ValueError(f"batch_size must be a positive integer, got {batch_size!r}")
+        if on_error not in ("raise", "skip", "return"):
+            raise ValueError(f"on_error must be 'raise', 'skip' or 'return', got {on_error!r}")
+        items = list(inputs)
+        prepared = []  # (index, input) for the inputs JavaScript will run
+        failures = {}  # index -> exception, for inputs that could not be prepared
+        for index, item in enumerate(items):
+            try:
+                prepared.append((index, self._prepare(item)))
+            except Exception as exc:
+                if on_error == "raise":
+                    raise
+                failures[index] = exc
+
+        def report(done, total):
+            if progress_callback is not None:
+                progress_callback(int(done) + len(failures), len(items))
+
+        outcome = {"results": [], "errors": []}
+        if prepared:
+            with _js_callable(report) as callback:
+                outcome = _to_python_deep(
+                    await self.llm.js.runTasks(
+                        _to_js([value for _, value in prepared]),
+                        batch_size,
+                        json.dumps(kwargs, allow_nan=False),
+                        callback,
+                        on_error != "raise",
+                    )
+                )
+        results = outcome["results"]
+        errors = {position: message for position, message in outcome["errors"]}
+        # A cancelled run covers a prefix of the inputs.
+        done = len(results)
+        limit = len(items) if done == len(prepared) else prepared[done - 1][0] + 1 if done else 0
+        positions = {index: position for position, (index, _) in enumerate(prepared)}
+        output = []
+        for index in range(limit):
+            if index in failures:
+                value = failures[index]
+            elif positions[index] in errors:
+                value = RuntimeError(errors[positions[index]])
+            else:
+                value = results[positions[index]]
+            if on_error == "skip" and isinstance(value, Exception):
+                continue
+            output.append(value)
+        return output
+
+    async def cancel(self):
+        """Stop a running ``map()`` after its current batch; return False if nothing was running."""
+        return await self.llm.cancel()
+
     async def dispose(self):
         """Release the loaded pipeline without deleting cached model files."""
         await self.llm.dispose()
@@ -475,6 +552,31 @@ def _native(requested=False):
             "Install it with: pip install 'lmlite[native]'"
         ) from exc
     return native
+
+
+@contextlib.contextmanager
+def _js_callable(function):
+    """``function`` as something JavaScript can call, released on exit: a Pyodide proxy or a xeus-python callable."""
+    proxy = handle = None
+    try:
+        from pyodide.ffi import create_proxy
+    except ImportError:
+        try:
+            from pyjs import create_callable
+        except ImportError:
+            callback = function
+        else:
+            # Xeus exposes Python functions as objects, not JavaScript callables.
+            callback, handle = create_callable(function)
+    else:
+        proxy = callback = create_proxy(function)
+    try:
+        yield callback
+    finally:
+        if proxy is not None:
+            proxy.destroy()
+        if handle is not None:
+            handle.delete()
 
 
 def _js_function(name):
@@ -711,33 +813,13 @@ class LLM:
 
         progress.bar_format = "{desc}"
         progress.set_description("Initializing browser runtime")
-        callback_handle = None
-        try:
-            from pyodide.ffi import create_proxy
-        except ImportError:
-            try:
-                from pyjs import create_callable
-            except ImportError:
-                callback = report_progress
-            else:
-                # Xeus exposes Python functions as objects, not JavaScript callables.
-                callback, callback_handle = create_callable(report_progress)
-            proxy = None
-        else:
-            proxy = callback = create_proxy(report_progress)
-
-        try:
+        with _js_callable(report_progress) as callback:
             instance = native.NativeLLM(config) if native else createLLM(js_config)
             await instance.init(callback)
             progress.bar_format = "{desc}{percentage:3.0f}%|{bar}|"
             progress.reset(total=1)
             progress.update(1)
             progress.set_description("Models ready")
-        finally:
-            if proxy is not None:
-                proxy.destroy()
-            if callback_handle is not None:
-                callback_handle.delete()
 
         models = [
             config.get("generator_model"),

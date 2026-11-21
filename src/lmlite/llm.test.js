@@ -1708,3 +1708,96 @@ describe('bare ONNX models', () => {
     expect(ort.session.release).toHaveBeenCalled();
   });
 });
+
+describe('runTasks', () => {
+  const upper = (items) => items.map((text) => ({ translation_text: text.toUpperCase() }));
+
+  function translator(taskPipeline) {
+    const llm = new BrowserLLM({ task: 'translation' });
+    llm.taskPipeline = vi.fn(taskPipeline);
+    return llm;
+  }
+
+  it('runs batches, reports progress after each one and keeps the order', async () => {
+    const llm = translator(async (items) => upper([items].flat()));
+    const progress = vi.fn();
+
+    const { results, errors, cancelled } = await llm.runTasks(['a', 'b', 'c', 'd', 'e'], 2, '{"max_new_tokens": 4}', progress);
+
+    expect(results.map((r) => r.translation_text)).toEqual(['A', 'B', 'C', 'D', 'E']);
+    expect([errors, cancelled]).toEqual([[], false]);
+    expect(llm.taskPipeline.mock.calls.map((call) => call[0])).toEqual([['a', 'b'], ['c', 'd'], ['e']]);
+    expect(llm.taskPipeline).toHaveBeenCalledWith(['a', 'b'], { max_new_tokens: 4 });
+    expect(progress.mock.calls).toEqual([[2, 5], [4, 5], [5, 5]]);  // ceil(5 / 2) calls
+  });
+
+  it('gives each batch its own copy of the options', async () => {
+    const llm = new BrowserLLM({ task: 'zero-shot-classification' });
+    llm.taskPipeline = vi.fn(async (items) => items.map((sequence) => ({ sequence })));
+
+    await llm.runTasks(['a', 'b'], 1, { candidate_labels: ['x', 'y'] });
+
+    expect(llm.taskPipeline.mock.calls.map((call) => call[1])).toEqual([['x', 'y'], ['x', 'y']]);  // not consumed by the first
+  });
+
+  it('throws the first error unless asked to continue', async () => {
+    const llm = translator(async (items) => {
+      if (items.includes('bad')) { throw new Error('undecodable'); }
+      return upper(items);
+    });
+
+    await expect(llm.runTasks(['a', 'bad', 'c'], 2)).rejects.toThrow('translation failed: undecodable');
+    expect(llm._batchRun).toBeNull();  // the instance stays usable
+    expect((await llm.runTasks(['a'], 2)).results).toHaveLength(1);
+  });
+
+  it('retries a failed batch input by input and reports the bad ones', async () => {
+    const llm = translator(async (items) => {
+      if (items.includes('bad')) { throw new Error('undecodable'); }
+      return upper(items);
+    });
+    const progress = vi.fn();
+
+    const { results, errors } = await llm.runTasks(['a', 'bad', 'c', 'd'], 3, {}, progress, true);
+
+    expect(results).toEqual([{ translation_text: 'A' }, null, { translation_text: 'C' }, { translation_text: 'D' }]);
+    expect(errors).toEqual([[1, 'translation failed: undecodable']]);
+    expect(progress.mock.calls).toEqual([[3, 4], [4, 4]]);
+  });
+
+  it('runs speech recognition one clip per call', async () => {
+    const llm = new BrowserLLM({ task: 'automatic-speech-recognition' });
+    llm.taskPipeline = vi.fn(async (clip) => ({ text: String(clip.length) }));
+
+    const { results } = await llm.runTasks([new Float32Array(3), new Float32Array(5)], 8);
+
+    expect(results).toEqual([{ text: '3' }, { text: '5' }]);
+    expect(llm.taskPipeline).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops after the current batch on cancel() and stays usable', async () => {
+    const llm = translator(async (items) => upper([items].flat()));
+    const progress = vi.fn(() => { llm.cancel(); });
+
+    const run = await llm.runTasks(['a', 'b', 'c', 'd'], 2, {}, progress);
+
+    expect(run.cancelled).toBe(true);
+    expect(run.results.map((r) => r.translation_text)).toEqual(['A', 'B']);
+    expect(await llm.cancel()).toBe(false);  // nothing is running now
+    expect((await llm.runTasks(['x'], 2)).cancelled).toBe(false);
+  });
+
+  it('refuses a second run while one is active and rejects results of the wrong length', async () => {
+    let release;
+    const llm = translator(() => new Promise((resolve) => { release = () => resolve(upper(['a'])); }));
+    const first = llm.runTasks(['a'], 1);
+    await Promise.resolve();
+
+    await expect(llm.runTasks(['b'], 1)).rejects.toThrow('Another map() is running');
+    release();
+    await first;
+
+    const short = translator(async () => []);
+    await expect(short.runTasks(['a', 'b'], 2)).rejects.toThrow('returned 0 results for 2 inputs');
+  });
+});
