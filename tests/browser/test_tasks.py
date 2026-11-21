@@ -13,6 +13,9 @@ pytestmark = pytest.mark.browser
 MODEL_TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "900000"))
 BACKENDS = os.getenv("LMLITE_TEST_TASK_BACKENDS", "wasm,webgpu").split(",")
 AUDIO_URL = "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav"
+DOCS_URL = "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main"
+TIGER_URL = f"{DOCS_URL}/tiger.jpg"
+CATS_URL = f"{DOCS_URL}/cats.jpg"
 
 TASKS = {
     "zero-shot-classification": (
@@ -29,6 +32,26 @@ TASKS = {
         os.getenv("LMLITE_TEST_ASR_MODEL", "Xenova/whisper-tiny.en"),
         AUDIO_URL,
         {},
+    ),
+    "image-classification": (
+        os.getenv("LMLITE_TEST_IMAGE_CLASSIFICATION_MODEL", "Xenova/vit-base-patch16-224"),
+        TIGER_URL,
+        {"top_k": 3},
+    ),
+    "zero-shot-image-classification": (
+        os.getenv("LMLITE_TEST_ZERO_SHOT_IMAGE_MODEL", "Xenova/clip-vit-base-patch32"),
+        TIGER_URL,
+        {"candidate_labels": ["a photo of a tiger", "a photo of food", "a photo of a face"]},
+    ),
+    "image-feature-extraction": (
+        os.getenv("LMLITE_TEST_IMAGE_FEATURES_MODEL", "Xenova/dinov2-small"),
+        TIGER_URL,
+        {},
+    ),
+    "object-detection": (
+        os.getenv("LMLITE_TEST_OBJECT_DETECTION_MODEL", "Xenova/detr-resnet-50"),
+        CATS_URL,
+        {"threshold": 0.9, "percentage": False},
     ),
 }
 
@@ -71,6 +94,15 @@ def test_task_pipeline_runs_in_browser(source_server, task, backend):
         assert output["labels"][0] == "technology"
     elif task == "translation":
         assert output["translation_text"].strip()
+    elif task == "image-classification":
+        assert "tiger" in output[0]["label"].lower()
+    elif task == "zero-shot-image-classification":
+        assert max(output, key=lambda item: item["score"])["label"] == "a photo of a tiger"
+    elif task == "image-feature-extraction":
+        assert len(output) > 1 and all(isinstance(value, (int, float)) for value in output)
+    elif task == "object-detection":
+        assert any(item["label"] == "cat" for item in output)
+        assert all(item["box"]["xmax"] > 1 for item in output)  # pixels, not fractions
     else:
         assert "country" in output["text"].lower()
 

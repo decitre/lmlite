@@ -7,16 +7,16 @@ from .bridge.runtime import ensure_runtime
 
 DEFAULT_MODEL_NAMESPACE = "Xenova"
 
-# Transformers.js tasks available through LLM.pipeline(); keep in sync with llm.js.
-SUPPORTED_TASKS = ("zero-shot-classification", "automatic-speech-recognition", "translation")
-
-# Tasks whose inputs are images; keep in sync with llm.js. Enabled in SUPPORTED_TASKS by the vision tasks.
+# Tasks whose inputs are images; keep in sync with llm.js.
 IMAGE_TASKS = (
     "image-classification",
     "zero-shot-image-classification",
     "image-feature-extraction",
     "object-detection",
 )
+
+# Transformers.js tasks available through LLM.pipeline(); keep in sync with llm.js.
+SUPPORTED_TASKS = ("zero-shot-classification", "automatic-speech-recognition", "translation", *IMAGE_TASKS)
 
 # Sampling rate expected by Whisper and most Transformers.js speech recognition models.
 AUDIO_SAMPLING_RATE = 16000

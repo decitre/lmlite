@@ -77,6 +77,19 @@ Transformers.js only runs models with ONNX weights and a browser-supported archi
 3. [`Xenova/whisper-tiny.en`](https://huggingface.co/Xenova/whisper-tiny.en) (`automatic-speech-recognition`)
    English-only Whisper speech recognition model, about 40 MB quantized. `Xenova/whisper-tiny` and `Xenova/whisper-base` are multilingual, and accept `language` and `task="translate"` arguments. Larger Whisper models are more accurate, but slow and memory-heavy in a browser.
 
+### Vision pipelines
+
+These models are covered by the same `task-smoke` test:
+
+| Task | Model | Licence |
+|------|-------|---------|
+| `image-classification` | [`Xenova/vit-base-patch16-224`](https://huggingface.co/Xenova/vit-base-patch16-224) | Apache-2.0 |
+| `zero-shot-image-classification` | [`Xenova/clip-vit-base-patch32`](https://huggingface.co/Xenova/clip-vit-base-patch32) | MIT |
+| `image-feature-extraction` | [`Xenova/dinov2-small`](https://huggingface.co/Xenova/dinov2-small) | Apache-2.0 |
+| `object-detection` | [`Xenova/detr-resnet-50`](https://huggingface.co/Xenova/detr-resnet-50) | Apache-2.0 |
+
+`Xenova/siglip-base-patch16-224` (Apache-2.0) and `Xenova/yolos-tiny` (Apache-2.0) should also work, but are not tested. Sizes and dtypes depend on the files in each repository: check them with `LLM.model_info()` before downloading. Licences are those listed on the Hub when this was written; check the model card before shipping.
+
 ## Text generation (for `LLM.create(generator_model=...)`)
 
 1. [`Xenova/gpt2`](https://huggingface.co/Xenova/gpt2)  

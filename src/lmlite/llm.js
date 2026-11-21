@@ -9,7 +9,7 @@ const TRANSFORMERS_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers
 // Transformers.js tasks exposed through the generic pipeline interface.
 // Generation, embeddings and text classification keep their dedicated methods.
 const IMAGE_TASKS = ['image-classification', 'zero-shot-image-classification', 'image-feature-extraction', 'object-detection'];
-const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation'];
+const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation', ...IMAGE_TASKS];
 
 function unsupportedTaskError(task) {
   return new Error(
@@ -1055,13 +1055,22 @@ class BrowserLLM {
       const isBatch = Array.isArray(inputs) && inputs[0] !== 'raw';
       inputs = isBatch ? await Promise.all(inputs.map(toRawImage)) : await toRawImage(inputs);
     }
-    if (this.task === 'zero-shot-classification') {
+    if (this.task === 'zero-shot-classification' || this.task === 'zero-shot-image-classification') {
       const labels = options.candidate_labels;
       delete options.candidate_labels;
       if (labels === undefined || labels === null) {
-        throw new TypeError("zero-shot-classification requires candidate_labels.");
+        throw new TypeError(`${this.task} requires candidate_labels.`);
       }
       return await this._callTask(inputs, labels, options);
+    }
+    if (this.task === 'image-feature-extraction') {
+      // One plain list of floats per image. Many exports have no pooler layer, so by default take the
+      // first (CLS) token of the last hidden state; `pool: true` asks the model for its pooled output.
+      let features = (await this._callTask(inputs, options)).tolist();
+      if (Array.isArray(features[0]?.[0])) {
+        features = features.map(tokens => tokens[0]);
+      }
+      return Array.isArray(inputs) ? features : features[0];
     }
     const output = await this._callTask(inputs, options);
     // A single translation input returns one result, like the other tasks.
