@@ -145,18 +145,20 @@ Expect a pipeline in a browser kernel to be slower than native inference, especi
 import numpy as np
 from lmlite import OnnxModel
 
-model = await OnnxModel.load("models/detector.onnx", backend="wasm", licence="Apache-2.0")  # path, URL or bytes
+model = await OnnxModel.load("models/detector.onnx", backend="wasm", licence="Apache-2.0")  # path, URL, bytes or hosted ID
 model.inputs, model.outputs    # [{"name", "dtype", "shape"}], symbolic dimensions stay strings such as "batch"
 outputs = await model.run({"input": blob.astype(np.float32)})
-model.model_info()             # sha256, size, backend, execution provider, inputs, outputs, licence
+model.model_info()             # sha256, size, backend, execution provider, cache status, inputs, outputs, licence
 await model.dispose()
 ```
 
 - **Backend:** `"wasm"` or `"webgpu"` in a browser kernel (onnxruntime-web, the version Transformers.js uses; it fails to load if the browser has no WebGPU). Outside a browser, or with `backend="native"`, the same API runs onnxruntime from `pip install 'lmlite[native]'`.
 - **Inputs:** `run()` checks each input before running and raises an error that names it: a missing or unknown name, a dtype that does not match the model (no silent casts: use `astype()`), a wrong rank, or a wrong size on a fixed axis. Dynamic dimensions accept any size.
 - **Bridge cost:** each `run()` crosses the Python/JavaScript bridge once, with raw buffers. Use one call per image: a detector with 16,800 anchors of 15 floats returns about 1 MB per image.
-- **Browser files:** a path is read in Python and sent as bytes; a URL is fetched by the browser. onnxruntime-web's JavaScript is loaded from the site's `vendor/transformers/` when `scripts/lite-build.sh` put it there, else from jsDelivr. A model with external data files is not supported, and the whole file must fit in browser memory.
-- **Limits:** model files are not cached between sessions, and hosted model names are not resolved yet. `float16` inputs and outputs are not supported in the browser yet.
+- **Browser files:** a path is read in Python and sent as bytes; a URL is fetched by the browser and kept in the Cache API (`cache=False` turns that off), so loading the same URL again makes no request, and `clear_cache()` removes it. `cached_models()` lists such a file as an entry whose `model_id` is `None`, and the cache widget does not show it. `model_info()["cache_status"]` is `"cached"` when the bytes came from the cache, `"downloaded"` when they were just stored, and `None` otherwise. Pass `sha256="..."` to require a hash: a mismatch raises an error, and a cached copy that no longer matches is dropped and fetched again. A model with external data files is not supported, and the whole file must fit in browser memory.
+- **Hosted IDs:** a `namespace/model` ID that does not end in `.onnx` is a hosted model: list it in the site's `files/models/manifest.json` (or the manifest at `hosted_models_url=`) and put the file at `files/models/<id>/model.onnx`. `OnnxModel.load("lmlite/detector")` then loads it from the site, with caching. Outside a browser, give a path or URL.
+- **onnxruntime-web:** its JavaScript is loaded from the site's `vendor/transformers/` when `scripts/lite-build.sh` put it there, else from jsDelivr.
+- **float16:** supported. On WebGPU it also needs an adapter with `shader-f16`: otherwise the run fails with an onnxruntime-web error. WASM has no such requirement.
 
 ## Configuration Options
 

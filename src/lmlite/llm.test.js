@@ -1653,6 +1653,7 @@ describe('bare ONNX models', () => {
   });
 
   it('fetches a URL, runs on raw buffers and returns one buffer per output', async () => {
+    vi.stubGlobal('caches', undefined);  // no Cache API: the model is fetched, not kept
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([9]))));
     const model = await loadOnnxModel('https://example.test/m.onnx');
     const input = new Uint8Array(new Float32Array([1, 2, 3]).buffer);
@@ -1666,7 +1667,37 @@ describe('bare ONNX models', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps URLs in the Cache API, serves repeats from it and checks sha256', async () => {
+    const store = new Map();
+    const cache = {
+      match: vi.fn(async (url) => store.get(url)?.clone()),
+      put: vi.fn(async (url, response) => { store.set(url, response); }),
+      delete: vi.fn(async (url) => store.delete(url)),
+    };
+    vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1, 2, 3])));
+    vi.stubGlobal('fetch', fetchMock);
+    const status = async (...args) => {
+      const model = await loadOnnxModel('https://example.test/m.onnx', 'wasm', ...args);
+      return JSON.parse(model.describe());
+    };
+
+    const first = await status();
+    expect(first.cache_status).toBe('downloaded');
+    expect((await status(first.sha256)).cache_status).toBe('cached');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    expect((await status(null, false)).cache_status).toBeNull();  // cache off: fetched, not stored
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await expect(status('0'.repeat(64))).rejects.toThrow('SHA-256 mismatch');  // stale entry dropped, refetched, rejected
+    expect(cache.delete).toHaveBeenCalledWith('https://example.test/m.onnx');
+    await expect(loadOnnxModel(new Uint8Array([1]), 'wasm', '0'.repeat(64))).rejects.toThrow('SHA-256 mismatch');
+    vi.unstubAllGlobals();
+  });
+
   it('reports a failed download and releases the session on dispose', async () => {
+    vi.stubGlobal('caches', undefined);
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404, statusText: 'Not Found' })));
     await expect(loadOnnxModel('https://example.test/missing.onnx')).rejects.toThrow('404 Not Found');
     vi.unstubAllGlobals();

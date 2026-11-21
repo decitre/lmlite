@@ -14,7 +14,8 @@ from playwright.sync_api import sync_playwright
 pytestmark = pytest.mark.browser
 
 BACKENDS = os.getenv("LMLITE_TEST_TASK_BACKENDS", "wasm,webgpu").split(",")
-FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/onnx/scale_add.onnx"
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures/onnx"
+FIXTURE = FIXTURE_DIR / "scale_add.onnx"
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -75,7 +76,7 @@ def test_onnx_model_runs_through_the_pyodide_bridge(source_server):
             page.goto(source_server, wait_until="domcontentloaded")
             page.add_script_tag(url="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js")
             result = page.evaluate(
-                """async ({server}) => {
+                """async ({server, digest}) => {
                   const pyodide = await loadPyodide();
                   await pyodide.loadPackage('numpy');
                   pyodide.FS.mkdirTree('/lib/lmlite/bridge');
@@ -85,6 +86,9 @@ def test_onnx_model_runs_through_the_pyodide_bridge(source_server):
                   const model = new Uint8Array(await (await fetch(`${server}/tests/fixtures/onnx/scale_add.onnx`)).arrayBuffer());
                   pyodide.FS.writeFile('/scale_add.onnx', model);
                   pyodide.globals.set('url', `${server}/tests/fixtures/onnx/scale_add.onnx`);
+                  pyodide.globals.set('half_url', `${server}/tests/fixtures/onnx/scale_add_fp16.onnx`);
+                  pyodide.globals.set('hosted_url', `${server}/tests/fixtures/onnx/hosted/`);
+                  pyodide.globals.set('digest', digest);
                   return await pyodide.runPythonAsync(`
 import json, sys
 sys.path.insert(0, '/lib')
@@ -102,10 +106,27 @@ for label, source in (('url', url), ('path', '/scale_add.onnx')):
         except TypeError as exc:
             out['dtype_error'] = str(exc)
     await model.dispose()
+
+# a hosted ID from a manifest, a SHA-256 check, the Cache API, and float16 through the bridge
+hosted = await OnnxModel.load("lmlite/scale-add", hosted_models_url=hosted_url, sha256=digest)
+out["hosted"] = (await hosted.run({'x': np.ones((1, 3), np.float32), 'b': np.zeros(3, np.float32)}))['y'].tolist()
+out["hosted_cache"] = [hosted.model_info()["cache_status"]]
+await hosted.dispose()
+again = await OnnxModel.load("lmlite/scale-add", hosted_models_url=hosted_url)
+out["hosted_cache"].append(again.model_info()["cache_status"])
+await again.dispose()
+try:
+    await OnnxModel.load(url, sha256="0" * 64)
+except Exception as exc:
+    out["sha_error"] = str(exc)
+half = await OnnxModel.load(half_url)
+y16 = (await half.run({'x': np.ones((2, 3), np.float16), 'b': np.array([0, 1, 2], np.float16)}))['y']
+out["float16"] = {'dtype': str(y16.dtype), 'values': y16.tolist()}
+await half.dispose()
 json.dumps(out)
                   `);
                 }""",
-                {"server": source_server},
+                {"server": source_server, "digest": hashlib.sha256(FIXTURE.read_bytes()).hexdigest()},
             )
         finally:
             browser.close()
@@ -117,3 +138,112 @@ json.dumps(out)
         assert result[label]["info"]["sha256"] == hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
         assert result[label]["info"]["licence"] == "CC0"
     assert "Input 'x' must be float32, got float64" in result["dtype_error"]
+    assert result["hosted"] == [[2.0, 2.0, 2.0]]
+    assert result["hosted_cache"] == ["downloaded", "cached"]  # the second load makes no request
+    assert "SHA-256 mismatch" in result["sha_error"]
+    assert result["float16"] == {"dtype": "float16", "values": [[2.0, 3.0, 4.0]] * 2}
+
+
+RUN_JS = """async ({url, backend, dtype, x, b}) => {
+  await new Promise(resolve => setTimeout(resolve, 0));
+  try {
+    const model = await globalThis.lmLite.loadOnnxModel(url, backend);
+    const rows = x.length / 3 / (dtype === 'float16' ? 2 : 4);
+    const meta = JSON.stringify([{name: 'x', dtype, dims: [rows, 3]}, {name: 'b', dtype, dims: [3]}]);
+    const [outMeta, y] = await model.run(meta, [new Uint8Array(x), new Uint8Array(b)]);
+    await model.dispose();
+    return {ok: true, meta: JSON.parse(outMeta), y: [...y]};
+  } catch (error) {
+    return {ok: false, error: String(error?.stack ?? error)};
+  }
+}"""
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("model_file,dtype", [("scale_add.onnx", "float32"), ("scale_add_fp16.onnx", "float16")])
+def test_browser_matches_native_onnxruntime(source_server, backend, model_file, dtype):
+    np = pytest.importorskip("numpy")
+    ort = pytest.importorskip("onnxruntime")
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(5, 3)).astype(dtype)
+    b = rng.normal(size=3).astype(dtype)
+    expected = ort.InferenceSession(str(FIXTURE_DIR / model_file)).run(None, {"x": x, "b": b})[0]
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(args=["--enable-unsafe-webgpu"] if backend == "webgpu" else [])
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(120000)
+            page.goto(source_server, wait_until="domcontentloaded")
+            if backend == "webgpu" and not page.evaluate("async () => Boolean(await navigator.gpu?.requestAdapter())"):
+                pytest.skip("WebGPU adapter unavailable in this browser")
+            if (
+                backend == "webgpu"
+                and dtype == "float16"
+                and not page.evaluate("async () => (await navigator.gpu.requestAdapter()).features.has('shader-f16')")
+            ):
+                pytest.skip("This WebGPU adapter has no shader-f16 support")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            result = page.evaluate(
+                RUN_JS,
+                {
+                    "url": f"{source_server}/tests/fixtures/onnx/{model_file}",
+                    "backend": backend,
+                    "dtype": dtype,
+                    "x": list(x.tobytes()),
+                    "b": list(b.tobytes()),
+                },
+            )
+        finally:
+            browser.close()
+
+    assert result["ok"], result.get("error")
+    assert result["meta"] == [{"name": "y", "dtype": dtype, "dims": [5, 3]}]
+    actual = np.frombuffer(bytes(result["y"]), dtype=dtype).reshape(5, 3)
+    np.testing.assert_allclose(actual, expected, rtol=1e-3 if dtype == "float16" else 1e-6)
+
+
+def test_urls_are_cached_and_checked_against_sha256(source_server):
+    url = f"{source_server}/tests/fixtures/onnx/scale_add.onnx"
+    digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(120000)
+            requests = []
+            page.on("request", lambda request: requests.append(request.url))
+            page.goto(source_server, wait_until="domcontentloaded")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            result = page.evaluate(
+                """async ({url, digest}) => {
+                  await new Promise(resolve => setTimeout(resolve, 0));
+                  const lmLite = globalThis.lmLite;
+                  const status = async (...args) => {
+                    const model = await lmLite.loadOnnxModel(url, 'wasm', ...args);
+                    const info = JSON.parse(model.describe());
+                    await model.dispose();
+                    return info.cache_status;
+                  };
+                  const out = {};
+                  out.first = await status(digest);
+                  out.second = await status(digest);
+                  out.uncached = await lmLite.loadOnnxModel(url, 'wasm', null, false).then(m => JSON.parse(m.describe()).cache_status);
+                  out.mismatch = await status('0'.repeat(64)).catch(error => String(error));
+                  out.afterMismatch = await status(digest);
+                  await lmLite.clearModelCache();
+                  out.afterClear = await status(null);
+                  return out;
+                }""",
+                {"url": url, "digest": digest},
+            )
+        finally:
+            browser.close()
+
+    assert result["first"] == "downloaded" and result["second"] == "cached"
+    assert result["uncached"] is None
+    assert "SHA-256 mismatch" in result["mismatch"]  # a changed file is fetched again, and checked
+    assert result["afterMismatch"] == "downloaded"  # the stale entry was dropped
+    assert result["afterClear"] == "downloaded"  # clear_cache() removes it
+    # Requests: first load, uncached load, the mismatch refetch, the load after it, the load after the clear.
+    assert requests.count(url) == 5

@@ -328,9 +328,9 @@ class _OnnxHandle:
         self.session = None
 
 
-async def load_onnx_model(model_class, source, licence=None):
+async def load_onnx_model(model_class, source, licence=None, sha256=None):
     """Create an ``OnnxModel`` from the model's bytes, or a URL to download."""
-    from .onnx_model import _NATIVE_DTYPES
+    from .onnx_model import _NATIVE_DTYPES, _verify
 
     if isinstance(source, str):
         from urllib.request import urlopen
@@ -340,6 +340,7 @@ async def load_onnx_model(model_class, source, licence=None):
                 return response.read()
 
         source = await asyncio.to_thread(download)
+        _verify(source, sha256)
     session = ort.InferenceSession(source, providers=["CPUExecutionProvider"])
 
     def describe(values):
@@ -357,6 +358,7 @@ async def load_onnx_model(model_class, source, licence=None):
         "execution_provider": session.get_providers()[0],
         "sha256": hashlib.sha256(source).hexdigest(),
         "size": len(source),
+        "cache_status": None,
         "inputs": describe(session.get_inputs()),
         "outputs": describe(session.get_outputs()),
     }

@@ -48,6 +48,23 @@ class TestNative:
         model = await OnnxModel.load(FIXTURE.read_bytes())
         assert [i["name"] for i in model.inputs] == ["x", "b"]
 
+    async def test_sha256_is_checked_for_bytes_and_paths(self):
+        digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+
+        assert (await OnnxModel.load(str(FIXTURE), sha256=digest.upper())).model_info()["sha256"] == digest
+        with pytest.raises(ValueError, match="SHA-256 mismatch"):
+            await OnnxModel.load(FIXTURE.read_bytes(), sha256="0" * 64)
+
+    async def test_float16_runs(self):
+        model = await OnnxModel.load(str(FIXTURE.with_name("scale_add_fp16.onnx")))
+
+        out = await model.run({"x": np.ones((1, 3), np.float16), "b": B.astype(np.float16)})
+        assert out["y"].dtype == np.float16 and (out["y"] == [2, 3, 4]).all()
+
+    async def test_hosted_ids_need_a_browser(self):
+        with pytest.raises(FileNotFoundError, match="Hosted IDs resolve in a browser kernel"):
+            await OnnxModel.load("lmlite/scale-add")
+
     async def test_missing_file_is_reported(self):
         with pytest.raises(FileNotFoundError, match="ONNX model not found"):
             await OnnxModel.load("missing.onnx")
@@ -106,7 +123,7 @@ class TestBrowser:
         module, handle = js
 
         model = await OnnxModel.load("https://example.test/m.onnx", backend="webgpu")
-        module.lmLite.loadOnnxModel.assert_awaited_once_with("https://example.test/m.onnx", "webgpu")
+        module.lmLite.loadOnnxModel.assert_awaited_once_with("https://example.test/m.onnx", "webgpu", None, True)
 
         out = await model.run({"b": B, "x": np.ones((2, 3), np.float32)})  # any key order
         meta, buffers = handle.run.call_args.args
@@ -122,6 +139,33 @@ class TestBrowser:
         assert module.lmLite.loadOnnxModel.await_args.args[0] == FIXTURE.read_bytes()
         await model.dispose()
         handle.dispose.assert_awaited_once()
+
+    async def test_hosted_id_loads_model_onnx_from_the_manifest_base(self, js):
+        module, _ = js
+        module.lmLite.getHostedModelBase = AsyncMock(return_value="https://example.test/files/models/")
+
+        await OnnxModel.load("lmlite/scale-add", hosted_models_url="https://example.test/files/models/", cache=False)
+
+        module.lmLite.getHostedModelBase.assert_awaited_once_with(
+            "lmlite/scale-add", "https://example.test/files/models/"
+        )
+        module.lmLite.loadOnnxModel.assert_awaited_once_with(
+            "https://example.test/files/models/lmlite/scale-add/model.onnx", "wasm", None, False
+        )
+
+    async def test_unlisted_hosted_id_is_reported(self, js):
+        module, _ = js
+        module.lmLite.getHostedModelBase = AsyncMock(return_value=None)
+
+        with pytest.raises(FileNotFoundError, match="not a hosted model"):
+            await OnnxModel.load("lmlite/other")
+
+    async def test_sha256_of_bytes_is_checked_before_crossing_the_bridge(self, js):
+        module, _ = js
+
+        with pytest.raises(ValueError, match="SHA-256 mismatch"):
+            await OnnxModel.load(FIXTURE.read_bytes(), sha256="0" * 64)
+        module.lmLite.loadOnnxModel.assert_not_awaited()
 
     async def test_input_errors_are_raised_before_crossing_the_bridge(self, js):
         _, handle = js

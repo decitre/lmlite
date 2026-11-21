@@ -7,8 +7,10 @@ In a browser kernel the session is an onnxruntime-web ``InferenceSession`` (the 
 elsewhere it is an onnxruntime one from ``pip install 'lmlite[native]'``. Pre- and post-processing stay in Python.
 """
 
+import hashlib
 import json
 import os
+import re
 
 from .llm import _js_function, _native, _to_js, _to_python_deep
 
@@ -47,8 +49,18 @@ def _bytes_of(value):
     return bytes(converted)
 
 
+def _verify(data, sha256):
+    if sha256 and (actual := hashlib.sha256(data).hexdigest()) != sha256.lower():
+        raise ValueError(f"SHA-256 mismatch: expected {sha256}, got {actual}")
+
+
+def _is_hosted_name(source):
+    """A ``namespace/model`` ID, as listed in a hosted models manifest; model files end with ``.onnx``."""
+    return isinstance(source, str) and re.fullmatch(r"[\w.-]+/[\w.-]+", source) and not source.lower().endswith(".onnx")
+
+
 def _read_source(source):
-    """The model's bytes for a path, or None for a URL (the browser fetches those itself)."""
+    """The model's bytes for a path or bytes, or None for a URL or a hosted name (the browser fetches those)."""
     if isinstance(source, (bytes, bytearray, memoryview)):
         return bytes(source)
     if os.path.isfile(source):
@@ -107,17 +119,32 @@ class OnnxModel:
         return f"OnnxModel(inputs={[i['name'] for i in self.inputs]}, outputs={[o['name'] for o in self.outputs]})"
 
     @classmethod
-    async def load(cls, source, backend="wasm", licence=None):
-        """Load ``source``: a file path, a URL or the model's bytes.
+    async def load(cls, source, backend="wasm", licence=None, sha256=None, cache=True, hosted_models_url=None):
+        """Load ``source``: a file path, a URL, the model's bytes, or a hosted model ID.
 
         ``backend`` is ``"wasm"`` or ``"webgpu"`` in a browser kernel. Outside one, or with ``"native"``, the
         model runs with onnxruntime. ``licence`` is a free-form string that ``model_info()`` returns.
+        With ``sha256``, the model's bytes must match it. In a browser kernel, URLs are kept in the Cache API
+        (``cache=False`` turns that off), so a later load of the same URL makes no request.
+        A hosted ID such as ``"lmlite/detector"`` is listed in the site's ``manifest.json`` (or the one at
+        ``hosted_models_url``) and loads ``<id>/model.onnx`` from there.
         """
         native = _native(backend == "native")
+        if _is_hosted_name(source) and not os.path.isfile(source):
+            if native:
+                raise FileNotFoundError(f"ONNX model not found: {source!r}. Hosted IDs resolve in a browser kernel.")
+            base = await _js_function("getHostedModelBase")(source, hosted_models_url)
+            if base is None:
+                raise FileNotFoundError(f"{source!r} is not a hosted model: list it in the manifest.json of the site.")
+            source = f"{base}{source}/model.onnx"
         data = _read_source(source)
+        if data is not None:
+            _verify(data, sha256)
         if native:
-            return await native.load_onnx_model(cls, data if data is not None else source, licence)
-        handle = await _js_function("loadOnnxModel")(_to_js(data) if data is not None else source, backend)
+            return await native.load_onnx_model(cls, data if data is not None else source, licence, sha256)
+        handle = await _js_function("loadOnnxModel")(
+            _to_js(data) if data is not None else source, backend, sha256, cache
+        )
         return cls(handle, json.loads(str(handle.describe())), licence)
 
     def model_info(self):
