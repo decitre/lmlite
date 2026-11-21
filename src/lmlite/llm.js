@@ -9,7 +9,8 @@ const TRANSFORMERS_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers
 // Transformers.js tasks exposed through the generic pipeline interface.
 // Generation, embeddings and text classification keep their dedicated methods.
 const IMAGE_TASKS = ['image-classification', 'zero-shot-image-classification', 'image-feature-extraction', 'object-detection'];
-const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation', ...IMAGE_TASKS];
+const SPEECH_TASKS = ['text-to-speech', 'text-to-audio'];  // Transformers.js treats them as one task
+const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation', ...IMAGE_TASKS, ...SPEECH_TASKS];
 
 function unsupportedTaskError(task) {
   return new Error(
@@ -1062,6 +1063,11 @@ class BrowserLLM {
       const isBatch = Array.isArray(inputs) && inputs[0] !== 'raw';
       inputs = isBatch ? await Promise.all(inputs.map(toRawImage)) : await toRawImage(inputs);
     }
+    if (SPEECH_TASKS.includes(this.task)) {
+      // [sampling rate, the float32 samples as raw bytes]: one buffer crosses the bridge, not one value per sample.
+      const { audio, sampling_rate } = await this._callTask(inputs, options);
+      return [sampling_rate, new Uint8Array(audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength))];
+    }
     if (this.task === 'zero-shot-classification' || this.task === 'zero-shot-image-classification') {
       const labels = options.candidate_labels;
       delete options.candidate_labels;
@@ -1102,11 +1108,12 @@ class BrowserLLM {
     const run = this._batchRun = { cancelled: false };
     run.done = new Promise((resolve) => { run.finish = resolve; });
     const total = inputs.length;
-    // A list of numbers is one audio clip, so speech recognition runs one clip per call.
-    const size = this.task === 'automatic-speech-recognition' ? 1 : Math.max(1, batchSize);
+    // A list of numbers is one audio clip, and speech synthesis takes one text, so those tasks run one input per call.
+    const oneAtATime = this.task === 'automatic-speech-recognition' || SPEECH_TASKS.includes(this.task);
+    const size = oneAtATime ? 1 : Math.max(1, batchSize);
     const callBatch = async (items) => {
       const taskOptions = { ...options };  // runTask() consumes candidate_labels
-      const output = this.task === 'automatic-speech-recognition'
+      const output = oneAtATime
         ? [await this.runTask(items[0], taskOptions)]
         : await this.runTask(items, taskOptions);
       if (!Array.isArray(output) || output.length !== items.length) {

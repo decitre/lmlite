@@ -1915,6 +1915,89 @@ class TestImageInput:
         assert js.runTask.call_args.args[0] == [self.JPEG, self.PNG, "https://example.test/a.jpg"]
 
 
+class TestSpeech:
+    SAMPLES = [0.0, 0.5, -0.5, 1.0, -1.0, 2.0]  # the last is clipped
+
+    @staticmethod
+    def raw(values):
+        import struct
+
+        return struct.pack(f"<{len(values)}f", *values)
+
+    def test_from_bytes_gives_numpy_float32_with_duration(self):
+        np = pytest.importorskip("numpy")
+        from lmlite import Speech
+
+        speech = Speech._from_bytes(16000.0, self.raw(self.SAMPLES))
+
+        assert isinstance(speech.samples, np.ndarray) and speech.samples.dtype == np.float32
+        assert speech.samples.tolist() == self.SAMPLES and speech.sampling_rate == 16000
+        assert speech.duration == pytest.approx(6 / 16000)
+        assert repr(speech) == "Speech(duration=0.00s, sampling_rate=16000)"
+
+    def test_without_numpy_samples_are_an_array(self, monkeypatch):
+        import array
+        import sys
+
+        from lmlite import Speech
+
+        monkeypatch.setitem(sys.modules, "numpy", None)
+        speech = Speech._from_bytes(8000, self.raw(self.SAMPLES))
+
+        assert isinstance(speech.samples, array.array) and list(speech.samples) == self.SAMPLES
+
+    def test_to_wav_is_16_bit_mono_pcm_and_clips(self):
+        import io
+        import wave
+
+        from lmlite import Speech
+
+        data = Speech(self.SAMPLES, 16000).to_wav()
+
+        with wave.open(io.BytesIO(data), "rb") as wav:
+            assert (wav.getnchannels(), wav.getsampwidth(), wav.getframerate(), wav.getnframes()) == (1, 2, 16000, 6)
+            import array
+
+            pcm = array.array("h", wav.readframes(6))
+        assert list(pcm) == [0, 16384, -16384, 32767, -32767, 32767]
+
+    def test_notebook_display_is_an_audio_player(self):
+        from lmlite import Speech
+
+        html = Speech([0.0, 0.1], 16000)._repr_html_()
+
+        assert html.startswith('<audio controls src="data:audio/wav;base64,UklGR')  # base64 of "RIFF"
+
+    @pytest.mark.parametrize("task", ["text-to-speech", "text-to-audio"])
+    async def test_pipeline_returns_speech_and_takes_one_text(self, task):
+        from lmlite import Speech
+        from lmlite.llm import Pipeline
+
+        js = types.SimpleNamespace(runTask=AsyncMock(return_value=[16000, self.raw([0.25, -0.25])]))
+        pipe = Pipeline(types.SimpleNamespace(js=js), task, "m")
+
+        speech = await pipe("Hello", speaker="x")
+
+        assert isinstance(speech, Speech) and list(speech.samples) == [0.25, -0.25] and speech.sampling_rate == 16000
+        assert js.runTask.call_args.args == ("Hello", '{"speaker": "x"}')
+        with pytest.raises(TypeError, match="takes one text"):
+            await pipe(["a", "b"])
+
+    async def test_map_wraps_each_result_in_speech(self):
+        from lmlite import Speech
+        from lmlite.llm import Pipeline
+
+        async def run_tasks(items, batch_size, options, callback, continue_on_error):
+            return {"results": [[16000, self.raw([0.5])] for _ in items], "errors": [], "cancelled": False}
+
+        js = types.SimpleNamespace(runTasks=AsyncMock(side_effect=run_tasks))
+        pipe = Pipeline(types.SimpleNamespace(js=js), "text-to-speech", "m")
+
+        out = await pipe.map(["One.", "Two."])
+
+        assert [type(item) for item in out] == [Speech, Speech]
+
+
 class TestPipelineMap:
     JPEG = b"\xff\xd8\xff\xe0" + b"0" * 8
 

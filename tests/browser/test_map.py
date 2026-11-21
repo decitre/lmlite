@@ -5,15 +5,14 @@
 
 import json
 import os
-import urllib.parse
 
 import pytest
+from kernels import run_in_pyodide, run_in_xeus
 from playwright.sync_api import sync_playwright
 
 pytestmark = pytest.mark.browser
 
 TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "300000"))
-PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"
 ZERO_SHOT_MODEL = os.getenv("LMLITE_TEST_ZERO_SHOT_MODEL", "Xenova/mobilebert-uncased-mnli")
 IMAGE_MODEL = os.getenv("LMLITE_TEST_IMAGE_CLASSIFICATION_MODEL", "Xenova/vit-base-patch16-224")
 TIGER_URL = "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/tiger.jpg"
@@ -148,50 +147,8 @@ def check_kernel_result(result):
 
 
 def test_map_in_pyodide(source_server):
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        try:
-            page = browser.new_page()
-            page.set_default_timeout(TIMEOUT)
-            page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=PYODIDE_URL)
-            output = page.evaluate(
-                """async ({server, code}) => {
-                  const pyodide = await loadPyodide();
-                  await pyodide.loadPackage(['tqdm']);
-                  pyodide.FS.mkdirTree('/lib/lmlite/bridge');
-                  for (const name of ['__init__.py', 'llm.py', 'llm.js', 'onnx_model.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
-                    pyodide.FS.writeFile(`/lib/lmlite/${name}`, await (await fetch(`${server}/src/lmlite/${name}`)).text());
-                  }
-                  pyodide.runPython("import sys; sys.path.insert(0, '/lib')");
-                  let printed = '';
-                  pyodide.setStdout({batched: (line) => { printed += line + '\\n'; }});
-                  await pyodide.runPythonAsync(code);
-                  return printed;
-                }""",
-                {"server": source_server, "code": kernel_code()},
-            )
-        finally:
-            browser.close()
-    line = next(line for line in output.splitlines() if line.startswith("RESULT"))
-    check_kernel_result(json.loads(line.removeprefix("RESULT")))
+    check_kernel_result(run_in_pyodide(source_server, kernel_code()))
 
 
 def test_map_in_xeus(xeus_site):
-    url = f"{xeus_site}/repl/index.html?kernel=xpython&execute=1&code={urllib.parse.quote(kernel_code())}"
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        try:
-            page = browser.new_page()
-            page.goto(url)
-            # The echoed input never contains 'RESULT{', so this waits for kernel output.
-            page.wait_for_function(
-                "document.body.innerText.includes('RESULT{') || document.body.innerText.includes('Traceback')",
-                timeout=TIMEOUT,
-            )
-            text = page.inner_text("body")
-        finally:
-            browser.close()
-    lines = [line for line in text.splitlines() if line.startswith("RESULT{")]
-    assert lines, f"Kernel failed:\n{text[-3000:]}"
-    check_kernel_result(json.loads(lines[-1].removeprefix("RESULT")))
+    check_kernel_result(run_in_xeus(xeus_site, kernel_code()))

@@ -127,7 +127,19 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
                 return [[1.0, 0.0], [0.6, 0.8]] if isinstance(inputs, list) else [1.0, 0.0]
             if task == "object-detection":
                 return [{"label": "cat", "score": 0.99, "box": {"xmin": 1.2, "ymin": 2.0, "xmax": 30.5, "ymax": 40.0}}]
+            if task == "text-to-speech":
+                from lmlite import Speech
+
+                return Speech([0.0, 0.25, -0.25] * 1600, 16000)
             return {"text": "Example transcript."}
+
+        async def map(self, inputs, *, progress_callback=None, **kwargs):
+            results = []
+            for done, item in enumerate(inputs, 1):
+                results.append(await self(item, **kwargs))
+                if progress_callback:
+                    progress_callback(done, len(inputs))
+            return results
 
         async def export_models(self):
             assert not self.disposed
@@ -226,6 +238,10 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         result = eval(code, namespace)
         if inspect.isawaitable(result):
             await result
+    if path.name == "ch08d_speech.ipynb":
+        assert [instance.config["task"] for instance in instances] == ["text-to-speech"]
+        assert namespace["progress"] == ["1/3", "2/3", "3/3"] and len(namespace["clips"]) == 3
+        assert namespace["wav"][:4] == b"RIFF" and namespace["speech"].sampling_rate == 16000
     if path.name == "ch08c_onnx-models.ipynb":
         assert len(namespace["faces"]) == 1  # the overlapping box was suppressed
         assert namespace["author"] == "Ann Author"

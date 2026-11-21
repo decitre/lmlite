@@ -1801,3 +1801,39 @@ describe('runTasks', () => {
     await expect(short.runTasks(['a', 'b'], 2)).rejects.toThrow('returned 0 results for 2 inputs');
   });
 });
+
+describe('speech tasks', () => {
+  it.each(['text-to-speech', 'text-to-audio'])('%s returns the sampling rate and the samples as one byte buffer', async (task) => {
+    const llm = new BrowserLLM({ task });
+    const audio = new Float32Array([0.5, -0.25, 1]);
+    llm.taskPipeline = vi.fn(async () => ({ audio, sampling_rate: 16000 }));
+
+    const [rate, bytes] = await llm.runTask('Hello', '{"speaker": "x"}');
+
+    expect(llm.taskPipeline).toHaveBeenCalledWith('Hello', { speaker: 'x' });
+    expect(rate).toBe(16000);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect([...new Float32Array(bytes.buffer)]).toEqual([0.5, -0.25, 1]);
+  });
+
+  it('copies the samples of an audio view into its own buffer', async () => {
+    const llm = new BrowserLLM({ task: 'text-to-speech' });
+    const shared = new Float32Array([9, 1, 2, 9]);
+    llm.taskPipeline = vi.fn(async () => ({ audio: shared.subarray(1, 3), sampling_rate: 8000 }));
+
+    const [, bytes] = await llm.runTask('Hi');
+
+    expect(bytes.byteLength).toBe(8);
+    expect([...new Float32Array(bytes.buffer)]).toEqual([1, 2]);
+  });
+
+  it('runs one text per call in runTasks', async () => {
+    const llm = new BrowserLLM({ task: 'text-to-speech' });
+    llm.taskPipeline = vi.fn(async (text) => ({ audio: new Float32Array(text.length), sampling_rate: 16000 }));
+
+    const { results } = await llm.runTasks(['One.', 'Three'], 8);
+
+    expect(llm.taskPipeline.mock.calls.map((call) => call[0])).toEqual(['One.', 'Three']);
+    expect(results.map(([rate, bytes]) => [rate, bytes.byteLength / 4])).toEqual([[16000, 4], [16000, 5]]);
+  });
+});
