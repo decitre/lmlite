@@ -1123,6 +1123,8 @@ const TENSOR_ARRAYS = {
   float32: Float32Array, float64: Float64Array, int8: Int8Array, uint8: Uint8Array, int16: Int16Array,
   uint16: Uint16Array, int32: Int32Array, uint32: Uint32Array, int64: BigInt64Array, uint64: BigUint64Array,
   bool: Uint8Array,
+  // Float16Array where the browser has it; onnxruntime-web also takes the raw half-float bits.
+  float16: globalThis.Float16Array ?? Uint16Array,
 };
 
 class OnnxModel {
@@ -1176,25 +1178,69 @@ function describeValues(metadata, names) {
   });
 }
 
-// `source` is a URL or the model's bytes. Throws if the backend cannot create the session.
-async function loadOnnxModel(source, backend = 'wasm') {
-  const ort = await loadOrt();
-  let bytes = source;
-  if (typeof source === 'string') {
-    const response = await fetch(source);
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText} for ${source}`);
-    }
-    bytes = new Uint8Array(await response.arrayBuffer());
+const ONNX_CACHE = 'lmlite-onnx-models';  // contains 'onnx', so clearModelCache() deletes it
+
+async function sha256Hex(bytes) {
+  if (!globalThis.crypto?.subtle) {
+    return null;  // not a secure context
   }
-  bytes = new Uint8Array(bytes);
-  const session = await ort.InferenceSession.create(bytes, { executionProviders: [backend] });
-  const digest = globalThis.crypto?.subtle ? await crypto.subtle.digest('SHA-256', bytes) : null;
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// Bytes of a model URL, from the Cache API when they are there and match `sha256`. Returns {bytes, sha256, cache},
+// where `cache` is 'cached' (served from the cache), 'downloaded' (stored) or null (not stored).
+async function fetchOnnxBytes(url, expected, useCache) {
+  const cache = useCache && typeof caches !== 'undefined' ? await caches.open(ONNX_CACHE) : null;
+  const hit = await cache?.match(url);
+  if (hit) {
+    const bytes = new Uint8Array(await hit.arrayBuffer());
+    const hash = hit.headers.get('x-lmlite-sha256') || await sha256Hex(bytes);
+    if (!expected || hash === expected) {
+      return { bytes, sha256: hash, cache: 'cached' };
+    }
+    await cache.delete(url);  // the file at this URL changed
+  }
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText} for ${url}`);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const hash = await sha256Hex(bytes);
+  if (expected && hash !== expected) {
+    throw new Error(`SHA-256 mismatch for ${url}: expected ${expected}, got ${hash}`);
+  }
+  let stored = null;
+  try {
+    await cache?.put(url, new Response(bytes, { headers: { 'x-lmlite-sha256': hash ?? '' } }));
+    stored = cache ? 'downloaded' : null;
+  } catch {
+    // Quota exceeded or storage blocked: the model still loads, it is just not kept.
+  }
+  return { bytes, sha256: hash, cache: stored };
+}
+
+// `source` is a URL or the model's bytes. With `sha256`, the bytes must match it. URLs are kept in the Cache API
+// unless `useCache` is false. Throws if the backend cannot create the session.
+async function loadOnnxModel(source, backend = 'wasm', expectedSha256 = null, useCache = true) {
+  const ort = await loadOrt();
+  let loaded;
+  if (typeof source === 'string') {
+    loaded = await fetchOnnxBytes(source, expectedSha256, useCache);
+  } else {
+    const bytes = new Uint8Array(source);
+    loaded = { bytes, sha256: await sha256Hex(bytes), cache: null };
+    if (expectedSha256 && loaded.sha256 !== expectedSha256) {
+      throw new Error(`SHA-256 mismatch: expected ${expectedSha256}, got ${loaded.sha256}`);
+    }
+  }
+  const session = await ort.InferenceSession.create(loaded.bytes, { executionProviders: [backend] });
   return new OnnxModel(session, {
     backend,
     execution_provider: backend,  // one provider is requested, so creation succeeding means it is the one used
-    sha256: digest ? [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('') : null,
-    size: bytes.byteLength,
+    sha256: loaded.sha256,
+    size: loaded.bytes.byteLength,
+    cache_status: loaded.cache,
     inputs: describeValues(session.inputMetadata, session.inputNames),
     outputs: describeValues(session.outputMetadata, session.outputNames),
   });

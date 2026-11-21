@@ -48,6 +48,9 @@ dynamic = ["version"]
 [project.optional-dependencies]
 # Headless CPython backend running the browser's ONNX files; not needed in JupyterLite.
 native = ["onnxruntime", "tokenizers", "huggingface_hub", "numpy"]
+# Working with images: Pillow decodes and draws them, NumPy holds their pixels and feeds OnnxModel. The image
+# pipelines themselves only need the browser; the notebooks that show images need both.
+images = ["numpy", "pillow"]
 
 [project.scripts]
 lmlite-models = "lmlite.model_assets:main"
@@ -178,6 +181,7 @@ jupyterlite-xeus = "==5.1.0"
 [tool.pixi.feature.xeus-site.tasks]
 xeus-tokenizer-smoke = "pytest tests/browser/test_tokenizer_xeus.py -m browser -v -s"
 xeus-onnx-smoke = "pytest tests/browser/test_onnx_model_xeus.py -m browser -v -s"
+onnx-notebook-smoke = "pytest tests/browser/test_onnx_notebook.py -m browser -v -s"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"

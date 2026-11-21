@@ -209,6 +209,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
 
     browser.eval = js_eval
     monkeypatch.setitem(sys.modules, "js", browser)
+    onnx_models = []
+    if path.name == "ch08c_onnx-models.ipynb":
+        onnx_models = _fake_onnx_notebook_world(monkeypatch)
     notebook = json.loads(path.read_text())
     namespace = {}
     for cell in notebook["cells"]:
@@ -223,6 +226,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         result = eval(code, namespace)
         if inspect.isawaitable(result):
             await result
+    if path.name == "ch08c_onnx-models.ipynb":
+        assert len(namespace["faces"]) == 1  # the overlapping box was suppressed
+        assert namespace["author"] == "Ann Author"
     if path.name == "ch09_orchestration.ipynb":
         panel = namespace["panel"]
         panel.question.value = "<script>alert('test')</script>"
@@ -282,8 +288,8 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         # Widget behavior is covered by test_widgets.py; check the notebook wires it up.
         (model_row,) = namespace["manager"].rows.children
         assert model_row.children[2].titles[0].startswith("Xenova/distilgpt2@main")
-    assert instances or tokenizers
-    assert all(instance.disposed for instance in instances)
+    assert instances or tokenizers or onnx_models
+    assert all(instance.disposed for instance in [*instances, *onnx_models])
     assert all(tokenizer.closed for tokenizer in tokenizers)
     if path.name == "ch01_demo.ipynb":
         assert len(instances) == 1
@@ -335,6 +341,78 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert all(messages[0]["role"] == "system" for messages in chats)
         assert all(messages[-1]["role"] == "user" for messages in chats)
         assert not prompts
+
+
+def _fake_onnx_notebook_world(monkeypatch):
+    """OnnxModel returns one confident face; urllib serves the model, a Commons listing and a photo."""
+    np = pytest.importorskip("numpy")
+    pil = pytest.importorskip("PIL.Image")
+    import io
+    import urllib.request
+
+    models = []
+
+    class FakeOnnxModel:
+        disposed = False
+        inputs = [{"name": "input", "dtype": "float32", "shape": [1, 3, 240, 320]}]
+        outputs = [{"name": "scores", "dtype": "float32", "shape": [1, 4420, 2]}]
+
+        @classmethod
+        async def load(cls, source, **options):
+            assert source.endswith("version-RFB-320.onnx") and options["backend"] == "wasm"
+            models.append(cls())
+            return models[-1]
+
+        def model_info(self):
+            return {"size": 1270727, "backend": "wasm", "execution_provider": "wasm", "cache_status": "downloaded"}
+
+        async def run(self, feeds):
+            assert feeds["input"].shape == (1, 3, 240, 320) and feeds["input"].dtype == np.float32
+            scores = np.zeros((1, 4420, 2), np.float32)
+            scores[0, :3, 1] = [0.9, 0.8, 0.1]  # two overlapping faces, then noise
+            boxes = np.zeros((1, 4420, 4), np.float32)
+            boxes[0, :2] = [[0.25, 0.25, 0.75, 0.75], [0.26, 0.26, 0.76, 0.76]]
+            return {"scores": scores, "boxes": boxes}
+
+        async def dispose(self):
+            self.disposed = True
+
+    jpeg = io.BytesIO()
+    pil.new("RGB", (64, 48)).save(jpeg, format="JPEG")
+    listing = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": "File:Example.jpg",
+                    "imageinfo": [
+                        {
+                            "thumburl": "https://example.test/thumb.jpg",
+                            "extmetadata": {
+                                "Artist": {"value": '<a href="x">Ann Author</a>'},
+                                "LicenseShortName": {"value": "CC BY 4.0"},
+                            },
+                        }
+                    ],
+                }
+            }
+        }
+    }
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    def urlopen(request):
+        url = request.full_url
+        assert url.startswith(("https://commons.wikimedia.org/", "https://example.test/"))
+        return Response(json.dumps(listing).encode() if "commons.wikimedia" in url else jpeg.getvalue())
+
+    monkeypatch.setattr("lmlite.OnnxModel", FakeOnnxModel)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    return models
 
 
 def test_demo_lists_notebooks_in_file_order():
