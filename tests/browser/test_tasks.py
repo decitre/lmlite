@@ -201,7 +201,9 @@ def test_image_bytes_and_url_run_in_worker(source_server):
     assert "could not be decoded" in result["bad"]
 
 
-@pytest.mark.parametrize("task", ["image-classification", "zero-shot-image-classification", "image-feature-extraction", "object-detection"])
+@pytest.mark.parametrize(
+    "task", ["image-classification", "zero-shot-image-classification", "image-feature-extraction", "object-detection"]
+)
 def test_model_info_reports_vision_tasks(source_server, task):
     model = TASKS[task][0]
     with sync_playwright() as playwright:

@@ -342,7 +342,9 @@ def _image_input(image):
 
 def _image_inputs(inputs):
     """One image, or a list of images for a batch."""
-    single = isinstance(inputs, (str, bytes, bytearray, memoryview)) or hasattr(inputs, "shape") or hasattr(inputs, "mode")
+    single = (
+        isinstance(inputs, (str, bytes, bytearray, memoryview)) or hasattr(inputs, "shape") or hasattr(inputs, "mode")
+    )
     return _image_input(inputs) if single else [_image_input(item) for item in inputs]
 
 

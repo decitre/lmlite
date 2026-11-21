@@ -119,7 +119,10 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             if task == "image-classification":
                 return [{"label": "tiger", "score": 0.9}, {"label": "cat", "score": 0.1}][: kwargs.get("top_k", 2)]
             if task == "zero-shot-image-classification":
-                return [{"label": label, "score": 1 / len(kwargs["candidate_labels"])} for label in kwargs["candidate_labels"]]
+                return [
+                    {"label": label, "score": 1 / len(kwargs["candidate_labels"])}
+                    for label in kwargs["candidate_labels"]
+                ]
             if task == "image-feature-extraction":
                 return [[1.0, 0.0], [0.6, 0.8]] if isinstance(inputs, list) else [1.0, 0.0]
             if task == "object-detection":
