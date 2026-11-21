@@ -155,7 +155,7 @@ await model.dispose()
 - **Backend:** `"wasm"` or `"webgpu"` in a browser kernel (onnxruntime-web, the version Transformers.js uses; it fails to load if the browser has no WebGPU). Outside a browser, or with `backend="native"`, the same API runs onnxruntime from `pip install 'lmlite[native]'`.
 - **Inputs:** `run()` checks each input before running and raises an error that names it: a missing or unknown name, a dtype that does not match the model (no silent casts: use `astype()`), a wrong rank, or a wrong size on a fixed axis. Dynamic dimensions accept any size.
 - **Bridge cost:** each `run()` crosses the Python/JavaScript bridge once, with raw buffers. Use one call per image: a detector with 16,800 anchors of 15 floats returns about 1 MB per image.
-- **Browser files:** a path is read in Python and sent as bytes; a URL is fetched by the browser. onnxruntime-web's JavaScript is loaded from jsDelivr, even on a self-hosted site, because `vendor/transformers/` holds only its WASM files. A model with external data files is not supported, and the whole file must fit in browser memory.
+- **Browser files:** a path is read in Python and sent as bytes; a URL is fetched by the browser. onnxruntime-web's JavaScript is loaded from the site's `vendor/transformers/` when `scripts/lite-build.sh` put it there, else from jsDelivr. A model with external data files is not supported, and the whole file must fit in browser memory.
 - **Limits:** model files are not cached between sessions, and hosted model names are not resolved yet. `float16` inputs and outputs are not supported in the browser yet.
 
 ## Configuration Options
