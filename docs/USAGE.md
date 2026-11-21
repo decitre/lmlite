@@ -135,6 +135,21 @@ Image tasks accept encoded image bytes (JPEG, PNG, WebP, GIF or BMP), an HTTP(S)
 
 Speech recognition accepts an HTTP(S) URL, a path to a PCM WAV file (e.g. a file uploaded to the JupyterLite file browser), WAV bytes, or a sequence of mono float samples at 16 kHz. WAV files are decoded in Python, mixed down to mono and linearly resampled to 16 kHz. Notebook kernels run in a Web Worker without `AudioContext`, so URLs are fetched and decoded the same way and must point to WAV files. Compressed formats (MP3, OGG, M4A) are not decoded in the kernel: convert them to WAV first. URL fetches must be allowed by CORS. Whisper processes 30-second windows, so pass `chunk_length_s=30` for longer recordings.
 
+#### Many inputs: `map()`
+
+`await pipe.map(inputs, batch_size=8, progress_callback=None, on_error="raise", **options)` runs the task over any iterable of inputs with the loop in JavaScript, so a notebook makes one call instead of one per input, and can show progress while it stays responsive. Each input is whatever the task accepts on its own (a string, an image, an audio clip); keyword arguments are task options, as in a normal call.
+
+```python
+bar = widgets.IntProgress(max=len(photos))
+results = await classifier.map(photos, batch_size=8, progress_callback=lambda done, total: setattr(bar, "value", done), top_k=3)
+```
+
+- `batch_size` inputs go to each Transformers.js call; `1` runs them one by one, still in JavaScript. Speech recognition always runs one clip per call.
+- `progress_callback(done, total)` is called after each batch, so `ceil(len(inputs) / batch_size)` times.
+- `on_error`: `"raise"` raises the first error. `"skip"` leaves failed inputs out of the results (so the results are shorter than the inputs), and `"return"` puts an exception object in a failed input's place. When a batch fails, its inputs are retried one by one, so one bad image does not lose the others. An input that cannot be prepared in Python (undecodable image bytes, a missing file) counts as failed too, and counts as done in the progress.
+- `await pipe.cancel()` stops after the current batch, and `map()` returns the results so far. The pipeline stays usable. Only one `map()` runs on a pipeline at a time.
+- Batched results can differ from single calls by rounding error, because batches are padded together.
+
 Expect a pipeline in a browser kernel to be slower than native inference, especially sequence-to-sequence tasks (translation and speech recognition), which decode token by token. WebGPU can help when the browser, model and dtype support it. Each pipeline holds its own model in browser memory; call `dispose()` before loading the next one.
 
 ### Bare ONNX models

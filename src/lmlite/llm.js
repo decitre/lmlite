@@ -893,15 +893,22 @@ class BrowserLLM {
     }
   }
 
-  // Stops the running generate()/chat()/stream after the current token; they return the partial text.
+  // Stops the running generate()/chat()/stream after the current token (they return the partial text), or the
+  // running runTasks() after the current batch (it returns the results so far).
   async cancel() {
     const generation = this._generation;
-    if (!generation) {
+    const batches = this._batchRun;
+    if (!generation && !batches) {
       return false;
     }
-    generation.cancelled = true;
-    generation.stopping_criteria?.interrupt();  // null until the runtime has loaded
-    await generation.done;
+    if (batches) {
+      batches.cancelled = true;
+    }
+    if (generation) {
+      generation.cancelled = true;
+      generation.stopping_criteria?.interrupt();  // null until the runtime has loaded
+    }
+    await Promise.all([generation?.done, batches?.done]);
     return true;
   }
 
@@ -1078,6 +1085,62 @@ class BrowserLLM {
       return output[0];
     }
     return output;
+  }
+
+  // Runs `inputs` in batches of `batchSize` inputs per task call, calling onProgress(done, total) after each batch.
+  // With continueOnError, a failing batch is retried input by input and the failures are returned as
+  // [index, message] pairs, with null in place of their results; otherwise the first error is thrown.
+  // cancel() stops it after the current batch. Returns {results, errors, cancelled}, where results covers the
+  // inputs run so far.
+  async runTasks(inputs, batchSize = 8, options = {}, onProgress = null, continueOnError = false) {
+    if (this._batchRun) {
+      throw new Error("Another map() is running on this instance; await it or call cancel() first.");
+    }
+    if (typeof options === 'string') {
+      options = JSON.parse(options);
+    }
+    const run = this._batchRun = { cancelled: false };
+    run.done = new Promise((resolve) => { run.finish = resolve; });
+    const total = inputs.length;
+    // A list of numbers is one audio clip, so speech recognition runs one clip per call.
+    const size = this.task === 'automatic-speech-recognition' ? 1 : Math.max(1, batchSize);
+    const callBatch = async (items) => {
+      const taskOptions = { ...options };  // runTask() consumes candidate_labels
+      const output = this.task === 'automatic-speech-recognition'
+        ? [await this.runTask(items[0], taskOptions)]
+        : await this.runTask(items, taskOptions);
+      if (!Array.isArray(output) || output.length !== items.length) {
+        throw new Error(`${this.task} returned ${Array.isArray(output) ? output.length : 'no list of'} results for ${items.length} inputs`);
+      }
+      return output;
+    };
+    const results = [];
+    const errors = [];
+    try {
+      for (let start = 0; start < total && !run.cancelled; start += size) {
+        const items = inputs.slice(start, start + size);
+        try {
+          results.push(...await callBatch(items));
+        } catch (error) {
+          if (!continueOnError) {
+            throw error;
+          }
+          for (const [offset, item] of items.entries()) {
+            try {
+              results.push(...await callBatch([item]));
+            } catch (itemError) {
+              results.push(null);
+              errors.push([start + offset, String(itemError?.message ?? itemError)]);
+            }
+          }
+        }
+        onProgress?.(results.length, total);
+      }
+      return { results, errors, cancelled: run.cancelled };
+    } finally {
+      this._batchRun = null;
+      run.finish();
+    }
   }
 
   async _callTask(...args) {
