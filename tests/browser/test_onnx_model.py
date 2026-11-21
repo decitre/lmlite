@@ -4,6 +4,7 @@
 """Opt-in browser checks for bare ONNX models (downloads onnxruntime-web from jsDelivr)."""
 
 import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -62,3 +63,57 @@ def test_bare_onnx_model_runs_in_browser(source_server, backend):
     assert result["one"]["y"] == [2.0, 3.0, 4.0]
     assert result["two"]["meta"] == [{"name": "y", "dtype": "float32", "dims": [2, 3]}]  # dynamic batch dimension
     assert result["two"]["y"] == [2.0, 3.0, 4.0] * 2
+
+
+def test_onnx_model_runs_through_the_pyodide_bridge(source_server):
+    """Python in Pyodide: a URL and a file path load, NumPy goes in, NumPy comes back."""
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(300000)
+            page.goto(source_server, wait_until="domcontentloaded")
+            page.add_script_tag(url="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js")
+            result = page.evaluate(
+                """async ({server}) => {
+                  const pyodide = await loadPyodide();
+                  await pyodide.loadPackage('numpy');
+                  pyodide.FS.mkdirTree('/lib/lmlite/bridge');
+                  for (const name of ['__init__.py', 'llm.py', 'llm.js', 'onnx_model.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
+                    pyodide.FS.writeFile(`/lib/lmlite/${name}`, await (await fetch(`${server}/src/lmlite/${name}`)).text());
+                  }
+                  const model = new Uint8Array(await (await fetch(`${server}/tests/fixtures/onnx/scale_add.onnx`)).arrayBuffer());
+                  pyodide.FS.writeFile('/scale_add.onnx', model);
+                  pyodide.globals.set('url', `${server}/tests/fixtures/onnx/scale_add.onnx`);
+                  return await pyodide.runPythonAsync(`
+import json, sys
+sys.path.insert(0, '/lib')
+import numpy as np
+from lmlite import OnnxModel
+
+out = {}
+for label, source in (('url', url), ('path', '/scale_add.onnx')):
+    model = await OnnxModel.load(source, licence='CC0')
+    y = (await model.run({'x': np.ones((2, 3), np.float32), 'b': np.array([0, 1, 2], np.float32)}))['y']
+    out[label] = {'dtype': str(y.dtype), 'shape': list(y.shape), 'values': y.tolist(), 'info': model.model_info()}
+    if label == 'url':
+        try:
+            await model.run({'x': np.ones((2, 3), np.float64), 'b': np.zeros(3, np.float32)})
+        except TypeError as exc:
+            out['dtype_error'] = str(exc)
+    await model.dispose()
+json.dumps(out)
+                  `);
+                }""",
+                {"server": source_server},
+            )
+        finally:
+            browser.close()
+
+    result = json.loads(result)
+    for label in ("url", "path"):
+        assert result[label]["dtype"] == "float32" and result[label]["shape"] == [2, 3]
+        assert result[label]["values"] == [[2.0, 3.0, 4.0]] * 2
+        assert result[label]["info"]["sha256"] == hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+        assert result[label]["info"]["licence"] == "CC0"
+    assert "Input 'x' must be float32, got float64" in result["dtype_error"]
