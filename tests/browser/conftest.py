@@ -25,6 +25,7 @@ dependencies:
   - tqdm
   - ipywidgets
   - numpy
+  - pillow
 """
 
 
