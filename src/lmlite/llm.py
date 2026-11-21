@@ -179,9 +179,9 @@ def _to_python_deep(value):
 
     # xeus-python fallback.
     try:
-        from pjs import to_py as pjs_to_py
+        from pyjs import to_py as pyjs_to_py
 
-        converted = pjs_to_py(value)
+        converted = pyjs_to_py(value)
         if converted is not value:
             return _to_python_deep(converted)
     except (ImportError, TypeError, AttributeError):
@@ -219,15 +219,12 @@ def _to_python_deep(value):
 def _to_js(value):
     try:
         from pyodide.ffi import to_js
-
-        return to_js(value)
     except ImportError:
         try:
-            from pjs import to_js
-
-            return to_js(value)
+            from pyjs import to_js
         except ImportError:
-            return value
+            raise RuntimeError("No Python-to-JavaScript bridge found: need pyodide.ffi or pyjs") from None
+    return to_js(value)
 
 
 def _read_wav(source, sampling_rate=AUDIO_SAMPLING_RATE):
@@ -615,19 +612,7 @@ class LLM:
                                     progress.set_description(f"Caching {model_to_detect}: {filename}")
                                     await asyncio.sleep(0)
                                     files = {filename: data}
-                                    js_files = files
-                                    try:
-                                        from pyodide.ffi import to_js
-
-                                        js_files = to_js(files)
-                                    except ImportError:
-                                        try:
-                                            from pjs import to_js
-
-                                            js_files = to_js(files)
-                                        except ImportError:
-                                            pass
-
+                                    js_files = _to_js(files)
                                     await load_model_to_cache(model_to_detect, js_files)
                                     del js_files, files, data
                                 progress.refresh()
@@ -641,18 +626,7 @@ class LLM:
                             "will download from 🤗"
                         )
 
-        js_config = config
-        try:
-            from pyodide.ffi import to_js
-
-            js_config = to_js(config)
-        except ImportError:
-            try:
-                from pjs import to_js
-
-                js_config = to_js(config)
-            except ImportError:
-                pass
+        js_config = _to_js(config)
 
         current_file = None
 
@@ -890,21 +864,8 @@ class LLM:
             doc_vecs.append(await self.embed(doc))
 
         # Convert Python lists to JS arrays for the JS function
-        try:
-            from pyodide.ffi import to_js
-
-            js_query_vec = to_js(query_vec)
-            js_doc_vecs = to_js(doc_vecs)
-        except ImportError:
-            try:
-                from pjs import to_js
-
-                js_query_vec = to_js(query_vec)
-                js_doc_vecs = to_js(doc_vecs)
-            except ImportError:
-                # Fallback: hope it works
-                js_query_vec = query_vec
-                js_doc_vecs = doc_vecs
+        js_query_vec = _to_js(query_vec)
+        js_doc_vecs = _to_js(doc_vecs)
 
         sims = cosineSimilarityBatch(js_query_vec, js_doc_vecs)
 
