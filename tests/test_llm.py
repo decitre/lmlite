@@ -490,14 +490,14 @@ class TestLLMChat:
 
         ffi.to_js = MagicMock(side_effect=to_js)
         monkeypatch.setitem(sys.modules, "pyodide.ffi", ffi if compatibility_module else None)
-        pjs = types.ModuleType("pjs")
-        pjs.to_js = MagicMock(side_effect=to_js)
-        monkeypatch.setitem(sys.modules, "pjs", pjs)
+        pyjs = types.ModuleType("pyjs")
+        pyjs.to_js = MagicMock(side_effect=to_js)
+        monkeypatch.setitem(sys.modules, "pyjs", pyjs)
         instance = MagicMock(chat=AsyncMock(return_value="Answer"))
         messages = [{"role": "user", "content": 'Bonjour \u00e9\n"quoted" <|im_start|>'}]
 
         assert await LLM(instance).chat(messages) == "Answer"
-        pjs.to_js.assert_not_called()
+        pyjs.to_js.assert_not_called()
         ffi.to_js.assert_not_called()
         instance.chat.assert_awaited_once_with(json.dumps(messages))
         assert json.loads(instance.chat.call_args.args[0]) == messages
@@ -1155,6 +1155,7 @@ class TestLLMLoadingProgress:
         bar, instance, _, _ = loading
         monkeypatch.setitem(sys.modules, "pyodide.ffi", None)
         pyjs = types.ModuleType("pyjs")
+        pyjs.to_js = lambda value, **kwargs: value
         handle = MagicMock()
         pyjs.create_callable = MagicMock(side_effect=lambda value: (MagicMock(side_effect=value), handle))
         monkeypatch.setitem(sys.modules, "pyjs", pyjs)
@@ -1186,6 +1187,7 @@ class TestLLMLoadingProgress:
         bar, instance, js, _ = loading
         monkeypatch.setitem(sys.modules, "pyodide.ffi", None)
         pyjs = types.ModuleType("pyjs")
+        pyjs.to_js = lambda value, **kwargs: value
         handle = MagicMock()
         pyjs.create_callable = MagicMock(side_effect=lambda value: (MagicMock(side_effect=value), handle))
         monkeypatch.setitem(sys.modules, "pyjs", pyjs)
@@ -1554,10 +1556,10 @@ class TestLLMSimilaritySearchWithK:
 
 
 class TestConversionFallbacks:
-    """Test fallback dict conversion when pyodide/pjs not available."""
+    """Test fallback dict conversion when pyodide/pyjs not available."""
 
-    async def test_create_with_pjs_fallback(self):
-        """Test LLM.create with pjs module (xeus-python fallback)."""
+    async def test_create_with_pyjs_fallback(self):
+        """Test LLM.create with pyjs module (xeus-python fallback)."""
         from lmlite import LLM
 
         mock_js_instance = MagicMock()
@@ -1570,77 +1572,47 @@ class TestConversionFallbacks:
         mock_js_module.lmLite = types.SimpleNamespace()
         mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
 
-        # Remove pyodide, use pjs
+        # Remove pyodide, use pyjs
         pyodide_backup = sys.modules.pop("pyodide", None)
         pyodide_ffi_backup = sys.modules.pop("pyodide.ffi", None)
 
-        mock_pjs_module = MagicMock()
-        mock_pjs_module.to_js = MagicMock(side_effect=lambda x: x)
+        mock_pyjs_module = types.ModuleType("pyjs")
+        mock_pyjs_module.to_js = MagicMock(side_effect=lambda x: x)
 
         sys.modules["js"] = mock_js_module
-        sys.modules["pjs"] = mock_pjs_module
+        sys.modules["pyjs"] = mock_pyjs_module
 
         try:
             with patch("lmlite.llm.ensure_runtime"):
                 llm = await LLM.create(generator_model="gpt2")
                 assert llm is not None
                 mock_js_module.lmLite.createLLM.assert_called_once()
+                mock_pyjs_module.to_js.assert_called()
         finally:
             if "js" in sys.modules:
                 del sys.modules["js"]
-            if "pjs" in sys.modules:
-                del sys.modules["pjs"]
+            if "pyjs" in sys.modules:
+                del sys.modules["pyjs"]
             if pyodide_backup:
                 sys.modules["pyodide"] = pyodide_backup
             if pyodide_ffi_backup:
                 sys.modules["pyodide.ffi"] = pyodide_ffi_backup
 
-    async def test_create_with_no_conversion(self):
-        """Test LLM.create when no conversion modules available (fallback to dict)."""
-        from lmlite import LLM
-
-        mock_js_instance = MagicMock()
-        mock_js_instance.init = AsyncMock()
-
+    async def test_create_without_bridge_raises(self, monkeypatch):
+        """LLM.create names the missing runtime instead of passing a raw dict to JavaScript."""
         import sys
 
-        mock_js_module = types.ModuleType("js")
+        from lmlite import LLM
 
-        mock_js_module.lmLite = types.SimpleNamespace()
-        mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+        monkeypatch.setitem(sys.modules, "pyodide.ffi", None)
+        monkeypatch.setitem(sys.modules, "pyjs", None)
+        monkeypatch.setitem(sys.modules, "js", MagicMock())
 
-        # Backup and remove modules
-        pyodide_backup = sys.modules.pop("pyodide", None)
-        pyodide_ffi_backup = sys.modules.pop("pyodide.ffi", None)
-        pjs_backup = sys.modules.pop("pjs", None)
+        with patch("lmlite.llm.ensure_runtime"), pytest.raises(RuntimeError, match="pyodide.ffi or pyjs"):
+            await LLM.create(generator_model="gpt2", auto_detect_local=False)
 
-        sys.modules["js"] = mock_js_module
-
-        try:
-            with patch("lmlite.llm.ensure_runtime"):
-                llm = await LLM.create(
-                    generator_model="gpt2",
-                    classification_model="toxic-bert",
-                    backend="webgpu",
-                )
-                assert llm is not None
-                # Verify createLLM was called with the config dict directly
-                config = mock_js_module.lmLite.createLLM.call_args[0][0]
-                assert isinstance(config, dict)
-                assert config["backend"] == "webgpu"
-                assert config["classification_model"] == "toxic-bert"
-        finally:
-            if "js" in sys.modules:
-                del sys.modules["js"]
-            if pyodide_backup:
-                sys.modules["pyodide"] = pyodide_backup
-            if pyodide_ffi_backup:
-                sys.modules["pyodide.ffi"] = pyodide_ffi_backup
-            if pjs_backup:
-                sys.modules["pjs"] = pjs_backup
-
-    async def test_similarity_search_with_pjs_fallback(self):
-        """Test similarity search with pjs module fallback."""
+    async def test_similarity_search_with_pyjs_fallback(self):
+        """Test similarity search with pyjs module fallback."""
         from lmlite import LLM
 
         mock_js_instance = MagicMock()
@@ -1660,27 +1632,27 @@ class TestConversionFallbacks:
         mock_js_module = MagicMock()
         mock_js_module.lmLite.cosineSimilarityBatch = MagicMock(return_value=[1.0, 0.0])
 
-        # Remove pyodide, use pjs
+        # Remove pyodide, use pyjs
         pyodide_backup = sys.modules.pop("pyodide", None)
         pyodide_ffi_backup = sys.modules.pop("pyodide.ffi", None)
 
-        mock_pjs_module = MagicMock()
-        mock_pjs_module.to_js = MagicMock(side_effect=lambda x: x)
+        mock_pyjs_module = types.ModuleType("pyjs")
+        mock_pyjs_module.to_js = MagicMock(side_effect=lambda x: x)
 
         sys.modules["js"] = mock_js_module
-        sys.modules["pjs"] = mock_pjs_module
+        sys.modules["pyjs"] = mock_pyjs_module
 
         try:
             results = await llm.similarity_search("query", ["doc1", "doc2"])
             assert len(results) == 2
             assert results[0] == ("doc1", 1.0)
             assert results[1] == ("doc2", 0.0)
-            mock_pjs_module.to_js.assert_called()
+            mock_pyjs_module.to_js.assert_called()
         finally:
             if "js" in sys.modules:
                 del sys.modules["js"]
-            if "pjs" in sys.modules:
-                del sys.modules["pjs"]
+            if "pyjs" in sys.modules:
+                del sys.modules["pyjs"]
             if pyodide_backup:
                 sys.modules["pyodide"] = pyodide_backup
             if pyodide_ffi_backup:
@@ -1725,48 +1697,18 @@ class TestCreateWithPyodide:
 class TestSimilaritySearchNoConversion:
     """Test similarity search with no conversion modules."""
 
-    async def test_similarity_search_no_conversion_modules(self):
-        """Test similarity search fallback when no conversion modules available."""
-        from lmlite import LLM
-
-        mock_js_instance = MagicMock()
-        # Mock embeddings
-        mock_js_instance.embed = AsyncMock(
-            side_effect=[
-                [1.0, 0.0],  # query
-                [1.0, 0.0],  # doc1
-                [0.0, 1.0],  # doc2
-            ]
-        )
-
-        llm = LLM(mock_js_instance)
-
+    async def test_similarity_search_without_bridge_raises(self, monkeypatch):
         import sys
 
-        mock_js_module = MagicMock()
-        mock_js_module.lmLite.cosineSimilarityBatch = MagicMock(return_value=[1.0, 0.0])
+        from lmlite import LLM
 
-        # Remove all conversion modules
-        pyodide_backup = sys.modules.pop("pyodide", None)
-        pyodide_ffi_backup = sys.modules.pop("pyodide.ffi", None)
-        pjs_backup = sys.modules.pop("pjs", None)
+        monkeypatch.setitem(sys.modules, "pyodide.ffi", None)
+        monkeypatch.setitem(sys.modules, "pyjs", None)
+        monkeypatch.setitem(sys.modules, "js", MagicMock())
+        llm = LLM(MagicMock(embed=AsyncMock(return_value=[1.0, 0.0])))
 
-        sys.modules["js"] = mock_js_module
-
-        try:
-            results = await llm.similarity_search("query", ["doc1", "doc2"])
-            assert len(results) == 2
-            assert results[0] == ("doc1", 1.0)
-            assert results[1] == ("doc2", 0.0)
-        finally:
-            if "js" in sys.modules:
-                del sys.modules["js"]
-            if pyodide_backup:
-                sys.modules["pyodide"] = pyodide_backup
-            if pyodide_ffi_backup:
-                sys.modules["pyodide.ffi"] = pyodide_ffi_backup
-            if pjs_backup:
-                sys.modules["pjs"] = pjs_backup
+        with pytest.raises(RuntimeError, match="pyodide.ffi or pyjs"):
+            await llm.similarity_search("query", ["doc1", "doc2"])
 
 
 class TestLLMPipeline:
