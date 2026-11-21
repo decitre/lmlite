@@ -10,6 +10,14 @@ DEFAULT_MODEL_NAMESPACE = "Xenova"
 # Transformers.js tasks available through LLM.pipeline(); keep in sync with llm.js.
 SUPPORTED_TASKS = ("zero-shot-classification", "automatic-speech-recognition", "translation")
 
+# Tasks whose inputs are images; keep in sync with llm.js. Enabled in SUPPORTED_TASKS by the vision tasks.
+IMAGE_TASKS = (
+    "image-classification",
+    "zero-shot-image-classification",
+    "image-feature-extraction",
+    "object-detection",
+)
+
 # Sampling rate expected by Whisper and most Transformers.js speech recognition models.
 AUDIO_SAMPLING_RATE = 16000
 
@@ -292,6 +300,52 @@ def _audio_input(audio):
     return [float(sample) for sample in audio]
 
 
+_IMAGE_SIGNATURES = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF8", b"BM")
+
+
+def _encoded_image(data):
+    data = bytes(data)
+    is_webp = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    if not (is_webp or data.startswith(_IMAGE_SIGNATURES)):
+        raise ValueError("The image could not be decoded: expected JPEG, PNG, WebP, GIF or BMP bytes.")
+    return data
+
+
+def _image_input(image):
+    """Normalize one image to a URL string, encoded bytes, or ``["raw", pixels, width, height, channels]``."""
+    import io
+    import os
+
+    if isinstance(image, str):
+        if image.startswith(("http://", "https://", "blob:", "data:")):
+            return image
+        if os.path.isfile(image):
+            with open(image, "rb") as file:
+                return _encoded_image(file.read())
+        raise FileNotFoundError(
+            f"Image file not found: {image!r}. Pass an HTTP(S) URL, a file path, encoded image bytes, "
+            "a uint8 NumPy array of shape (H, W, 3 or 4), or a PIL image."
+        )
+    if isinstance(image, (bytes, bytearray, memoryview)):
+        return _encoded_image(image)
+    if hasattr(image, "save") and hasattr(image, "mode"):  # PIL image
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+    if hasattr(image, "shape") and hasattr(image, "dtype"):  # NumPy array
+        if str(image.dtype) != "uint8" or len(image.shape) != 3 or image.shape[2] not in (3, 4):
+            raise ValueError(f"A NumPy image must be uint8 with shape (H, W, 3 or 4), got {image.dtype} {image.shape}.")
+        height, width, channels = (int(n) for n in image.shape)
+        return ["raw", image.tobytes(), width, height, channels]
+    raise TypeError(f"Unsupported image input: {type(image).__name__}")
+
+
+def _image_inputs(inputs):
+    """One image, or a list of images for a batch."""
+    single = isinstance(inputs, (str, bytes, bytearray, memoryview)) or hasattr(inputs, "shape") or hasattr(inputs, "mode")
+    return _image_input(inputs) if single else [_image_input(item) for item in inputs]
+
+
 class Pipeline:
     """A loaded Transformers.js task pipeline, created with ``LLM.pipeline()``."""
 
@@ -309,6 +363,8 @@ class Pipeline:
 
         if self.task == "automatic-speech-recognition":
             inputs = _audio_input(inputs)
+        elif self.task in IMAGE_TASKS:
+            inputs = _image_inputs(inputs)
         elif not isinstance(inputs, str):
             inputs = list(inputs)
         if not isinstance(inputs, str):

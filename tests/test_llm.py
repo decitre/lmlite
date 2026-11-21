@@ -1862,6 +1862,59 @@ class TestAudioInput:
             _audio_input(b"not a wav file")
 
 
+class TestImageInput:
+    PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 8
+    JPEG = b"\xff\xd8\xff\xe0" + b"0" * 8
+
+    def test_encoded_bytes_urls_and_paths(self, tmp_path):
+        from lmlite.llm import _image_input
+
+        assert _image_input(self.JPEG) == self.JPEG
+        assert _image_input(memoryview(bytearray(self.PNG))) == self.PNG
+        assert _image_input(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == b"RIFF\x00\x00\x00\x00WEBPVP8 "
+        assert _image_input("https://example.test/a.jpg") == "https://example.test/a.jpg"
+        path = tmp_path / "a.png"
+        path.write_bytes(self.PNG)
+        assert _image_input(str(path)) == self.PNG
+
+    def test_numpy_array_is_sent_as_one_buffer_with_its_shape(self):
+        np = pytest.importorskip("numpy")
+        from lmlite.llm import _image_input
+
+        pixels = np.arange(2 * 3 * 4, dtype=np.uint8).reshape(2, 3, 4)
+        assert _image_input(pixels) == ["raw", pixels.tobytes(), 3, 2, 4]
+        for bad in (pixels.astype(np.float32), pixels[:, :, :2], pixels[:, :, 0]):
+            with pytest.raises(ValueError, match="uint8"):
+                _image_input(bad)
+
+    def test_pil_image_is_encoded_to_png(self):
+        pil = pytest.importorskip("PIL.Image")
+        from lmlite.llm import _image_input
+
+        assert _image_input(pil.new("RGB", (2, 2)))[:8] == self.PNG[:8]
+
+    def test_invalid_inputs(self):
+        from lmlite.llm import _image_input
+
+        with pytest.raises(ValueError, match="could not be decoded"):
+            _image_input(b"not an image")
+        with pytest.raises(FileNotFoundError, match="Image file not found"):
+            _image_input("missing.jpg")
+        with pytest.raises(TypeError):
+            _image_input(3)
+
+    async def test_pipeline_sends_bytes_and_batches_once(self, monkeypatch):
+        from lmlite.llm import Pipeline
+
+        js = types.SimpleNamespace(runTask=AsyncMock(return_value=[]))
+        pipe = Pipeline(types.SimpleNamespace(js=js), "image-classification", "m")
+
+        await pipe(self.JPEG, top_k=1)
+        assert js.runTask.call_args.args == (self.JPEG, '{"top_k": 1}')
+        await pipe([self.JPEG, self.PNG, "https://example.test/a.jpg"])
+        assert js.runTask.call_args.args[0] == [self.JPEG, self.PNG, "https://example.test/a.jpg"]
+
+
 class TestTokenizer:
     @pytest.fixture
     def js(self, monkeypatch):
