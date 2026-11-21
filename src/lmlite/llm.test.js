@@ -18,7 +18,10 @@ vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2', () => {
     static fromBlob = vi.fn(async (blob) => ({ blob }));
     static read = vi.fn(async (url) => ({ url }));
   },
-  env: { fetch: vi.fn(async () => new Response('{}')) },
+  env: {
+    fetch: vi.fn(async () => new Response('{}')),
+    backends: { onnx: { versions: { web: '1.2.3' }, wasm: { wasmPaths: { mjs: 'a.mjs', wasm: 'a.wasm' } } } },
+  },
   InterruptableStoppingCriteria: class {
     interrupted = false;
     interrupt() { this.interrupted = true; }
@@ -36,6 +39,21 @@ vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2', () => {
   };
 });
 
+vi.mock('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.2.3/dist/ort.webgpu.min.mjs', () => {
+  class Tensor {
+    constructor(type, data, dims) { Object.assign(this, { type, data, dims }); }
+    async getData() { return this.data; }
+  }
+  const session = {
+    inputNames: ['x'], outputNames: ['y'],
+    inputMetadata: [{ name: 'x', type: 'float32', shape: ['batch', 3] }],
+    outputMetadata: [{ name: 'y', type: 'float32', shape: ['batch', 3] }],
+    run: vi.fn(async ({ x }) => ({ y: new Tensor('float32', x.data.map(v => v * 2), x.dims) })),
+    release: vi.fn(async () => {}),
+  };
+  return { env: { wasm: {} }, Tensor, InferenceSession: { create: vi.fn(async () => session) }, session };
+});
+
 const {
   BrowserLLM,
   createLLM,
@@ -43,6 +61,7 @@ const {
   cosineSimilarityBatch,
   isModelCached,
   loadModelToCache,
+  loadOnnxModel,
   clearModelCache,
   getCachedModels,
   getHostedModelBase,
@@ -1613,5 +1632,48 @@ describe('loadTokenizer()', () => {
     serve({ '/tok.json': tokenizerJson });
     await expect(loadTokenizer(...args)).rejects.toThrow(`Failed to load tokenizer from '${args[1]}'`);
     await expect(loadTokenizer(...args)).rejects.toThrow(message);
+  });
+});
+
+describe('bare ONNX models', () => {
+  const ortUrl = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.2.3/dist/ort.webgpu.min.mjs';
+
+  it('loads a session with the requested provider and describes it', async () => {
+    const ort = await import(ortUrl);
+    const bytes = new Uint8Array([1, 2, 3]);
+
+    const model = await loadOnnxModel(bytes, 'webgpu');
+
+    expect(ort.InferenceSession.create).toHaveBeenCalledWith(bytes, { executionProviders: ['webgpu'] });
+    expect(ort.env.wasm.wasmPaths).toEqual({ mjs: 'a.mjs', wasm: 'a.wasm' });  // Transformers.js's own wasm files
+    const info = JSON.parse(model.describe());
+    expect(info).toMatchObject({ backend: 'webgpu', execution_provider: 'webgpu', size: 3 });
+    expect(info.sha256).toHaveLength(64);
+    expect(info.inputs).toEqual([{ name: 'x', dtype: 'float32', shape: ['batch', 3] }]);
+  });
+
+  it('fetches a URL, runs on raw buffers and returns one buffer per output', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([9]))));
+    const model = await loadOnnxModel('https://example.test/m.onnx');
+    const input = new Uint8Array(new Float32Array([1, 2, 3]).buffer);
+
+    const [meta, y] = await model.run(JSON.stringify([{ name: 'x', dtype: 'float32', dims: [1, 3] }]), [input]);
+
+    expect(JSON.parse(meta)).toEqual([{ name: 'y', dtype: 'float32', dims: [1, 3] }]);
+    expect([...new Float32Array(y.buffer)]).toEqual([2, 4, 6]);
+    await expect(model.run(JSON.stringify([{ name: 'x', dtype: 'float128', dims: [1] }]), [input]))
+      .rejects.toThrow("Unsupported dtype 'float128' for input 'x'");
+    vi.unstubAllGlobals();
+  });
+
+  it('reports a failed download and releases the session on dispose', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404, statusText: 'Not Found' })));
+    await expect(loadOnnxModel('https://example.test/missing.onnx')).rejects.toThrow('404 Not Found');
+    vi.unstubAllGlobals();
+
+    const ort = await import(ortUrl);
+    const model = await loadOnnxModel(new Uint8Array([1]));
+    await model.dispose();
+    expect(ort.session.release).toHaveBeenCalled();
   });
 });

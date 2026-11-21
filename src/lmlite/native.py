@@ -8,6 +8,7 @@ stays the source of truth. Requires ``pip install 'lmlite[native]'``.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -311,3 +312,52 @@ class NativeLLM:
             raise AttributeError(name)
         # chat(), streams and model export need the Transformers.js runtime.
         raise NotImplementedError(f"{name}() is not supported by the native backend; run it in a browser kernel.")
+
+
+class _OnnxHandle:
+    """The session behind a native ``OnnxModel``."""
+
+    def __init__(self, session):
+        self.session = session
+
+    async def run(self, feeds):
+        names = [output.name for output in self.session.get_outputs()]
+        return dict(zip(names, await asyncio.to_thread(self.session.run, names, feeds)))
+
+    async def dispose(self):
+        self.session = None
+
+
+async def load_onnx_model(model_class, source, licence=None):
+    """Create an ``OnnxModel`` from the model's bytes, or a URL to download."""
+    from .onnx_model import _NATIVE_DTYPES
+
+    if isinstance(source, str):
+        from urllib.request import urlopen
+
+        def download():
+            with urlopen(source) as response:  # noqa: S310 - the caller chose the URL
+                return response.read()
+
+        source = await asyncio.to_thread(download)
+    session = ort.InferenceSession(source, providers=["CPUExecutionProvider"])
+
+    def describe(values):
+        return [
+            {
+                "name": value.name,
+                "dtype": _NATIVE_DTYPES.get(value.type),
+                "shape": [dim if isinstance(dim, (int, str)) else None for dim in value.shape],
+            }
+            for value in values
+        ]
+
+    info = {
+        "backend": "native",
+        "execution_provider": session.get_providers()[0],
+        "sha256": hashlib.sha256(source).hexdigest(),
+        "size": len(source),
+        "inputs": describe(session.get_inputs()),
+        "outputs": describe(session.get_outputs()),
+    }
+    return model_class(_OnnxHandle(session), info, licence)
