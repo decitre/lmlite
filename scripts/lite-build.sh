@@ -95,7 +95,8 @@ JL_FORGE_CACHE="${JL_FORGE_CACHE:-$HOME/.cache/jl-forge}"
 # Download the Transformers.js version llm.js pins, and the onnxruntime-web files it loads, for self-hosting.
 TRANSFORMERS_VERSION=$(sed -n "s/^const TRANSFORMERS_VERSION = '\(.*\)';$/\1/p" "$ROOT_DIR/src/lmlite/llm.js")
 TRANSFORMERS_DIR="$JL_FORGE_CACHE/lmlite-transformers/$TRANSFORMERS_VERSION"
-if [ ! -f "$TRANSFORMERS_DIR/.complete" ]; then
+# .complete-2: caches from before ort.webgpu.min.mjs was added are downloaded again.
+if [ ! -f "$TRANSFORMERS_DIR/.complete-2" ]; then
   printf "${YELLOW}Download Transformers.js $TRANSFORMERS_VERSION${NC}\n"
   rm -rf "$TRANSFORMERS_DIR"
   mkdir -p "$TRANSFORMERS_DIR"
@@ -109,12 +110,13 @@ if [ ! -f "$TRANSFORMERS_DIR/.complete" ]; then
     printf '%b\n' "${RED}onnxruntime-web dependency is not an exact version: $ort_version${NC}" >&2
     exit 1
   fi
-  # asyncify: the default variant; plain: Safari < 26 without WebGPU.
-  for file in ort-wasm-simd-threaded.asyncify.mjs ort-wasm-simd-threaded.asyncify.wasm \
+  # asyncify: the default variant; plain: Safari < 26 without WebGPU. ort.webgpu.min.mjs: the onnxruntime-web
+  # frontend OnnxModel loads (Transformers.js does not export it); it takes the wasm files above.
+  for file in ort.webgpu.min.mjs ort-wasm-simd-threaded.asyncify.mjs ort-wasm-simd-threaded.asyncify.wasm \
       ort-wasm-simd-threaded.mjs ort-wasm-simd-threaded.wasm; do
     curl -fsSL -o "$TRANSFORMERS_DIR/$file" "$npm_url/onnxruntime-web@$ort_version/dist/$file"
   done
-  touch "$TRANSFORMERS_DIR/.complete"
+  touch "$TRANSFORMERS_DIR/.complete-2"
 fi
 
 # Added to the built site, not its contents: xeus would otherwise pack them into the kernel's mounted files.

@@ -137,7 +137,6 @@ function routeHostedModels(env) {
   env.fetch = routed;
 }
 
-// Transformers.js from the site's vendor/transformers/ when the build put it there, else from jsDelivr.
 // Encoded bytes (ArrayBuffer/Uint8Array), a URL string, or ["raw", pixels, width, height, channels] -> RawImage.
 async function toRawImage(value) {
   const { RawImage } = await loadTransformers();
@@ -155,6 +154,7 @@ async function toRawImage(value) {
   }
 }
 
+// Transformers.js from the site's vendor/transformers/ when the build put it there, else from jsDelivr.
 function loadTransformers() {
   transformersModule ??= (async () => {
     const root = siteRoot();
@@ -1089,6 +1089,117 @@ class BrowserLLM {
   }
 }
 
+// --- Bare ONNX models ---
+
+// Transformers.js does not export onnxruntime-web, so load the build it uses: the frontend from the site's
+// vendor/transformers/ when a build put it there, else from jsDelivr. The wasm files are Transformers.js's own.
+let ortModule = null;
+
+function loadOrt() {
+  ortModule ??= (async () => {
+    const { env } = await loadTransformers();
+    const onnx = env.backends.onnx;
+    const file = 'ort.webgpu.min.mjs';  // includes the WASM execution provider
+    const root = siteRoot();
+    let ort = null;
+    if (root) {
+      try {
+        ort = await import(`${root}vendor/transformers/${file}`);
+      } catch {
+        // Not self-hosted: fall back to the CDN below.
+      }
+    }
+    ort ??= await import(`https://cdn.jsdelivr.net/npm/onnxruntime-web@${onnx.versions.web}/dist/${file}`);
+    ort.env.wasm.wasmPaths = onnx.wasm.wasmPaths;
+    return ort;
+  })().catch((error) => {
+    ortModule = null;
+    throw error;
+  });
+  return ortModule;
+}
+
+const TENSOR_ARRAYS = {
+  float32: Float32Array, float64: Float64Array, int8: Int8Array, uint8: Uint8Array, int16: Int16Array,
+  uint16: Uint16Array, int32: Int32Array, uint32: Uint32Array, int64: BigInt64Array, uint64: BigUint64Array,
+  bool: Uint8Array,
+};
+
+class OnnxModel {
+  constructor(session, info) {
+    this.session = session;
+    this.info = info;
+  }
+
+  // JSON, so the description crosses both Python bridges.
+  describe() {
+    return JSON.stringify(this.info);
+  }
+
+  // `meta` is JSON [{name, dtype, dims}]; `buffers` holds one Uint8Array of raw little-endian values per input.
+  // Returns [JSON [{name, dtype, dims}], ...one Uint8Array per output].
+  async run(meta, buffers) {
+    const ort = await loadOrt();
+    const feeds = {};
+    JSON.parse(meta).forEach(({ name, dtype, dims }, i) => {
+      const Array_ = TENSOR_ARRAYS[dtype];
+      if (!Array_) {
+        throw new TypeError(`Unsupported dtype '${dtype}' for input '${name}'.`);
+      }
+      const copy = new Uint8Array(buffers[i]);  // a fresh, aligned buffer
+      feeds[name] = new ort.Tensor(dtype, new Array_(copy.buffer), dims);
+    });
+    const results = await this.session.run(feeds);
+    const described = [];
+    const outputs = [];
+    for (const name of this.session.outputNames) {
+      const tensor = results[name];
+      const data = await tensor.getData();  // also reads back GPU outputs
+      described.push({ name, dtype: tensor.type, dims: [...tensor.dims] });
+      outputs.push(new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)));
+      tensor.dispose?.();
+    }
+    return [JSON.stringify(described), ...outputs];
+  }
+
+  async dispose() {
+    await this.session?.release();
+    this.session = null;
+  }
+}
+
+function describeValues(metadata, names) {
+  const byName = new Map((metadata ?? []).map((value) => [value.name, value]));
+  return names.map((name) => {
+    const { type = null, shape = null } = byName.get(name) ?? {};
+    return { name, dtype: type, shape };  // symbolic dimensions stay strings
+  });
+}
+
+// `source` is a URL or the model's bytes. Throws if the backend cannot create the session.
+async function loadOnnxModel(source, backend = 'wasm') {
+  const ort = await loadOrt();
+  let bytes = source;
+  if (typeof source === 'string') {
+    const response = await fetch(source);
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText} for ${source}`);
+    }
+    bytes = new Uint8Array(await response.arrayBuffer());
+  }
+  bytes = new Uint8Array(bytes);
+  const session = await ort.InferenceSession.create(bytes, { executionProviders: [backend] });
+  const digest = globalThis.crypto?.subtle ? await crypto.subtle.digest('SHA-256', bytes) : null;
+  return new OnnxModel(session, {
+    backend,
+    execution_provider: backend,  // one provider is requested, so creation succeeding means it is the one used
+    sha256: digest ? [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('') : null,
+    size: bytes.byteLength,
+    inputs: describeValues(session.inputMetadata, session.inputNames),
+    outputs: describeValues(session.outputMetadata, session.outputNames),
+  });
+}
+
 // --- Cache injection ---
 
 async function isModelCached(modelName) {
@@ -1415,6 +1526,7 @@ globalThis.lmLite = {
   getModelInfo,
   getModelTask,
   loadTokenizer,
+  loadOnnxModel,
 };
 
 undefined;

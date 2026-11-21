@@ -152,6 +152,8 @@ Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after c
 pixi run --environment model-fixture generate-tokenizer-fixture
 ```
 
+The opt-in `onnx-smoke` task runs a 150-byte model (`tests/fixtures/onnx/scale_add.onnx`, regenerated with `uv run --with onnx python scripts/generate_onnx_fixture.py`) through `OnnxModel`'s browser code on WASM and WebGPU, and through the Python bridge in Pyodide. It downloads onnxruntime-web from jsDelivr. `xeus-onnx-smoke` runs the same model through the xeus-python bridge (`pixi run -e xeus-site xeus-onnx-smoke`); it shares one site build with `xeus-tokenizer-smoke` when both run in one session.
+
 The opt-in `task-smoke` task loads each `LLM.pipeline()` task (zero-shot classification, translation, speech recognition, and the four vision tasks) through the browser runtime, with real models downloaded from the Hub:
 
 ```bash
@@ -213,7 +215,7 @@ pixi run jupyterlite -M /path/to/models
 
 The `-m`/`-M` options copy individual model files into each built site, at its HTTP `files/models/<namespace>/<model>/` URLs. They are added after `jupyter lite build` rather than to its contents, so the xeus kernel doesn't pack them into its mounted files, and they don't appear in the file browser. Every file of each model is hosted, including all its ONNX variants: download only the ones you load, or set `MODEL_DTYPES` to host only the ONNX weights of the first listed dtype each model has, e.g. `MODEL_DTYPES="q8 int8 fp32" pixi run jupyterlite -m` (the runtime's default order). The build prints the dtypes hosted for each model. A `files/models/manifest.json` lets `LLM.create(...)` discover the hosted models and load their files directly over HTTP with browser caching and download progress, bypassing the `/drive` filesystem. Missing files in a hosted model produce an error rather than downloading a different copy from Hugging Face.
 
-Every build also self-hosts Transformers.js: the version `src/lmlite/llm.js` pins (`TRANSFORMERS_VERSION`) and the onnxruntime-web files it loads go into each site's `vendor/transformers/`, downloaded once into `~/.cache/jl-forge/lmlite-transformers/`. `llm.js` imports them from the site, and falls back to jsDelivr outside such a site. With `-m`, a site built this way makes no request to another host: `pytest tests/browser/test_self_hosted_site.py -m browser` checks it, generating with the hosted model in both sites while blocking every other host.
+Every build also self-hosts Transformers.js: the version `src/lmlite/llm.js` pins (`TRANSFORMERS_VERSION`) and the onnxruntime-web files it loads (plus the `ort.webgpu.min.mjs` frontend that `OnnxModel` uses) go into each site's `vendor/transformers/`, downloaded once into `~/.cache/jl-forge/lmlite-transformers/`. `llm.js` imports them from the site, and falls back to jsDelivr outside such a site. With `-m`, a site built this way makes no request to another host: `pytest tests/browser/test_self_hosted_site.py -m browser` checks it, generating with the hosted model in both sites while blocking every other host.
 
 The build requires individual model directories containing configuration, tokenizer assets, and the selected ONNX weights.
 

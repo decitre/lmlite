@@ -177,6 +177,7 @@ jupyterlite-xeus = "==5.1.0"
 
 [tool.pixi.feature.xeus-site.tasks]
 xeus-tokenizer-smoke = "pytest tests/browser/test_tokenizer_xeus.py -m browser -v -s"
+xeus-onnx-smoke = "pytest tests/browser/test_onnx_model_xeus.py -m browser -v -s"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
@@ -208,6 +209,7 @@ embedding-smoke = "pytest tests/browser/test_embeddings.py -m browser -v"
 task-smoke = "pytest tests/browser/test_tasks.py -m browser -v"
 generate-embedding-fixture = "python scripts/generate_embedding_fixture.py"
 tokenizer-smoke = "pytest tests/browser/test_tokenizer.py -m browser -v"
+onnx-smoke = "pytest tests/browser/test_onnx_model.py -m browser -v"
 native-parity = "pytest tests/browser/test_native_parity.py -m browser -v"
 generate-tokenizer-fixture = "python scripts/generate_tokenizer_fixture.py"
 coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py --ignore=tests/browser -m 'not browser' && coverage report -m"
