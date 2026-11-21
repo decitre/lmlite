@@ -150,3 +150,78 @@ def test_asr_url_runs_in_worker(source_server):
     assert result["ok"], f"ASR in a worker failed: {result.get('error')}"
     assert result["audioContext"] == "undefined"
     assert "country" in result["output"]["text"].lower()
+
+
+def test_image_bytes_and_url_run_in_worker(source_server):
+    """Notebook kernels run in a Web Worker, where RawImage must decode with OffscreenCanvas."""
+    model = TASKS["image-classification"][0]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(MODEL_TIMEOUT)
+            page.goto(source_server, wait_until="domcontentloaded")
+            result = page.evaluate(
+                """async ({src, model, url}) => {
+                  const code = `
+                    self.onmessage = async ({data}) => {
+                      try {
+                        await import(data.src);
+                        const llm = globalThis.lmLite.createLLM({task: 'image-classification', task_model: data.model, backend: 'wasm'});
+                        await llm.init();
+                        const bytes = new Uint8Array(await (await fetch(data.url)).arrayBuffer());
+                        const fromBytes = await llm.runTask(bytes, '{"top_k": 1}');
+                        const fromUrl = await llm.runTask(data.url, '{"top_k": 1}');
+                        const bad = await llm.runTask(new Uint8Array([1, 2, 3]), '{}').catch(error => String(error));
+                        await llm.dispose();
+                        self.postMessage({ok: true, offscreen: typeof OffscreenCanvas, fromBytes, fromUrl, bad});
+                      } catch (error) {
+                        self.postMessage({ok: false, error: String(error?.stack ?? error)});
+                      }
+                    };`;
+                  const worker = new Worker(URL.createObjectURL(new Blob([code], {type: 'text/javascript'})), {type: 'module'});
+                  try {
+                    return await new Promise((resolve) => {
+                      worker.onmessage = ({data}) => resolve(data);
+                      worker.onerror = (event) => resolve({ok: false, error: event.message});
+                      worker.postMessage({src, model, url});
+                    });
+                  } finally {
+                    worker.terminate();
+                  }
+                }""",
+                {"src": f"{source_server}/src/lmlite/llm.js", "model": model, "url": TIGER_URL},
+            )
+        finally:
+            browser.close()
+
+    assert result["ok"], f"Image input in a worker failed: {result.get('error')}"
+    assert "tiger" in result["fromBytes"][0]["label"].lower()
+    assert result["fromBytes"] == result["fromUrl"]
+    assert "could not be decoded" in result["bad"]
+
+
+@pytest.mark.parametrize("task", ["image-classification", "zero-shot-image-classification", "image-feature-extraction", "object-detection"])
+def test_model_info_reports_vision_tasks(source_server, task):
+    model = TASKS[task][0]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(MODEL_TIMEOUT)
+            page.goto(source_server, wait_until="domcontentloaded")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            info = page.evaluate(
+                """async ({task, model}) => {
+                  await new Promise(resolve => setTimeout(resolve, 0));
+                  return await globalThis.lmLite.getModelInfo(model, task, 'wasm');
+                }""",
+                {"task": task, "model": model},
+            )
+        finally:
+            browser.close()
+
+    assert info["error"] is None, info["error"]
+    assert info["task"] == task and info["model_id"] == model
+    assert info["dtype"] and info["files"]
+    assert info["download_bytes"] and info["download_bytes"] > 1_000_000

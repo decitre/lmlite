@@ -116,6 +116,14 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
                 if isinstance(inputs, str):
                     return {"translation_text": "Exemple."}
                 return [{"translation_text": "Exemple."} for _ in inputs]
+            if task == "image-classification":
+                return [{"label": "tiger", "score": 0.9}, {"label": "cat", "score": 0.1}][: kwargs.get("top_k", 2)]
+            if task == "zero-shot-image-classification":
+                return [{"label": label, "score": 1 / len(kwargs["candidate_labels"])} for label in kwargs["candidate_labels"]]
+            if task == "image-feature-extraction":
+                return [[1.0, 0.0], [0.6, 0.8]] if isinstance(inputs, list) else [1.0, 0.0]
+            if task == "object-detection":
+                return [{"label": "cat", "score": 0.99, "box": {"xmin": 1.2, "ymin": 2.0, "xmax": 30.5, "ymax": 40.0}}]
             return {"text": "Example transcript."}
 
         async def export_models(self):
@@ -309,6 +317,14 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     if path.name == "ch08_tasks.ipynb":
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]
+    if path.name == "ch08b_vision.ipynb":
+        tasks = [instance.config["task"] for instance in instances]
+        assert tasks == [
+            "image-classification",
+            "zero-shot-image-classification",
+            "image-feature-extraction",
+            "object-detection",
+        ]
     if path.name == "ch09_orchestration.ipynb":
         assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-360M-Instruct"
         assert instances[0].config["backend"] == "wasm"
