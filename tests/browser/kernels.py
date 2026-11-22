@@ -26,6 +26,20 @@ def webgpu_args(backend="webgpu"):
 PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"
 
 
+def webgpu_has_f16(source_server, args):
+    """Whether the browser launched with `args` has a WebGPU adapter with float16 shaders (a hardware GPU)."""
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(args=list(args))
+        try:
+            page = browser.new_page()
+            page.goto(source_server, wait_until="domcontentloaded")  # a secure origin: navigator.gpu needs one
+            return page.evaluate(
+                "async () => Boolean((await navigator.gpu?.requestAdapter())?.features.has('shader-f16'))"
+            )
+        finally:
+            browser.close()
+
+
 def run_in_pyodide(source_server, code, packages=("tqdm",), requests=None, args=()):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(args=list(args))

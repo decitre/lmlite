@@ -65,5 +65,7 @@ def test_map_through_the_pyodide_bridge(source_server, backend):
     check(run_in_pyodide(source_server, code, packages=("tqdm", "numpy"), args=flags))
 
 
-def test_map_through_the_xeus_bridge(xeus_site):
-    check(run_in_xeus(xeus_site, KERNEL_CODE.replace("SOURCE", "onnx/scale_add.onnx").replace("BACKEND", "wasm")))
+@pytest.mark.parametrize("backend", ["wasm", "webgpu"])
+def test_map_through_the_xeus_bridge(xeus_site, backend):
+    code = KERNEL_CODE.replace("SOURCE", "onnx/scale_add.onnx").replace("BACKEND", backend)
+    check(run_in_xeus(xeus_site, code, args=webgpu_args(backend)))
