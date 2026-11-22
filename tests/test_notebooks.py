@@ -517,6 +517,7 @@ def _fake_onnx_notebook_world(monkeypatch):
 def _fake_diffusion_models(monkeypatch):
     """Three OnnxModels with SD-Turbo's input and output signatures; each run checks the dtypes it was given."""
     np = pytest.importorskip("numpy")
+    pytest.importorskip("PIL")  # the notebook makes its PNG with Pillow
     models = []
     signatures = {
         "text_encoder": ({"input_ids": ("int32", [1, 77])}, "last_hidden_state", (1, 77, 1024)),

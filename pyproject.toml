@@ -145,6 +145,7 @@ uv = "*"
 
 [tool.pixi.feature.dev.dependencies]
 anywidget = "*"  # the audio recorder tests
+pillow = "*"  # the tests of the notebooks that decode and draw images
 pytest = "*"
 pytest-asyncio = "*"
 pytest-cov = "*"
