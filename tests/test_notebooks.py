@@ -221,6 +221,8 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
 
     browser.eval = js_eval
     monkeypatch.setitem(sys.modules, "js", browser)
+    if path.name == "ch08e_microphone.ipynb":
+        _fake_microphone(monkeypatch)
     onnx_models = []
     if path.name == "ch08c_onnx-models.ipynb":
         onnx_models = _fake_onnx_notebook_world(monkeypatch)
@@ -238,6 +240,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         result = eval(code, namespace)
         if inspect.isawaitable(result):
             await result
+    if path.name == "ch08e_microphone.ipynb":
+        assert [instance.config["task"] for instance in instances] == ["automatic-speech-recognition"]
+        assert namespace["wav"][:4] == b"RIFF" and namespace["result"]["text"] == "Example transcript."
     if path.name == "ch08d_speech.ipynb":
         assert [instance.config["task"] for instance in instances] == ["text-to-speech"]
         assert namespace["progress"] == ["1/3", "2/3", "3/3"] and len(namespace["clips"]) == 3
@@ -357,6 +362,21 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert all(messages[0]["role"] == "system" for messages in chats)
         assert all(messages[-1]["role"] == "user" for messages in chats)
         assert not prompts
+
+
+def _fake_microphone(monkeypatch):
+    """The recorder widget hands over a short WAV, as if the user had recorded and tapped Stop."""
+    pytest.importorskip("anywidget")
+    import io
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\x00\x01" * 16000)
+    monkeypatch.setattr("lmlite.audio.AudioRecorder.wait", AsyncMock(return_value=buffer.getvalue()))
 
 
 def _fake_onnx_notebook_world(monkeypatch):
