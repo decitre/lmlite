@@ -16,7 +16,7 @@
 
 Package version: `0.12.1`
 
-**A Python bridge to Transformers.js for JupyterLite** — run language models and embedding workflows entirely in your browser.
+**A Python bridge to Transformers.js for JupyterLite** — run language models, embeddings, vision, speech and bare ONNX models entirely in your browser.
 
 
 ## Quick Start
