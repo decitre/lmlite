@@ -117,6 +117,8 @@ await detector(jpeg_bytes, threshold=0.5)
 await classifier.dispose()
 ```
 
+The models each task was tested with, their licences and the ones known not to work are in [MODELS.md](MODELS.md#task-pipelines-for-llmpipelinetask-model).
+
 Loading options are the same as for `LLM.create()`: `backend`, `dtype`, `dtype_fallbacks`, `hosted_models_url`, `auto_detect_local` and `local_models_path`. Model names, hosted files, browser caching, progress display and `export_models()` work the same way too. Load failures name the task, model and backend.
 
 Keyword arguments to a pipeline call are forwarded as Transformers.js options for that task, and must be JSON-serializable. Results are plain Python dicts and lists:
