@@ -6,6 +6,7 @@
 import os
 
 import pytest
+from kernels import webgpu_args
 from playwright.sync_api import sync_playwright
 
 pytestmark = pytest.mark.browser
@@ -61,7 +62,7 @@ TASKS = {
 def test_task_pipeline_runs_in_browser(source_server, task, backend):
     model, inputs, options = TASKS[task]
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(args=["--enable-unsafe-webgpu"] if backend == "webgpu" else [])
+        browser = playwright.chromium.launch(args=webgpu_args(backend))
         try:
             page = browser.new_page()
             page.set_default_timeout(MODEL_TIMEOUT)

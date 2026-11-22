@@ -12,6 +12,17 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "300000"))
+
+
+def webgpu_args(backend="webgpu"):
+    """Chromium flags for a run on `backend`. Headless Chromium gives WebGPU a software adapter (no float16
+    shaders, 1 GB buffers) unless told to use the GPU: set LMLITE_WEBGPU_ARGS, for example on macOS to
+    "--enable-unsafe-webgpu --enable-gpu --use-angle=metal --ignore-gpu-blocklist"."""
+    if backend != "webgpu":
+        return []
+    return os.getenv("LMLITE_WEBGPU_ARGS", "--enable-unsafe-webgpu").split()
+
+
 PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"
 
 
@@ -47,10 +58,10 @@ def run_in_pyodide(source_server, code, packages=("tqdm",), requests=None, args=
     return json.loads(line.removeprefix("RESULT"))
 
 
-def run_in_xeus(xeus_site, code, requests=None):
+def run_in_xeus(xeus_site, code, requests=None, args=()):
     url = f"{xeus_site}/repl/index.html?kernel=xpython&execute=1&code={urllib.parse.quote(code)}"
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
+        browser = playwright.chromium.launch(args=list(args))
         try:
             page = browser.new_page()
             console = []

@@ -4,7 +4,7 @@
 """OnnxModel.map() through the real Python/JavaScript bridge, in Pyodide and xeus-python kernels."""
 
 import pytest
-from kernels import run_in_pyodide, run_in_xeus
+from kernels import run_in_pyodide, run_in_xeus, webgpu_args
 
 pytestmark = pytest.mark.browser
 
@@ -61,7 +61,7 @@ def test_map_through_the_pyodide_bridge(source_server, backend):
     code = KERNEL_CODE.replace("SOURCE", f"{source_server}/tests/fixtures/onnx/scale_add.onnx").replace(
         "BACKEND", backend
     )
-    flags = ["--enable-unsafe-webgpu"] if backend == "webgpu" else []
+    flags = webgpu_args(backend)
     check(run_in_pyodide(source_server, code, packages=("tqdm", "numpy"), args=flags))
 
 

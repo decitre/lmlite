@@ -117,6 +117,43 @@ Limits: a model with external data files (`.onnx_data`) is not supported, and th
 
 To host a bare model with a site, put it at `files/models/<namespace>/<model>/model.onnx` and list `<namespace>/<model>` in the site's `files/models/manifest.json`; `OnnxModel.load("<namespace>/<model>")` then loads it. See [USAGE.md](USAGE.md).
 
+## Text to image: a recipe, not a pipeline task
+
+Transformers.js 4.3.2 has no text-to-image task, so `LLM.pipeline()` cannot offer one. [`ch08g_text-to-image.ipynb`](../notebooks/ch08g_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `LLM.tokenizer`, three ONNX models on WebGPU, and the scheduler in NumPy.
+
+| Model | Licence | Files |
+|-------|---------|-------|
+| [`schmuell/sd-turbo-ort-web`](https://huggingface.co/schmuell/sd-turbo-ort-web) (SD-Turbo, float16) | **Stability AI Non-Commercial Research Community License**: research and non-commercial use only, no production use, no offering it through a hosted service | `unet/model.onnx` 1,733 MB, `text_encoder/model.onnx` 681 MB, `vae_decoder/model.onnx` 99 MB |
+
+The licence text says that merely distributing the weights for download (as the Hub does) is not a violation, and that offering them through your own hosted service is. Do not bundle them into a site you publish (`jupyterlite -m`); the notebook downloads them from the Hub into the reader's browser. I am not a lawyer: read the licence before you use it.
+
+### Measured
+
+Apple M-series Mac with 18 GB, Chromium on the Metal GPU (`shader-f16`, 4 GB buffers), Pyodide 0.29, onnxruntime-web 1.31 dev, weights served from the same machine, 512 x 512 output, one denoising step. Memory is the sum of the resident memory of every browser process, sampled twice a second. Each figure is a range over three runs on one machine.
+
+| | |
+|:--|:--|
+| Download from the Hub | 2.4 GB, 7 minutes on the test network |
+| Load | text encoder 2.1 to 2.6 s, UNet 7.0 to 8.2 s, decoder 0.4 to 0.5 s |
+| First image | 2.8 to 4.3 s over three runs (shader compilation included); in the run with the stages split out: text encoder 0.2, UNet 1.8, decoder 1.8 |
+| Next images | 2.5 to 3.4 s |
+| Peak browser memory | 6.6 to 7.2 GB: the renderer 6.2 to 6.6 GB, the GPU process about 1 GB (GPU memory on Apple silicon is shared and mostly not in these figures) |
+| JavaScript heap | 1.8 to 1.9 GB used, of a 3.8 GB limit |
+| WebAssembly backend | fails to load the UNet: `failed to allocate a buffer of size 1733430199` |
+| Software WebGPU adapter (default headless Chromium) | fails: `Program Transpose requires f16 but the device does not support it` |
+| `OnnxModel.load(..., cache=True)` for the UNet | nothing was stored in the Cache API of the test browser's profile (an incognito-like profile with a small quota), so the file is downloaded again on each new kernel; a normal profile was not tested |
+
+### Decision
+
+**Keep it as a documented recipe. Do not add a `text-to-image` task to `LLM.pipeline()`, and do not drop it.** It works well where the hardware allows it, but a task would promise what lmlite cannot check:
+
+- It needs a hardware GPU with float16 shaders and 1.7 GB buffers, and about 7 GB of browser memory: a recent laptop, not most phones, tablets or machines without such a GPU. The same notebook would fail on WebAssembly and on a software adapter.
+- The 2.4 GB download repeats on every kernel unless the browser stores it; a 1.7 GB file did not fit the Cache API in the test profile.
+- The model shown is licensed for non-commercial research only, which rules out lmlite shipping or hosting it.
+- Every model family has its own tokenizer padding, scheduler and decoder scaling (here: pad token `!`, Euler with `trailing` spacing, latents scaled by 0.18215), so a task would need one implementation per family.
+
+Revisit it if a model with a permissive licence and a smaller footprint appears, or if Transformers.js adds a text-to-image pipeline. Not tried: [`danyalmalik/bk-sdm-small-2m-ONNX-WebGPU`](https://huggingface.co/danyalmalik/bk-sdm-small-2m-ONNX-WebGPU) (OpenRAIL-M, 1.4 GB, but about 25 steps with guidance); `lwanming/sd-turbo-ort-web`, which the Hub tags `openrail` but which holds the same SD-Turbo weights (a repackaged copy's tag does not change the licence); and `stabilityai/sdxl-turbo` (`other`).
+
 ## Text generation (for `LLM.create(generator_model=...)`)
 
 1. [`Xenova/gpt2`](https://huggingface.co/Xenova/gpt2)  
