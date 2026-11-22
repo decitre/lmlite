@@ -3,8 +3,10 @@
 lmLite is a lightweight orchestration layer for browser-local language-model
 inference from Python. JupyterLite, with Xeus-Python or Pyodide, is its primary
 integration. The package provides async generation, embeddings, classification,
-and in-memory cosine similarity search, together with browser model caching,
-hosted assets, and portable model ZIP import/export.
+and in-memory cosine similarity search, Transformers.js task pipelines (text,
+vision, speech and image-output tasks), bare ONNX models through `OnnxModel`,
+and a microphone widget, together with browser model caching, hosted assets,
+and portable model ZIP import/export.
 
 ## What lmLite adds
 
@@ -78,3 +80,9 @@ Model preparation does work outside the browser. The `lmlite-models` CLI and
 `host_models` / `pack_models` helpers in `lmlite.model_assets` prepare downloaded
 assets for static hosting or ZIP portability without performing inference.
 They can be used from desktop Python or CI independently of JupyterLite.
+
+## Browsers tested
+
+- **Chromium and Firefox:** the notebooks for images, speech and the microphone run in the real JupyterLab UI with xeus-python (`lab-smoke`, with Playwright's browsers; see [DEVELOPMENT.md](DEVELOPMENT.md)). A user report adds stock Firefox 159 on an Apple-silicon Mac: model downloads, text to speech and the text-to-image recipe on WebGPU worked.
+- **Safari:** only Playwright's WebKit is tested, for cross-origin isolation (see [NATIVE.md](NATIVE.md)). The notebooks have not been run in Safari itself.
+- **WebGPU:** needs a hardware adapter. Headless Chromium uses a software adapter without float16 shaders, which is enough for small models but not for the text-to-image recipe.
