@@ -141,6 +141,15 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
                     {"label": "cat", "score": 0.99, "box": {"xmin": 1.2, "ymin": 2.0, "xmax": 30.5, "ymax": 40.0}},
                     {"label": "cat", "score": 0.8, "box": {"xmin": 0.0, "ymin": 0.0, "xmax": 10.0, "ymax": 12.0}},
                 ]
+            if task in ("background-removal", "image-to-image"):
+                return _png(612 * (2 if task == "image-to-image" else 1), 408)
+            if task == "depth-estimation":
+                return {"depth": _png(612, 408), "predicted_depth": [[0.0, 0.5], [1.0, 1.5]]}
+            if task == "image-segmentation":
+                return [
+                    {"label": "cat", "score": 0.9, "mask": _png(612, 408)},
+                    {"label": "sky", "score": None, "mask": _png(612, 408)},
+                ]
             if task == "text-to-speech":
                 from lmlite import Speech
 
@@ -262,6 +271,14 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         result = eval(code, namespace)
         if inspect.isawaitable(result):
             await result
+    if path.name == "ch08f_image-outputs.ipynb":
+        assert [instance.config["task"] for instance in instances] == [
+            "background-removal",
+            "depth-estimation",
+            "image-segmentation",
+            "image-to-image",
+        ]
+        assert namespace["png_size"](namespace["larger"]) == (1224, 408) and len(namespace["segments"]) == 2
     if path.name == "ch08e_microphone.ipynb":
         assert [instance.config["task"] for instance in instances] == ["automatic-speech-recognition"]
         assert namespace["wav"][:4] == b"RIFF" and namespace["result"]["text"] == "Example transcript."
@@ -406,6 +423,13 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert all(messages[0]["role"] == "system" for messages in chats)
         assert all(messages[-1]["role"] == "user" for messages in chats)
         assert not prompts
+
+
+def _png(width, height):
+    """The start of a PNG file: its signature and an IHDR chunk, which is all the notebooks read."""
+    import struct
+
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I4sII", 13, b"IHDR", width, height) + b"\x08\x06\x00\x00\x00"
 
 
 def _fake_microphone(monkeypatch):

@@ -1987,3 +1987,85 @@ describe('mixChannels', () => {
     expect(peak(mixChannels([quiet, new Float32Array(100)]))).toBe(0);
   });
 });
+
+describe('image output tasks', () => {
+  // Like Transformers.js's RawImage: pixels, a size, and toBlob() for a PNG.
+  const image = (width, height, channels, fill = 7) => ({
+    width, height, channels, data: new Uint8ClampedArray(width * height * channels).fill(fill),
+    toBlob: vi.fn(async () => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, width, height])])),
+  });
+  const tensor = (rows, columns) => ({
+    dims: [rows, columns], ort_tensor: {}, data: Float32Array.from({ length: rows * columns }, (_, i) => i / 2),
+  });
+  const unpack = ([structure, ...buffers]) => ({ structure: JSON.parse(structure), buffers });
+
+  function pipe(task, output) {
+    const llm = new BrowserLLM({ task });
+    llm.taskPipeline = vi.fn(async () => output);
+    return llm;
+  }
+
+  it('returns an image as one PNG buffer with its description', async () => {
+    const llm = pipe('background-removal', image(3, 2, 4));
+
+    const { structure, buffers } = unpack(await llm.runTask('https://example.test/a.jpg', '{}'));
+
+    expect(structure).toEqual({ $buffer: 0, width: 3, height: 2, channels: 4 });
+    expect([...buffers[0]]).toEqual([0x89, 0x50, 0x4e, 0x47, 3, 2]);
+    expect(buffers).toHaveLength(1);
+  });
+
+  it('returns the raw pixels with as_array, and does not pass that option to Transformers.js', async () => {
+    const llm = pipe('image-to-image', image(2, 2, 3, 9));
+
+    const { buffers } = unpack(await llm.runTask('https://example.test/a.jpg', '{"as_array": true, "other": 1}'));
+
+    expect([...buffers[0]]).toEqual(new Array(12).fill(9));
+    expect(llm.taskPipeline.mock.calls[0][1]).toEqual({ other: 1 });
+  });
+
+  it('packs a depth map as an image plus a float32 tensor', async () => {
+    const llm = pipe('depth-estimation', { predicted_depth: tensor(2, 3), depth: image(3, 2, 1) });
+
+    const { structure, buffers } = unpack(await llm.runTask('https://example.test/a.jpg', '{}'));
+
+    // Each description points at its buffer, whatever the order the buffers were made in.
+    const { predicted_depth: depth, depth: map } = structure;
+    expect([depth.dtype, depth.shape, map.width, map.height, map.channels]).toEqual(['float32', [2, 3], 3, 2, 1]);
+    expect(new Set([depth.$buffer, map.$buffer])).toEqual(new Set([0, 1]));
+    expect([...new Float32Array(buffers[depth.$buffer].buffer)]).toEqual([0, 0.5, 1, 1.5, 2, 2.5]);
+    expect([...buffers[map.$buffer]]).toEqual([0x89, 0x50, 0x4e, 0x47, 3, 2]);
+  });
+
+  it('packs every segment of a segmentation with its label and score', async () => {
+    const llm = pipe('image-segmentation', [
+      { label: 'cat', score: 0.9, mask: image(2, 2, 1) },
+      { label: 'sky', score: null, mask: image(2, 2, 1) },
+    ]);
+
+    const { structure, buffers } = unpack(await llm.runTask('https://example.test/a.jpg', '{}'));
+
+    expect(structure).toEqual([
+      { label: 'cat', score: 0.9, mask: { $buffer: 0, width: 2, height: 2, channels: 1 } },
+      { label: 'sky', score: null, mask: { $buffer: 1, width: 2, height: 2, channels: 1 } },
+    ]);
+    expect(buffers).toHaveLength(2);
+  });
+
+  it('handles a batch of images as a list of results', async () => {
+    const llm = pipe('background-removal', [image(1, 1, 4), image(2, 1, 4)]);
+
+    const { structure } = unpack(await llm.runTask([new Uint8Array([1]), new Uint8Array([2])], '{}'));
+
+    expect(structure.map((item) => item.width)).toEqual([1, 2]);
+  });
+
+  it('runs one image per call in runTasks', async () => {
+    const llm = pipe('image-to-image', image(1, 1, 3));
+
+    const { results } = await llm.runTasks(['https://example.test/a.jpg', 'https://example.test/b.jpg'], 8);
+
+    expect(llm.taskPipeline).toHaveBeenCalledTimes(2);
+    expect(results.map(([structure]) => JSON.parse(structure).width)).toEqual([1, 1]);
+  });
+});

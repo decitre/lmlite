@@ -152,6 +152,8 @@ Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after c
 pixi run --environment model-fixture generate-tokenizer-fixture
 ```
 
+The opt-in `image-output-smoke` task runs the four tasks that return images with the models in `MODELS.md`: in Chromium, the PNG files and their sizes, the PNG encoding inside a Web Worker, and in Pyodide and (with `pixi run -e xeus-site image-output-smoke`) xeus-python the Python results, `as_array=True` and `map()`. Override the models with `LMLITE_TEST_BACKGROUND_REMOVAL_MODEL`, `LMLITE_TEST_DEPTH_MODEL`, `LMLITE_TEST_SEGMENTATION_MODEL` and `LMLITE_TEST_IMAGE_TO_IMAGE_MODEL`.
+
 The opt-in `vision-notebook-smoke` task runs the object-detection cells of `ch08b_vision.ipynb` (random Commons photos, `map()`, the contact sheets) in Pyodide and, with `pixi run -e xeus-site vision-notebook-smoke`, in xeus-python, runs the picking cell twice, and checks that boxes were drawn onto the photos and that the second pick repeats none of the first. It needs network access. Loading a FreeType font hangs in xeus-python (Pillow 13 in the browser), which is why the notebook draws its labels with the built-in bitmap font.
 
 The opt-in `audio-smoke` task records with Chromium's fake microphone (a repeating beep): the recorder in `llm.js`, the widget's JavaScript on a page without lmLite, and (with `pixi run -e xeus-site audio-smoke`) the widget in a real xeus-python kernel, from a click on Record and Stop to `await recorder.wait()`. No real microphone, tablet or Safari is involved, so those stay untested.
