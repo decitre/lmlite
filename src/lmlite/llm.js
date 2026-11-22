@@ -1344,26 +1344,56 @@ function encodeWav(samples, sampleRate) {
   return bytes;
 }
 
+// One channel from the channels of a recording. Averaging is best, but channels recorded in opposite polarity (some
+// stereo inputs do) cancel to silence, and a dead channel halves the level, so when the average is clearly quieter
+// than the loudest channel, use that one.
+function mixChannels(channels) {
+  if (channels.length === 1) {
+    return channels[0];
+  }
+  const rms = (data) => Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / Math.max(1, data.length));
+  const mix = new Float32Array(channels[0].length);
+  for (const channel of channels) {
+    channel.forEach((value, i) => { mix[i] += value / channels.length; });
+  }
+  const loudest = channels.reduce((best, channel) => (rms(channel) > rms(best) ? channel : best));
+  return rms(mix) < 0.7 * rms(loudest) ? loudest : mix;
+}
+
 // Records the microphone and returns a 16 kHz mono WAV, which speech recognition pipelines take as bytes.
+// After stop(), `info` describes the recording: seconds, peak (0 to 1, near 0 means silence), and the browser's
+// channels, sampleRate and mimeType, with the `raw` option and the `gain` applied to it.
+//
+// By default the browser processes the microphone (echo cancellation, noise suppression, gain control). Any of
+// them mixes the input to mono first, and a stereo input with opposite polarity in its channels mixes to exact
+// silence. `start({raw: true})` turns all of them off, keeps the channels (mixChannels() deals with them) and, in
+// place of the gain control, scales a quiet recording up to a peak of 0.9 (at most 20 times).
 class AudioRecorder {
   constructor() {
     this.recorder = null;
     this.stream = null;
     this.chunks = [];
+    this.info = null;
+    this.raw = false;
   }
 
   get recording() {
     return this.recorder !== null;
   }
 
-  async start() {
+  async start({ raw = false } = {}) {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       throw new Error('Recording needs a page on HTTPS or localhost, in a browser with MediaRecorder.');
     }
     if (this.recording) {
       throw new Error('Already recording.');
     }
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: raw
+        ? { channelCount: { ideal: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        : true,
+    });
+    this.raw = raw;
     this.chunks = [];
     this.recorder = new MediaRecorder(this.stream);
     this.recorder.ondataavailable = (event) => event.data.size && this.chunks.push(event.data);
@@ -1385,13 +1415,27 @@ class AudioRecorder {
     const context = new AudioContext();
     try {
       const decoded = await context.decodeAudioData(await new Blob(this.chunks, { type: recorder.mimeType }).arrayBuffer());
-      // An offline context of the target rate resamples and mixes the channels down to mono.
-      const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * RECORDING_RATE)), RECORDING_RATE);
+      // An offline context of the target rate resamples; the channels stay apart until mixChannels() has looked at them.
+      const offline = new OfflineAudioContext(
+        decoded.numberOfChannels, Math.max(1, Math.ceil(decoded.duration * RECORDING_RATE)), RECORDING_RATE);
       const source = offline.createBufferSource();
       source.buffer = decoded;
       source.connect(offline.destination);
       source.start();
-      return encodeWav((await offline.startRendering()).getChannelData(0), RECORDING_RATE);
+      const rendered = await offline.startRendering();
+      const mixed = mixChannels(Array.from({ length: rendered.numberOfChannels }, (_, i) => rendered.getChannelData(i)));
+      const peak = mixed.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+      const gain = this.raw && peak >= 0.005 ? Math.min(20, 0.9 / peak) : 1;
+      this.info = {
+        seconds: mixed.length / RECORDING_RATE,
+        peak,
+        channels: decoded.numberOfChannels,
+        sampleRate: decoded.sampleRate,
+        mimeType: recorder.mimeType,
+        raw: this.raw,
+        gain,
+      };
+      return encodeWav(gain === 1 ? mixed : mixed.map((value) => value * gain), RECORDING_RATE);
     } finally {
       this.chunks = [];
       await context.close();
@@ -1728,6 +1772,7 @@ globalThis.lmLite = {
   loadOnnxModel,
   AudioRecorder,
   encodeWav,
+  mixChannels,
 };
 
 undefined;

@@ -16,8 +16,9 @@ from lmlite.audio import AudioRecorder  # noqa: E402
 WAV = b"RIFF$\x00\x00\x00WAVE"
 
 
-def reply(recorder, wav):
-    """What the browser does when a recording stops."""
+def reply(recorder, wav, peak=0.3):
+    """What the browser does when a recording stops: the description first, then the recording."""
+    recorder.info = {"seconds": 1.0, "peak": peak, "channels": 2, "sampleRate": 48000, "mimeType": "audio/webm"}
     recorder.recording = base64.b64encode(wav).decode()
 
 
@@ -59,6 +60,17 @@ async def test_every_waiter_gets_the_recording():
     reply(recorder, WAV)
 
     assert await first == await second == WAV
+
+
+async def test_info_describes_the_recording_and_is_forgotten_by_clear():
+    recorder = AudioRecorder()
+    assert recorder.info == {}
+
+    reply(recorder, WAV, peak=0.0)  # a silent recording is still delivered, with its peak to say so
+    assert await recorder.wait() == WAV and recorder.info["peak"] == 0.0 and recorder.info["channels"] == 2
+    recorder.clear()
+
+    assert recorder.info == {} and recorder.audio == b""
 
 
 def test_a_recording_is_input_for_speech_recognition():

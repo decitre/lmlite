@@ -64,6 +64,7 @@ const {
   loadOnnxModel,
   AudioRecorder,
   encodeWav,
+  mixChannels,
   clearModelCache,
   getCachedModels,
   getHostedModelBase,
@@ -1871,7 +1872,7 @@ describe('microphone recording', () => {
           this.onstop();
         }
       });
-      const decoded = { duration: 0.5 };
+      const decoded = { duration: 0.5, numberOfChannels: 1, sampleRate: 48000 };
       vi.stubGlobal('AudioContext', class {
         decodeAudioData = vi.fn(async () => decoded);
         close = vi.fn(async () => {});
@@ -1879,7 +1880,9 @@ describe('microphone recording', () => {
       vi.stubGlobal('OfflineAudioContext', class {
         constructor(channels, length, rate) { Object.assign(this, { channels, length, rate }); this.destination = {}; }
         createBufferSource() { return { connect: vi.fn(), start: vi.fn(), set buffer(value) { this.value = value; } }; }
-        async startRendering() { return { getChannelData: () => new Float32Array(this.length).fill(0.25) }; }
+        async startRendering() {
+          return { numberOfChannels: this.channels, getChannelData: () => new Float32Array(this.length).fill(0.25) };
+        }
       });
     });
 
@@ -1902,6 +1905,9 @@ describe('microphone recording', () => {
       expect(view.getUint32(24, true)).toBe(16000);
       expect(view.getUint32(40, true)).toBe(0.5 * 16000 * 2);  // half a second of 16-bit samples
       expect(recorder).toBeDefined();
+      expect(audio.info).toEqual({
+        seconds: 0.5, peak: 0.25, channels: 1, sampleRate: 48000, mimeType: 'audio/webm', raw: false, gain: 1,
+      });
     });
 
     it('can record again, and refuses to stop when it is not recording', async () => {
@@ -1915,10 +1921,69 @@ describe('microphone recording', () => {
       expect(audio.recording).toBe(true);
     });
 
+    it('asks for the browser\'s processing by default, and for none (with two channels) when raw', async () => {
+      const audio = new AudioRecorder();
+
+      await audio.start();
+      await audio.stop();
+      await audio.start({ raw: true });
+      const info = (await audio.stop(), audio.info);
+
+      expect(navigator.mediaDevices.getUserMedia.mock.calls.map((call) => call[0])).toEqual([
+        { audio: true },
+        { audio: { channelCount: { ideal: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } },
+      ]);
+      // A raw recording has no gain control, so a quiet one (peak 0.25) is scaled up to a peak of 0.9.
+      expect(info).toMatchObject({ raw: true, peak: 0.25, gain: 3.6 });
+    });
+
+    it('keeps the channels apart until they are mixed, and describes a stereo recording', async () => {
+      vi.stubGlobal('AudioContext', class {
+        decodeAudioData = vi.fn(async () => ({ duration: 0.5, numberOfChannels: 2, sampleRate: 44100 }));
+        close = vi.fn(async () => {});
+      });
+      const audio = new AudioRecorder();
+
+      await audio.start();
+      await audio.stop();
+
+      expect(audio.info).toMatchObject({ channels: 2, sampleRate: 44100, peak: 0.25 });  // two equal channels average to themselves
+    });
+
     it('explains when the page cannot record', async () => {
       vi.stubGlobal('navigator', {});
 
       await expect(new AudioRecorder().start()).rejects.toThrow('HTTPS or localhost');
     });
+  });
+});
+
+describe('mixChannels', () => {
+  const tone = (sign = 1, length = 100) => Float32Array.from({ length }, (_, i) => sign * 0.5 * Math.sin(i / 5));
+  const peak = (data) => data.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+
+  it('returns a single channel as it is', () => {
+    const channel = tone();
+
+    expect(mixChannels([channel])).toBe(channel);
+  });
+
+  it('averages channels that agree', () => {
+    const mixed = mixChannels([tone(), tone()]);
+
+    expect([...mixed]).toEqual([...tone()]);
+  });
+
+  it('keeps the louder channel when the average would cancel out (opposite polarity)', () => {
+    const mixed = mixChannels([tone(1), tone(-1)]);
+
+    expect(peak(mixed)).toBeCloseTo(0.5, 5);  // not silence
+  });
+
+  it('keeps the loudest channel when the other is nearly silent, and stays silent for silence', () => {
+    const quiet = new Float32Array(100);
+
+    expect(peak(mixChannels([quiet, tone()]))).toBeCloseTo(0.5, 5);
+    expect(peak(mixChannels([quiet, new Float32Array(100)]))).toBe(0);
   });
 });
