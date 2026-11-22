@@ -1,6 +1,6 @@
 # Models for `lmlite`
 
-This file lists browser-friendly models that are good candidates for `lmlite` (Transformers.js v4 runtime).
+This file lists browser-friendly models that are good candidates for `lmlite` (Transformers.js v4 runtime), which of them were actually run for each task, and their licences. Bare `.onnx` files that Transformers.js cannot load are covered at the end of the task pipelines.
 
 `lmlite` accepts either:
 - full model IDs (for example: `Xenova/gpt2`, `my-org/my-model`)
@@ -68,35 +68,50 @@ labels = await llm.classify("example text", top_k=2)
 
 ## Task pipelines (for `LLM.pipeline(task, model=...)`)
 
-Transformers.js only runs models with ONNX weights and a browser-supported architecture. Models in the `Xenova` and `onnx-community` namespaces usually work. These models are covered by the opt-in `task-smoke` browser test on WASM and WebGPU:
+Transformers.js only runs models with ONNX weights and a browser-supported architecture. Models in the `Xenova` and `onnx-community` namespaces usually work, but a model's task and architecture decide, not its namespace: an unsupported architecture fails at load with `Unsupported model type`. `LLM.model_task(model)` returns the Hub's task for a model, and `LLM.model_info(model, task=...)` lists its files and download size before you load it.
 
-1. [`Xenova/mobilebert-uncased-mnli`](https://huggingface.co/Xenova/mobilebert-uncased-mnli) (`zero-shot-classification`)
-   Small English NLI model that scores arbitrary candidate labels. It is fast enough for interactive demos. Short, distinct labels work best, and scores are relative to the labels you supply, not calibrated probabilities. For better accuracy, use larger NLI models such as `Xenova/distilbert-base-uncased-mnli` or `Xenova/nli-deberta-v3-xsmall`.
-2. [`Xenova/opus-mt-en-fr`](https://huggingface.co/Xenova/opus-mt-en-fr) (`translation`)
-   Compact Marian model for one language pair. Other pairs use the same naming (`Xenova/opus-mt-<src>-<tgt>`). Multilingual models such as `Xenova/nllb-200-distilled-600M` take `src_lang`/`tgt_lang` arguments, but they are much larger.
-3. [`Xenova/whisper-tiny.en`](https://huggingface.co/Xenova/whisper-tiny.en) (`automatic-speech-recognition`)
-   English-only Whisper speech recognition model, about 40 MB quantized. `Xenova/whisper-tiny` and `Xenova/whisper-base` are multilingual, and accept `language` and `task="translate"` arguments. Larger Whisper models are more accurate, but slow and memory-heavy in a browser.
+Each task below was run with the model in the table, in a real browser, by the opt-in tests named in the last column (see [DEVELOPMENT.md](DEVELOPMENT.md)). "Tested" means that and nothing more: other models of the same task are likely to work but have not been tried here. Licences are the ones the Hub lists for the Xenova repository or its base model, as of November 2026; read the model card before shipping.
 
-### Text to speech
+| Task | Tested model | Licence | Tests |
+|------|--------------|---------|-------|
+| `zero-shot-classification` | [`Xenova/mobilebert-uncased-mnli`](https://huggingface.co/Xenova/mobilebert-uncased-mnli) | none stated on the Hub | `task-smoke`, `map-smoke` |
+| `translation` | [`Xenova/opus-mt-en-fr`](https://huggingface.co/Xenova/opus-mt-en-fr) | Apache-2.0 | `task-smoke` |
+| `automatic-speech-recognition` | [`Xenova/whisper-tiny.en`](https://huggingface.co/Xenova/whisper-tiny.en) | Apache-2.0 | `task-smoke` |
+| `text-to-speech` (or `text-to-audio`) | [`Xenova/mms-tts-eng`](https://huggingface.co/Xenova/mms-tts-eng) | **CC-BY-NC-4.0: non-commercial use only** | `speech-smoke` |
+| `image-classification` | [`Xenova/vit-base-patch16-224`](https://huggingface.co/Xenova/vit-base-patch16-224) | Apache-2.0 | `task-smoke`, `map-smoke` |
+| `zero-shot-image-classification` | [`Xenova/clip-vit-base-patch32`](https://huggingface.co/Xenova/clip-vit-base-patch32) | MIT | `task-smoke` |
+| `image-feature-extraction` | [`Xenova/dinov2-small`](https://huggingface.co/Xenova/dinov2-small) | Apache-2.0 | `task-smoke` |
+| `object-detection` | [`Xenova/detr-resnet-50`](https://huggingface.co/Xenova/detr-resnet-50) | Apache-2.0 | `task-smoke`, `vision-notebook-smoke` |
 
-| Task | Model | Licence |
-|------|-------|---------|
-| `text-to-speech` | [`Xenova/mms-tts-eng`](https://huggingface.co/Xenova/mms-tts-eng) | CC-BY-NC-4.0 (the base model, Meta's `facebook/mms-tts-eng`): non-commercial use only |
+### Notes on the tested models
 
-It is a VITS model with one English voice, 16 kHz output, and `model.onnx`, `model_fp16.onnx` and `model_quantized.onnx` files. Other MMS languages follow the same naming (`Xenova/mms-tts-<language>`) and carry the same licence. `Xenova/speecht5_tts` (MIT) does not run in Transformers.js 4.3.2 (see USAGE.md), and Kokoro (Apache-2.0) is not supported by the pipeline.
+- **`Xenova/mobilebert-uncased-mnli`**: small English NLI model that scores arbitrary candidate labels. It is fast enough for interactive demos. Short, distinct labels work best, and scores are relative to the labels you supply, not calibrated probabilities. For better accuracy, use larger NLI models such as `Xenova/distilbert-base-uncased-mnli` or `Xenova/nli-deberta-v3-xsmall`.
+- **`Xenova/opus-mt-en-fr`**: compact Marian model for one language pair. Other pairs use the same naming (`Xenova/opus-mt-<src>-<tgt>`). Multilingual models such as `Xenova/nllb-200-distilled-600M` take `src_lang`/`tgt_lang` arguments, but they are much larger.
+- **`Xenova/whisper-tiny.en`**: English-only Whisper, about 40 MB quantized. `Xenova/whisper-tiny` and `Xenova/whisper-base` are multilingual and accept `language` and `task="translate"` arguments. Larger Whisper models are more accurate, but slow and memory-heavy in a browser. It transcribes a file or URL. The microphone notebook feeds it a recording from `lmlite.audio.AudioRecorder` (a 16 kHz WAV), but no test transcribes a real recording.
+- **`Xenova/mms-tts-eng`**: a VITS model with one English voice and 16 kHz output, with `model.onnx`, `model_fp16.onnx` and `model_quantized.onnx` files. Other MMS languages follow the same naming (`Xenova/mms-tts-<language>`) and carry the same non-commercial licence.
+- **`Xenova/vit-base-patch16-224`**: the 1,000 ImageNet classes. **`Xenova/detr-resnet-50`** names the 80 COCO object classes (people, cats, dogs, bicycles, buses, chairs, and so on); anything else in a photo is not detected. **`Xenova/dinov2-small`** returns one vector per image (the first, CLS, token), because its export has no pooler layer. **`Xenova/clip-vit-base-patch32`** ranks labels you choose at call time.
 
-### Vision pipelines
+### Untested, and known not to work
 
-These models are covered by the same `task-smoke` test:
+- **Expected to work, not tried here**: `Xenova/siglip-base-patch16-224` (zero-shot image classification, Apache-2.0) and `Xenova/yolos-tiny` (object detection, Apache-2.0).
+- **`Xenova/speecht5_tts`** (MIT) does not run in Transformers.js 4.3.2: the first call fails with "Missing the following inputs: speaker_embeddings, encoder_hidden_states, output_sequence", with `fp32` and `q8`, and with the speaker embeddings given as a URL or a `Float32Array`.
+- **Kokoro** (`onnx-community/Kokoro-82M-v1.0-ONNX`, Apache-2.0) is not supported by the pipeline: "Unsupported model type style_text_to_speech_2". It needs the separate `kokoro-js` package, which lmlite does not wrap.
+- **MusicGen** and other sound generation (`text-to-audio` with music models) were not tried. The Xenova MusicGen models are CC-BY-NC-4.0.
+- **Segmentation, depth estimation, background removal and image-to-image** are Transformers.js tasks that return images; lmlite does not support them yet (see issue #25).
+- **Native backend**: no pipeline task runs there. `LLM.pipeline()` raises `NotImplementedError`.
 
-| Task | Model | Licence |
-|------|-------|---------|
-| `image-classification` | [`Xenova/vit-base-patch16-224`](https://huggingface.co/Xenova/vit-base-patch16-224) | Apache-2.0 |
-| `zero-shot-image-classification` | [`Xenova/clip-vit-base-patch32`](https://huggingface.co/Xenova/clip-vit-base-patch32) | MIT |
-| `image-feature-extraction` | [`Xenova/dinov2-small`](https://huggingface.co/Xenova/dinov2-small) | Apache-2.0 |
-| `object-detection` | [`Xenova/detr-resnet-50`](https://huggingface.co/Xenova/detr-resnet-50) | Apache-2.0 |
+## Bare ONNX models (for `OnnxModel.load(...)`)
 
-`Xenova/siglip-base-patch16-224` (Apache-2.0) and `Xenova/yolos-tiny` (Apache-2.0) should also work, but are not tested. Sizes and dtypes depend on the files in each repository: check them with `LLM.model_info()` before downloading. Licences are those listed on the Hub when this was written; check the model card before shipping.
+`OnnxModel` runs a single `.onnx` file with onnxruntime-web (WASM or WebGPU) or, outside a browser, onnxruntime. It does not need a Hugging Face repository, a `config.json` or a tokenizer, so the Transformers.js limits above do not apply: a model runs if onnxruntime-web (or onnxruntime) supports its operators, and you write the pre- and post-processing in NumPy. These were run:
+
+| Model | What it is | Licence | Where |
+|-------|-----------|---------|-------|
+| [UltraFace `version-RFB-320.onnx`](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB) | 1.2 MB face detector, `(1, 3, 240, 320)` float32 in, scores and boxes out | MIT | `ch08c_onnx-models.ipynb`, `onnx-notebook-smoke` |
+| `tests/fixtures/onnx/scale_add.onnx` and `scale_add_fp16.onnx` | 150-byte `y = x * 2 + b` models with a dynamic batch dimension | repository licence | `onnx-smoke`, `xeus-onnx-smoke` |
+
+Limits: a model with external data files (`.onnx_data`) is not supported, and the whole file must fit in browser memory (a single file over 2 GB cannot load at all). `float16` models run on WASM, and on WebGPU only where the adapter has `shader-f16`. The licence of a bare `.onnx` file is often missing: pass `licence="..."` to `OnnxModel.load()` and read it back from `model_info()`. Some popular detector weights are for non-commercial research only, so check before you ship one.
+
+To host a bare model with a site, put it at `files/models/<namespace>/<model>/model.onnx` and list `<namespace>/<model>` in the site's `files/models/manifest.json`; `OnnxModel.load("<namespace>/<model>")` then loads it. See [USAGE.md](USAGE.md).
 
 ## Text generation (for `LLM.create(generator_model=...)`)
 
@@ -234,6 +249,7 @@ If automatic site discovery is unavailable, pass the absolute models URL as `hos
 
 ## Notes
 
+- Tasks and licences: the tested models and their licences are in the task pipeline tables. A model that is not listed may still work, and `LLM.model_info()` shows its files before you download them. A non-commercial licence (for example MMS-TTS) limits what you can ship, whatever lmlite supports.
 - Model support depends on Transformers.js v4 runtime support, available ONNX files, selected backend (`backend` for generation/classification, `embedding_backend` for embeddings), and dtype availability in the model repo.
 - For generation and classification, the default dtype fallback order is `["q8", "int8", "fp32"]`. Pass `dtype` to select one, or `dtype_fallbacks` to control retry order; a nonempty `dtype_fallbacks` list takes precedence over `dtype`.
 - Embeddings use Transformers.js's default dtype unless `embedding_dtype` is set. An embedding pin is independent of the generation/classification dtype settings and never falls back to another dtype.
