@@ -131,3 +131,76 @@ def test_speech_in_pyodide(source_server):
 
 def test_speech_in_xeus(xeus_site):
     check_kernel_result(run_in_xeus(xeus_site, kernel_code()), numpy=True)
+
+
+MODEL_PATH = "Xenova/mms-tts-eng/onnx/model_quantized.onnx"
+
+
+def test_speech_loads_from_a_hosted_snapshot_without_the_hub(source_server, hosted_speech_models):
+    requests = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(TIMEOUT)
+            page.on("request", lambda request: requests.append(request.url))
+            page.goto(source_server, wait_until="domcontentloaded")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            result = page.evaluate(
+                """async ({base, model}) => {
+                  await new Promise(resolve => setTimeout(resolve, 0));
+                  try {
+                    const hosted = await globalThis.lmLite.getHostedModelBase(model, base);
+                    const llm = globalThis.lmLite.createLLM({
+                      task: 'text-to-speech', task_model: model, backend: 'wasm',
+                      hosted_model_base: hosted, hosted_models: [model],
+                    });
+                    await llm.init();
+                    const [rate, bytes] = await llm.runTask('Hello from a hosted model', '{}');
+                    await llm.dispose();
+                    return {ok: true, hosted, rate, seconds: bytes.byteLength / 4 / rate};
+                  } catch (error) {
+                    return {ok: false, error: String(error?.stack ?? error)};
+                  }
+                }""",
+                {"base": hosted_speech_models, "model": "Xenova/mms-tts-eng"},
+            )
+        finally:
+            browser.close()
+
+    assert result["ok"], result.get("error")
+    assert result["hosted"] == hosted_speech_models and result["rate"] == 16000 and 0.3 < result["seconds"] < 6
+    assert hosted_speech_models + MODEL_PATH in requests  # the weights came from the hosted tree
+    assert not [url for url in requests if "huggingface.co" in url]
+
+
+# Runs in a Python kernel: the speech pipeline from a hosted tree, found through its manifest.
+HOSTED_KERNEL_CODE = r"""
+import json
+from lmlite import LLM
+
+tts = await LLM.pipeline("text-to-speech", model="Xenova/mms-tts-eng", hosted_models_url="BASE")
+speech = await tts("Hello from a hosted model")
+await tts.dispose()
+print("RESULT" + json.dumps({"rate": speech.sampling_rate, "duration": speech.duration}))
+"""
+
+
+def check_hosted_kernel_result(result, requests, base):
+    assert result["rate"] == 16000 and 0.3 < result["duration"] < 6
+    assert base + MODEL_PATH in requests
+    assert not [url for url in requests if "huggingface.co" in url]
+
+
+def test_hosted_speech_in_pyodide(source_server, hosted_speech_models):
+    requests = []
+    code = HOSTED_KERNEL_CODE.replace("BASE", hosted_speech_models)
+    result = run_in_pyodide(source_server, code, requests=requests)
+    check_hosted_kernel_result(result, requests, hosted_speech_models)
+
+
+def test_hosted_speech_in_xeus(xeus_site, hosted_speech_models):
+    requests = []
+    code = HOSTED_KERNEL_CODE.replace("BASE", hosted_speech_models)
+    result = run_in_xeus(xeus_site, code, requests=requests)
+    check_hosted_kernel_result(result, requests, hosted_speech_models)
