@@ -133,7 +133,7 @@ Keyword arguments to a pipeline call are forwarded as Transformers.js options fo
 | `object-detection` | image or list of images | `threshold`, `percentage` (default `False`: box coordinates in pixels) | `[{"label", "score", "box": {"xmin", "ymin", "xmax", "ymax"}}]` |
 | `background-removal` | image or list of images | none | PNG bytes of the cut-out (RGBA, transparent background), or a list of them |
 | `depth-estimation` | image or list of images | none | `{"depth": PNG bytes, "predicted_depth": float32 array of shape (height, width)}` |
-| `image-segmentation` | image or list of images | Transformers.js options for the model, none tried here | `[{"label", "score", "mask": PNG bytes}]`, `score` is `None` when the model gives none |
+| `image-segmentation` | image or list of images | Transformers.js options for the model, none tried here; pass `dtype="fp32"` to `LLM.pipeline()` for DETR panoptic: its quantized default gives wrong masks and its fp16 file can run out of memory | `[{"label", "score", "mask": PNG bytes}]`, `score` is `None` when the model gives none |
 | `image-to-image` | image or list of images | none | PNG bytes of the result (a 2x upscale for Swin2SR) |
 | `text-to-speech` / `text-to-audio` | one string | model options such as `speaker_embeddings` (a URL string), if the model takes them | a `Speech` object (see below) |
 | `automatic-speech-recognition` | audio (see below) | `return_timestamps`, `chunk_length_s`, `stride_length_s`, `language`/`task` for multilingual Whisper | `{"text"}`, plus `"chunks"` with timestamps |
