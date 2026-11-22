@@ -8,7 +8,12 @@ const TRANSFORMERS_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers
 
 // Transformers.js tasks exposed through the generic pipeline interface.
 // Generation, embeddings and text classification keep their dedicated methods.
-const IMAGE_TASKS = ['image-classification', 'zero-shot-image-classification', 'image-feature-extraction', 'object-detection'];
+// Tasks that return images (the others return labels, boxes and vectors); their inputs are images too.
+const IMAGE_OUTPUT_TASKS = ['background-removal', 'depth-estimation', 'image-segmentation', 'image-to-image'];
+const IMAGE_TASKS = [
+  'image-classification', 'zero-shot-image-classification', 'image-feature-extraction', 'object-detection',
+  ...IMAGE_OUTPUT_TASKS,
+];
 const SPEECH_TASKS = ['text-to-speech', 'text-to-audio'];  // Transformers.js treats them as one task
 const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation', ...IMAGE_TASKS, ...SPEECH_TASKS];
 
@@ -153,6 +158,39 @@ async function toRawImage(value) {
   } catch (error) {
     throw new Error(`The image could not be decoded: ${String(error?.message ?? error)}`, { cause: error });
   }
+}
+
+// The result of an image-output task as [JSON structure, ...one Uint8Array per image or tensor]: every RawImage in
+// `value` becomes {$buffer: i, width, height, channels} and every Tensor {$buffer: i, dtype, shape}, so each image
+// crosses the bridge as one buffer. Images are PNG files, or raw pixels with `raw`. A worker has no <canvas>: the
+// PNG comes from RawImage.toBlob(), which uses OffscreenCanvas there.
+async function packImages(value, raw) {
+  const buffers = [];
+  const isImage = (item) => item && typeof item === 'object' && item.width && item.height && item.channels && item.data;
+  const isTensor = (item) => item && typeof item === 'object' && item.dims && item.ort_tensor;
+  const walk = async (item) => {
+    if (isImage(item)) {
+      const bytes = raw
+        ? new Uint8Array(item.data.buffer.slice(item.data.byteOffset, item.data.byteOffset + item.data.byteLength))
+        : new Uint8Array(await (await item.toBlob('image/png')).arrayBuffer());
+      buffers.push(bytes);
+      return { $buffer: buffers.length - 1, width: item.width, height: item.height, channels: item.channels };
+    }
+    if (isTensor(item)) {
+      const data = Float32Array.from(item.data);
+      buffers.push(new Uint8Array(data.buffer));
+      return { $buffer: buffers.length - 1, dtype: 'float32', shape: [...item.dims] };
+    }
+    if (Array.isArray(item)) {
+      return await Promise.all(item.map(walk));
+    }
+    if (item && typeof item === 'object') {
+      return Object.fromEntries(await Promise.all(Object.entries(item).map(async ([key, entry]) => [key, await walk(entry)])));
+    }
+    return item;
+  };
+  const structure = await walk(value);
+  return [JSON.stringify(structure), ...buffers];
 }
 
 // Transformers.js from the site's vendor/transformers/ when the build put it there, else from jsDelivr.
@@ -1063,6 +1101,11 @@ class BrowserLLM {
       const isBatch = Array.isArray(inputs) && inputs[0] !== 'raw';
       inputs = isBatch ? await Promise.all(inputs.map(toRawImage)) : await toRawImage(inputs);
     }
+    if (IMAGE_OUTPUT_TASKS.includes(this.task)) {
+      const raw = options.as_array === true;  // pixels instead of a PNG; not a Transformers.js option
+      delete options.as_array;
+      return await packImages(await this._callTask(inputs, options), raw);
+    }
     if (SPEECH_TASKS.includes(this.task)) {
       // [sampling rate, the float32 samples as raw bytes]: one buffer crosses the bridge, not one value per sample.
       const { audio, sampling_rate } = await this._callTask(inputs, options);
@@ -1108,8 +1151,10 @@ class BrowserLLM {
     const run = this._batchRun = { cancelled: false };
     run.done = new Promise((resolve) => { run.finish = resolve; });
     const total = inputs.length;
-    // A list of numbers is one audio clip, and speech synthesis takes one text, so those tasks run one input per call.
-    const oneAtATime = this.task === 'automatic-speech-recognition' || SPEECH_TASKS.includes(this.task);
+    // A list of numbers is one audio clip, speech synthesis takes one text, and an image result is one structure:
+    // those tasks run one input per call.
+    const oneAtATime = this.task === 'automatic-speech-recognition' || SPEECH_TASKS.includes(this.task)
+      || IMAGE_OUTPUT_TASKS.includes(this.task);
     const size = oneAtATime ? 1 : Math.max(1, batchSize);
     const callBatch = async (items) => {
       const taskOptions = { ...options };  // runTask() consumes candidate_labels

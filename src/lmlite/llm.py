@@ -8,12 +8,16 @@ from .bridge.runtime import ensure_runtime
 
 DEFAULT_MODEL_NAMESPACE = "Xenova"
 
+# Tasks that return images (PNG bytes, or NumPy arrays with as_array=True); their inputs are images too.
+IMAGE_OUTPUT_TASKS = ("background-removal", "depth-estimation", "image-segmentation", "image-to-image")
+
 # Tasks whose inputs are images; keep in sync with llm.js.
 IMAGE_TASKS = (
     "image-classification",
     "zero-shot-image-classification",
     "image-feature-extraction",
     "object-detection",
+    *IMAGE_OUTPUT_TASKS,
 )
 
 # Text-to-speech under both names Transformers.js accepts; keep in sync with llm.js.
@@ -368,6 +372,48 @@ def _image_inputs(inputs):
     return _image_input(inputs) if single else [_image_input(item) for item in inputs]
 
 
+def _unpack_images(result, as_array=False):
+    """An image-output task's result: ``[JSON structure, one buffer per image or tensor]`` back into dicts and lists.
+
+    Each image is PNG bytes, or a ``uint8`` array of shape (height, width, channels) with ``as_array``; a float
+    tensor (the raw depth) is a float32 array, or nested lists without NumPy.
+    """
+    import json
+
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+        if as_array:
+            raise ModuleNotFoundError("as_array needs NumPy: pip install numpy", name="numpy") from None
+    buffers = [_bytes_of(buffer) for buffer in result[1:]]
+
+    def build(node):
+        if isinstance(node, dict) and "$buffer" in node:
+            data = buffers[node["$buffer"]]
+            if node.get("dtype") == "float32":
+                rows, columns = node["shape"]
+                if np is not None:
+                    return np.frombuffer(data, dtype="<f4").reshape(rows, columns).astype(np.float32)
+                import array
+
+                flat = array.array("f")
+                flat.frombytes(data)
+                return [flat[row * columns : (row + 1) * columns].tolist() for row in range(rows)]
+            if as_array:
+                return (
+                    np.frombuffer(data, dtype=np.uint8).reshape(node["height"], node["width"], node["channels"]).copy()
+                )
+            return data
+        if isinstance(node, list):
+            return [build(item) for item in node]
+        if isinstance(node, dict):
+            return {key: build(value) for key, value in node.items()}
+        return node
+
+    return build(json.loads(str(result[0])))
+
+
 class Speech:
     """Synthesised speech: mono float32 ``samples`` at ``sampling_rate`` Hz.
 
@@ -453,12 +499,15 @@ class Pipeline:
             inputs = _to_js(inputs)
         options = json.dumps(kwargs, allow_nan=False)
         result = await self.llm.js.runTask(inputs, options)
-        return self._result(_to_python_deep(result))
+        return self._result(_to_python_deep(result), as_array=kwargs.get("as_array", False))
 
-    def _result(self, result):
-        """A task result as a Python object: speech arrives as ``[sampling_rate, float32 bytes]``."""
+    def _result(self, result, as_array=False):
+        """A task result as a Python object: speech arrives as ``[sampling_rate, float32 bytes]``, an image result
+        as ``[JSON structure, buffers]``."""
         if self.task in SPEECH_TASKS:
             return Speech._from_bytes(result[0], _bytes_of(result[1]))
+        if self.task in IMAGE_OUTPUT_TASKS:
+            return _unpack_images(result, as_array)
         return result
 
     def _prepare(self, item):
@@ -527,7 +576,7 @@ class Pipeline:
             elif positions[index] in errors:
                 value = RuntimeError(errors[positions[index]])
             else:
-                value = self._result(results[positions[index]])
+                value = self._result(results[positions[index]], as_array=kwargs.get("as_array", False))
             if on_error == "skip" and isinstance(value, Exception):
                 continue
             output.append(value)

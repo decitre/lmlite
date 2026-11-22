@@ -1915,6 +1915,127 @@ class TestImageInput:
         assert js.runTask.call_args.args[0] == [self.JPEG, self.PNG, "https://example.test/a.jpg"]
 
 
+class TestImageOutputs:
+    PNG = b"\x89PNG\r\n\x1a\n" + b"data"
+
+    @staticmethod
+    def packed(structure, *buffers):
+        return [json.dumps(structure), *buffers]
+
+    def test_images_come_back_as_png_bytes_in_the_structure_the_task_returned(self):
+        from lmlite.llm import _unpack_images
+
+        result = self.packed(
+            [
+                {"label": "cat", "score": 0.9, "mask": {"$buffer": 0, "width": 2, "height": 1, "channels": 1}},
+                {"label": "sky", "score": None, "mask": {"$buffer": 1, "width": 2, "height": 1, "channels": 1}},
+            ],
+            self.PNG,
+            self.PNG + b"2",
+        )
+
+        assert _unpack_images(result) == [
+            {"label": "cat", "score": 0.9, "mask": self.PNG},
+            {"label": "sky", "score": None, "mask": self.PNG + b"2"},
+        ]
+
+    def test_as_array_gives_uint8_pixels_of_the_right_shape(self):
+        np = pytest.importorskip("numpy")
+        from lmlite.llm import _unpack_images
+
+        pixels = bytes(range(12))
+        result = self.packed({"$buffer": 0, "width": 2, "height": 2, "channels": 3}, pixels)
+
+        array = _unpack_images(result, as_array=True)
+
+        assert array.dtype == np.uint8 and array.shape == (2, 2, 3) and array[1, 0].tolist() == [6, 7, 8]
+        assert array.flags.writeable
+
+    def test_a_depth_tensor_is_a_float32_array_or_nested_lists_without_numpy(self, monkeypatch):
+        import struct
+        import sys
+
+        from lmlite.llm import _unpack_images
+
+        values = struct.pack("<6f", 0, 0.5, 1, 1.5, 2, 2.5)
+        result = self.packed(
+            {
+                "depth": {"$buffer": 1, "width": 3, "height": 2, "channels": 1},
+                "predicted_depth": {"$buffer": 0, "dtype": "float32", "shape": [2, 3]},
+            },
+            values,
+            self.PNG,
+        )
+
+        with_numpy = pytest.importorskip("numpy")
+        unpacked = _unpack_images(result)
+        assert unpacked["depth"] == self.PNG and unpacked["predicted_depth"].dtype == with_numpy.float32
+        assert unpacked["predicted_depth"].shape == (2, 3)
+
+        monkeypatch.setitem(sys.modules, "numpy", None)
+        assert _unpack_images(result)["predicted_depth"] == [[0.0, 0.5, 1.0], [1.5, 2.0, 2.5]]
+        with pytest.raises(ModuleNotFoundError, match="as_array needs NumPy"):
+            _unpack_images(result, as_array=True)
+
+    @pytest.mark.parametrize("task", ["background-removal", "image-to-image"])
+    async def test_pipeline_returns_png_bytes_and_forwards_as_array_as_an_option(self, task):
+        from lmlite.llm import Pipeline
+
+        js = types.SimpleNamespace(
+            runTask=AsyncMock(
+                return_value=self.packed({"$buffer": 0, "width": 1, "height": 1, "channels": 4}, self.PNG)
+            )
+        )
+        pipe = Pipeline(types.SimpleNamespace(js=js), task, "m")
+        jpeg = b"\xff\xd8\xff\xe0" + b"0" * 8
+
+        assert await pipe(jpeg) == self.PNG
+        assert js.runTask.call_args.args == (jpeg, "{}")
+        await pipe(jpeg, as_array=False)
+        assert json.loads(js.runTask.call_args.args[1]) == {"as_array": False}
+
+    async def test_pipeline_returns_arrays_on_request(self):
+        np = pytest.importorskip("numpy")
+        from lmlite.llm import Pipeline
+
+        js = types.SimpleNamespace(
+            runTask=AsyncMock(
+                return_value=self.packed({"$buffer": 0, "width": 1, "height": 2, "channels": 4}, bytes(8))
+            )
+        )
+        pipe = Pipeline(types.SimpleNamespace(js=js), "background-removal", "m")
+
+        out = await pipe(b"\xff\xd8\xff\xe0" + b"0" * 8, as_array=True)
+
+        assert out.shape == (2, 1, 4) and out.dtype == np.uint8
+        assert json.loads(js.runTask.call_args.args[1]) == {"as_array": True}
+
+    async def test_map_unpacks_each_result(self):
+        from lmlite.llm import Pipeline
+
+        async def run_tasks(items, batch_size, options, callback, continue_on_error):
+            result = self.packed({"$buffer": 0, "width": 1, "height": 1, "channels": 4}, self.PNG)
+            return {"results": [result for _ in items], "errors": [], "cancelled": False}
+
+        js = types.SimpleNamespace(runTasks=AsyncMock(side_effect=run_tasks))
+        pipe = Pipeline(types.SimpleNamespace(js=js), "image-to-image", "m")
+        jpeg = b"\xff\xd8\xff\xe0" + b"0" * 8
+
+        assert await pipe.map([jpeg, jpeg]) == [self.PNG, self.PNG]
+
+    def test_all_four_tasks_are_supported_with_image_inputs(self):
+        from lmlite import SUPPORTED_TASKS
+        from lmlite.llm import IMAGE_OUTPUT_TASKS, IMAGE_TASKS
+
+        assert set(IMAGE_OUTPUT_TASKS) == {
+            "background-removal",
+            "depth-estimation",
+            "image-segmentation",
+            "image-to-image",
+        }
+        assert set(IMAGE_OUTPUT_TASKS) <= set(IMAGE_TASKS) and set(IMAGE_TASKS) <= set(SUPPORTED_TASKS)
+
+
 class TestSpeech:
     SAMPLES = [0.0, 0.5, -0.5, 1.0, -1.0, 2.0]  # the last is clipped
 

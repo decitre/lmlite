@@ -82,6 +82,10 @@ Each task below was run with the model in the table, in a real browser, by the o
 | `zero-shot-image-classification` | [`Xenova/clip-vit-base-patch32`](https://huggingface.co/Xenova/clip-vit-base-patch32) | MIT | `task-smoke` |
 | `image-feature-extraction` | [`Xenova/dinov2-small`](https://huggingface.co/Xenova/dinov2-small) | Apache-2.0 | `task-smoke` |
 | `object-detection` | [`Xenova/detr-resnet-50`](https://huggingface.co/Xenova/detr-resnet-50) | Apache-2.0 | `task-smoke`, `vision-notebook-smoke` |
+| `background-removal` | [`Xenova/modnet`](https://huggingface.co/Xenova/modnet) (6.6 MB quantized) | Apache-2.0 | `image-output-smoke` |
+| `depth-estimation` | [`onnx-community/depth-anything-v2-small`](https://huggingface.co/onnx-community/depth-anything-v2-small) (27 MB quantized) | Apache-2.0 | `image-output-smoke` |
+| `image-segmentation` | [`Xenova/detr-resnet-50-panoptic`](https://huggingface.co/Xenova/detr-resnet-50-panoptic) (44 MB quantized) | Apache-2.0 | `image-output-smoke` |
+| `image-to-image` | [`Xenova/swin2SR-lightweight-x2-64`](https://huggingface.co/Xenova/swin2SR-lightweight-x2-64) (7 MB quantized) | Apache-2.0 | `image-output-smoke` |
 
 ### Notes on the tested models
 
@@ -89,7 +93,7 @@ Each task below was run with the model in the table, in a real browser, by the o
 - **`Xenova/opus-mt-en-fr`**: compact Marian model for one language pair. Other pairs use the same naming (`Xenova/opus-mt-<src>-<tgt>`). Multilingual models such as `Xenova/nllb-200-distilled-600M` take `src_lang`/`tgt_lang` arguments, but they are much larger.
 - **`Xenova/whisper-tiny.en`**: English-only Whisper, about 40 MB quantized. `Xenova/whisper-tiny` and `Xenova/whisper-base` are multilingual and accept `language` and `task="translate"` arguments. Larger Whisper models are more accurate, but slow and memory-heavy in a browser. It transcribes a file or URL. The microphone notebook feeds it a recording from `lmlite.audio.AudioRecorder` (a 16 kHz WAV), but no test transcribes a real recording.
 - **`Xenova/mms-tts-eng`**: a VITS model with one English voice and 16 kHz output, with `model.onnx`, `model_fp16.onnx` and `model_quantized.onnx` files. Other MMS languages follow the same naming (`Xenova/mms-tts-<language>`) and carry the same non-commercial licence.
-- **`Xenova/vit-base-patch16-224`**: the 1,000 ImageNet classes. **`Xenova/detr-resnet-50`** names the 80 COCO object classes (people, cats, dogs, bicycles, buses, chairs, and so on); anything else in a photo is not detected. **`Xenova/dinov2-small`** returns one vector per image (the first, CLS, token), because its export has no pooler layer. **`Xenova/clip-vit-base-patch32`** ranks labels you choose at call time.
+- **`Xenova/vit-base-patch16-224`**: the 1,000 ImageNet classes. **`Xenova/detr-resnet-50`** names the 80 COCO object classes (people, cats, dogs, bicycles, buses, chairs, and so on); anything else in a photo is not detected. **`Xenova/dinov2-small`** returns one vector per image (the first, CLS, token), because its export has no pooler layer. **`Xenova/clip-vit-base-patch32`** ranks labels you choose at call time. **`Xenova/modnet`** returns a cut-out with an alpha channel, **Depth Anything V2 small** a depth image plus raw values, **`Xenova/detr-resnet-50-panoptic`** one mask per segment (the COCO panoptic classes, things and stuff such as sky and wall), and **Swin2SR** a 2x upscale padded to its window, so slightly wider than twice the input.
 
 ### Untested, and known not to work
 
@@ -97,7 +101,7 @@ Each task below was run with the model in the table, in a real browser, by the o
 - **`Xenova/speecht5_tts`** (MIT) does not run in Transformers.js 4.3.2: the first call fails with "Missing the following inputs: speaker_embeddings, encoder_hidden_states, output_sequence", with `fp32` and `q8`, and with the speaker embeddings given as a URL or a `Float32Array`.
 - **Kokoro** (`onnx-community/Kokoro-82M-v1.0-ONNX`, Apache-2.0) is not supported by the pipeline: "Unsupported model type style_text_to_speech_2". It needs the separate `kokoro-js` package, which lmlite does not wrap.
 - **MusicGen** and other sound generation (`text-to-audio` with music models) were not tried. The Xenova MusicGen models are CC-BY-NC-4.0.
-- **Segmentation, depth estimation, background removal and image-to-image** are Transformers.js tasks that return images; lmlite does not support them yet (see issue #25).
+- **Other image-output models**: `briaai/RMBG-1.4` (background removal) has a licence of `other` on the Hub, `Xenova/segformer-b0-finetuned-ade-512-512` derives from NVIDIA's segformer, also `other`, and `Xenova/dpt-hybrid-midas` is 533 MB: none was tried. Mask generation (SAM) is a different task and is not supported.
 - **Native backend**: no pipeline task runs there. `LLM.pipeline()` raises `NotImplementedError`.
 
 ## Bare ONNX models (for `OnnxModel.load(...)`)
