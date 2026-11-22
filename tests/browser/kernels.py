@@ -15,9 +15,9 @@ TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "300000"))
 PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"
 
 
-def run_in_pyodide(source_server, code, packages=("tqdm",), requests=None):
+def run_in_pyodide(source_server, code, packages=("tqdm",), requests=None, args=()):
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
+        browser = playwright.chromium.launch(args=list(args))
         try:
             page = browser.new_page()
             page.set_default_timeout(TIMEOUT)

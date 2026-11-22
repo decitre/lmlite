@@ -7,6 +7,7 @@ In a browser kernel the session is an onnxruntime-web ``InferenceSession`` (the 
 elsewhere it is an onnxruntime one from ``pip install 'lmlite[native]'``. Pre- and post-processing stay in Python.
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -95,6 +96,14 @@ def _check_feeds(feeds, inputs):
     return checked
 
 
+class _MapRun:
+    """The state of a running ``OnnxModel.map()``."""
+
+    def __init__(self):
+        self.cancelled = False
+        self.finished = asyncio.Event()
+
+
 class OnnxModel:
     """A loaded ``.onnx`` model; create it with ``await OnnxModel.load(...)``."""
 
@@ -102,6 +111,7 @@ class OnnxModel:
         self._handle = handle
         self._info = info
         self._licence = licence
+        self._map_run = None
         self.inputs = info["inputs"]
         self.outputs = info["outputs"]
 
@@ -158,6 +168,57 @@ class OnnxModel:
             spec["name"]: np.frombuffer(_bytes_of(buffer), dtype=spec["dtype"]).reshape(spec["dims"])
             for spec, buffer in zip(described, result[1:])
         }
+
+    async def map(self, feeds, progress_callback=None, on_error="raise"):
+        """Run the model over many inputs, one ``run()`` each, and return the outputs in order.
+
+        ``feeds`` is any iterable, or async iterable, of feed dicts: a generator that preprocesses one image at
+        a time keeps the inputs from ever being in memory together. ``progress_callback(done, total)`` is called
+        after each input; ``total`` is ``None`` when ``feeds`` has no length. ``on_error`` is ``"raise"`` (the
+        first error is raised), ``"skip"`` (a failed input is left out of the results) or ``"return"`` (an
+        exception object takes the place of the failed input's outputs): it covers errors from ``run()``, such
+        as a wrong dtype or shape. An error raised by ``feeds`` itself ends the run. ``await model.cancel()``
+        stops after the current input, and ``map()`` returns the outputs so far. The model stays usable.
+        """
+        if on_error not in ("raise", "skip", "return"):
+            raise ValueError(f"on_error must be 'raise', 'skip' or 'return', got {on_error!r}")
+        if self._map_run is not None:
+            raise RuntimeError("Another map() is running on this model; await it or call cancel() first.")
+        run = self._map_run = _MapRun()
+        total = len(feeds) if hasattr(feeds, "__len__") else None
+        asynchronous = hasattr(feeds, "__aiter__")
+        iterator = feeds.__aiter__() if asynchronous else iter(feeds)
+        results = []
+        done = 0
+        try:
+            while not run.cancelled:
+                try:
+                    feed = await iterator.__anext__() if asynchronous else next(iterator)
+                except (StopAsyncIteration, StopIteration):
+                    break
+                try:
+                    results.append(await self.run(feed))
+                except Exception as exc:
+                    if on_error == "raise":
+                        raise
+                    if on_error == "return":
+                        results.append(exc)
+                done += 1
+                if progress_callback is not None:
+                    progress_callback(done, total)
+            return results
+        finally:
+            self._map_run = None
+            run.finished.set()
+
+    async def cancel(self):
+        """Stop a running ``map()`` after its current input; return False if none was running."""
+        run = self._map_run
+        if run is None:
+            return False
+        run.cancelled = True
+        await run.finished.wait()
+        return True
 
     async def dispose(self):
         """Release the session."""
