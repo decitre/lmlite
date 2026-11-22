@@ -152,6 +152,8 @@ Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after c
 pixi run --environment model-fixture generate-tokenizer-fixture
 ```
 
+The opt-in `vision-notebook-smoke` task runs the object-detection cells of `ch08b_vision.ipynb` (random Commons photos, `map()`, the contact sheets) in Pyodide and, with `pixi run -e xeus-site vision-notebook-smoke`, in xeus-python, and checks that boxes were drawn onto the photos. It needs network access. Loading a FreeType font hangs in xeus-python (Pillow 13 in the browser), which is why the notebook draws its labels with the built-in bitmap font.
+
 The opt-in `audio-smoke` task records with Chromium's fake microphone (a repeating beep): the recorder in `llm.js`, the widget's JavaScript on a page without lmLite, and (with `pixi run -e xeus-site audio-smoke`) the widget in a real xeus-python kernel, from a click on Record and Stop to `await recorder.wait()`. No real microphone, tablet or Safari is involved, so those stay untested.
 
 The opt-in `speech-smoke` task runs text to speech with `Xenova/mms-tts-eng` (override with `LMLITE_TEST_SPEECH_MODEL`): the samples crossing the bridge as one buffer in Chromium, `LLM.model_info()` for the task, and the `Speech` object in Pyodide (without NumPy) and, with `pixi run -e xeus-site speech-smoke`, in xeus-python (with NumPy).

@@ -7,6 +7,7 @@ import ast
 import asyncio
 import inspect
 import json
+import random
 import re
 import sys
 import types
@@ -126,17 +127,35 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             if task == "image-feature-extraction":
                 return [[1.0, 0.0], [0.6, 0.8]] if isinstance(inputs, list) else [1.0, 0.0]
             if task == "object-detection":
-                return [{"label": "cat", "score": 0.99, "box": {"xmin": 1.2, "ymin": 2.0, "xmax": 30.5, "ymax": 40.0}}]
+                if isinstance(inputs, bytes):  # a photo from the fake Commons: 64 px wide has objects, 80 none
+                    import io
+
+                    from PIL import Image
+
+                    width = Image.open(io.BytesIO(inputs)).width
+                    if width == 96:
+                        raise RuntimeError("could not be decoded")
+                    if width == 80:
+                        return []
+                return [
+                    {"label": "cat", "score": 0.99, "box": {"xmin": 1.2, "ymin": 2.0, "xmax": 30.5, "ymax": 40.0}},
+                    {"label": "cat", "score": 0.8, "box": {"xmin": 0.0, "ymin": 0.0, "xmax": 10.0, "ymax": 12.0}},
+                ]
             if task == "text-to-speech":
                 from lmlite import Speech
 
                 return Speech([0.0, 0.25, -0.25] * 1600, 16000)
             return {"text": "Example transcript."}
 
-        async def map(self, inputs, *, progress_callback=None, **kwargs):
+        async def map(self, inputs, *, progress_callback=None, on_error="raise", **kwargs):
             results = []
             for done, item in enumerate(inputs, 1):
-                results.append(await self(item, **kwargs))
+                try:
+                    results.append(await self(item, **kwargs))
+                except Exception as exc:
+                    if on_error == "raise":
+                        raise
+                    results.append(exc)
                 if progress_callback:
                     progress_callback(done, len(inputs))
             return results
@@ -221,6 +240,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
 
     browser.eval = js_eval
     monkeypatch.setitem(sys.modules, "js", browser)
+    if path.name == "ch08b_vision.ipynb":
+        _fake_commons(monkeypatch)
+        random.seed(0)
     if path.name == "ch08e_microphone.ipynb":
         _fake_microphone(monkeypatch)
     onnx_models = []
@@ -348,6 +370,11 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]
     if path.name == "ch08b_vision.ipynb":
+        results = namespace["results"]
+        assert len(results) == 8 and len(namespace["photos"]) == 8
+        assert any(isinstance(r, list) and r for r in results)  # a photo with objects
+        assert any(r == [] for r in results)  # one with nothing found
+        assert any(isinstance(r, RuntimeError) for r in results)  # one that failed, without losing the others
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == [
             "image-classification",
@@ -382,10 +409,6 @@ def _fake_microphone(monkeypatch):
 def _fake_onnx_notebook_world(monkeypatch):
     """OnnxModel returns one confident face; urllib serves the model, a Commons listing and a photo."""
     np = pytest.importorskip("numpy")
-    pil = pytest.importorskip("PIL.Image")
-    import io
-    import urllib.request
-
     models = []
 
     class FakeOnnxModel:
@@ -413,26 +436,38 @@ def _fake_onnx_notebook_world(monkeypatch):
         async def dispose(self):
             self.disposed = True
 
-    jpeg = io.BytesIO()
-    pil.new("RGB", (64, 48)).save(jpeg, format="JPEG")
-    listing = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:Example.jpg",
-                    "imageinfo": [
-                        {
-                            "thumburl": "https://example.test/thumb.jpg",
-                            "extmetadata": {
-                                "Artist": {"value": '<a href="x">Ann Author</a>'},
-                                "LicenseShortName": {"value": "CC BY 4.0"},
-                            },
-                        }
-                    ],
+    _fake_commons(monkeypatch)
+    monkeypatch.setattr("lmlite.OnnxModel", FakeOnnxModel)
+    return models
+
+
+def _fake_commons(monkeypatch):
+    """urllib serves Wikimedia Commons listings and photos: thumbnails alternate 64 and 80 pixels wide, so a fake
+    detector can find something in one kind and nothing in the other (and fail on a 96 pixel one)."""
+    pil = pytest.importorskip("PIL.Image")
+    import io
+    import urllib.parse
+    import urllib.request
+
+    def photo(width):
+        buffer = io.BytesIO()
+        pil.new("RGB", (width, 48)).save(buffer, format="JPEG")
+        return buffer.getvalue()
+
+    def imageinfo(title):
+        number = int(title.rsplit("-", 1)[-1].removesuffix(".jpg").removeprefix("File:") or 0)
+        return {
+            "title": title,
+            "imageinfo": [
+                {
+                    "thumburl": f"https://example.test/{(64, 80, 96)[number % 3]}.jpg",
+                    "extmetadata": {
+                        "Artist": {"value": '<a href="x">Ann Author</a>'},
+                        "LicenseShortName": {"value": "CC BY 4.0"},
+                    },
                 }
-            }
+            ],
         }
-    }
 
     class Response(io.BytesIO):
         def __enter__(self):
@@ -444,11 +479,20 @@ def _fake_onnx_notebook_world(monkeypatch):
     def urlopen(request):
         url = request.full_url
         assert url.startswith(("https://commons.wikimedia.org/", "https://example.test/"))
-        return Response(json.dumps(listing).encode() if "commons.wikimedia" in url else jpeg.getvalue())
+        if url.startswith("https://example.test/"):
+            return Response(photo(int(url.rsplit("/", 1)[-1].removesuffix(".jpg"))))
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        if query.get("list") == ["categorymembers"]:  # titles of a category, six photos each
+            category = query["cmtitle"][0].removeprefix("Category:")
+            members = [{"title": f"File:{category}-{n}.jpg"} for n in range(6)]
+            return Response(json.dumps({"query": {"categorymembers": members}}).encode())
+        if "titles" in query:  # the details of the chosen photos
+            pages = {str(n): imageinfo(title) for n, title in enumerate(query["titles"][0].split("|"))}
+            return Response(json.dumps({"query": {"pages": pages}}).encode())
+        pages = {"1": imageinfo("File:Example-0.jpg")}  # a category listing with details, for the ONNX notebook
+        return Response(json.dumps({"query": {"pages": pages}}).encode())
 
-    monkeypatch.setattr("lmlite.OnnxModel", FakeOnnxModel)
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
-    return models
 
 
 def test_demo_lists_notebooks_in_file_order():
