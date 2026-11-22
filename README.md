@@ -66,6 +66,8 @@ print(results)
 - **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
 - **Embeddings & classification**: Sentence vectors and text classification
 - **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection), image-output tasks (background removal, depth estimation, image segmentation, image-to-image), text to speech via `LLM.pipeline(task, model=...)`, over many inputs with `pipe.map()` (batches, progress, cancel)
+- **Bare ONNX models**: `OnnxModel` runs a single `.onnx` file with NumPy in and NumPy out, with caching, hosted files, a sha256 check, float16 and `map()`
+- **Notebook widgets**: `AudioRecorder` records the microphone in a notebook (`pip install 'lmlite[audio]'`); `pip install 'lmlite[images]'` adds NumPy and Pillow for the image notebooks
 - **Model caching**: Browser-cached downloads, portable ZIP export/import, and cache inspection before loading (`LLM.model_info()`, `cached_models()`, per-model `clear_cache()`) with Python progress callbacks
 - **Pythonic API**: Clean, async Python interface
 - **Headless native backend**: `pip install 'lmlite[native]'` runs the same ONNX files with onnxruntime outside the browser for fast tuning loops, checked for parity against the browser
@@ -124,7 +126,7 @@ Try lmLite directly in your browser, without installing anything.
 - **[Text to speech](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08d_speech.ipynb)** — Generate speech with `LLM.pipeline("text-to-speech")` and play it in the notebook.
 - **[Speak to the notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08e_microphone.ipynb)** — Record the microphone (laptop or tablet) with an `anywidget` and transcribe it in the browser.
 - **[Pipelines that return images](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08f_image-outputs.ipynb)** — Background removal, depth estimation, image segmentation and a 2x upscale with `LLM.pipeline()`, shown as PNG images.
-- **[Text to image: a recipe](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08g_text-to-image.ipynb)** — SD-Turbo in one step on WebGPU with `OnnxModel`, a CLIP tokenizer and a NumPy scheduler: a research-licence recipe that needs a hardware GPU, 2.4 GB of download and about 7 GB of memory.
+- **[Text to image: a recipe](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08g_text-to-image.ipynb)** — SD-Turbo in one step on WebGPU with `OnnxModel`, a CLIP tokenizer and a NumPy scheduler, with prompt widgets to generate and save images: a research-licence recipe that needs a hardware GPU, 2.4 GB of download and about 7 GB of memory.
 - **[Model info and cache manager](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch99_model-info.ipynb)** — Download size and cache status before loading, loading progress from Python, and a widget to list, load and delete cached models.
 - **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch09_orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory and streamed, stoppable answers, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
 - **[Streaming chat](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_streaming.ipynb)** — Print a chat answer as it is generated, stop early with `break`, and cancel a running generation with `cancel()`, using SmolLM2-135M-Instruct (WASM).
@@ -146,7 +148,7 @@ These examples run locally in the browser using Transformers.js.
 │   llm = await LLM.create()          │
 │   text = await llm.generate(...)    │
 └─────────────┬───────────────────────┘
-              │ Bridge (xeus-python: pjs / Pyodide: pyodide.ffi)
+              │ Bridge (xeus-python: pyjs / Pyodide: pyodide.ffi)
 ┌─────────────▼───────────────────────┐
 │   JavaScript (Browser)              │
 │   Transformers.js + ONNX Runtime    │
