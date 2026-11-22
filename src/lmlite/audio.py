@@ -32,7 +32,7 @@ export default {
     raw.type = "checkbox";
     const rawLabel = document.createElement("label");
     rawLabel.style.marginLeft = "0.75em";
-    rawLabel.title = "Turn off the browser's echo cancellation, noise suppression and gain control. Try it when a recording is silent.";
+    rawLabel.title = "Turn off the browser's echo cancellation, noise suppression and gain control. Try it when a recording is silent and the input level in the system settings is fine.";
     rawLabel.append(raw, " Raw input");
     const status = document.createElement("span");
     status.style.marginLeft = "0.75em";
@@ -54,7 +54,7 @@ export default {
           model.set("recording", btoa(text));
           model.save_changes();
           status.textContent = peak < 0.005
-            ? `Recorded ${seconds.toFixed(1)} s, but it is silent. ${raw.checked ? "" : "Tick Raw input and record again. "}Check that the browser may use the microphone and that the right input is selected in the system settings. (${channels} channel(s), ${sampleRate} Hz, ${mimeType})`
+            ? `Recorded ${seconds.toFixed(1)} s, but it is silent. Check the microphone's input level in the system settings (it may be at 0), that the right input is selected, and that the browser may use the microphone. ${raw.checked ? "" : "If those are fine, tick Raw input and record again. "}(${channels} channel(s), ${sampleRate} Hz, ${mimeType})`
             : `Recorded ${seconds.toFixed(1)} s`;
           button.textContent = "Record again";
         } else {
