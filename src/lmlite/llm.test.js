@@ -62,6 +62,8 @@ const {
   isModelCached,
   loadModelToCache,
   loadOnnxModel,
+  AudioRecorder,
+  encodeWav,
   clearModelCache,
   getCachedModels,
   getHostedModelBase,
@@ -1835,5 +1837,88 @@ describe('speech tasks', () => {
 
     expect(llm.taskPipeline.mock.calls.map((call) => call[0])).toEqual(['One.', 'Three']);
     expect(results.map(([rate, bytes]) => [rate, bytes.byteLength / 4])).toEqual([[16000, 4], [16000, 5]]);
+  });
+});
+
+describe('microphone recording', () => {
+  it('encodes samples as a 16-bit PCM mono WAV and clips them', () => {
+    const wav = encodeWav(new Float32Array([0, 0.5, -0.5, 1, -1, 2]), 16000);
+    const view = new DataView(wav.buffer);
+    const text = (offset) => String.fromCharCode(...wav.subarray(offset, offset + 4));
+
+    expect([text(0), text(8), text(12), text(36)]).toEqual(['RIFF', 'WAVE', 'fmt ', 'data']);
+    expect(wav.byteLength).toBe(44 + 12);
+    expect(view.getUint32(4, true)).toBe(36 + 12);
+    expect([view.getUint16(20, true), view.getUint16(22, true), view.getUint32(24, true), view.getUint16(34, true)])
+      .toEqual([1, 1, 16000, 16]);  // PCM, mono, rate, bits
+    expect(view.getUint32(40, true)).toBe(12);
+    expect([0, 1, 2, 3, 4, 5].map((i) => view.getInt16(44 + i * 2, true))).toEqual([0, 16384, -16383, 32767, -32767, 32767]);  // Math.round rounds -16383.5 up
+  });
+
+  describe('AudioRecorder', () => {
+    const track = { stop: vi.fn() };
+    let recorder;
+
+    beforeEach(() => {
+      track.stop.mockClear();
+      const stream = { getTracks: () => [track] };
+      vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
+      vi.stubGlobal('MediaRecorder', class {
+        constructor() { recorder = this; this.mimeType = 'audio/webm'; }
+        start() {}
+        stop() {
+          this.ondataavailable({ data: new Blob([new Uint8Array([1, 2, 3])]) });
+          this.onstop();
+        }
+      });
+      const decoded = { duration: 0.5 };
+      vi.stubGlobal('AudioContext', class {
+        decodeAudioData = vi.fn(async () => decoded);
+        close = vi.fn(async () => {});
+      });
+      vi.stubGlobal('OfflineAudioContext', class {
+        constructor(channels, length, rate) { Object.assign(this, { channels, length, rate }); this.destination = {}; }
+        createBufferSource() { return { connect: vi.fn(), start: vi.fn(), set buffer(value) { this.value = value; } }; }
+        async startRendering() { return { getChannelData: () => new Float32Array(this.length).fill(0.25) }; }
+      });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('records, releases the microphone and returns a 16 kHz mono WAV', async () => {
+      const audio = new AudioRecorder();
+      expect(audio.recording).toBe(false);
+
+      await audio.start();
+      expect(audio.recording).toBe(true);
+      await expect(audio.start()).rejects.toThrow('Already recording');
+      const wav = await audio.stop();
+
+      expect(audio.recording).toBe(false);
+      expect(track.stop).toHaveBeenCalled();
+      const view = new DataView(wav.buffer);
+      expect(view.getUint32(24, true)).toBe(16000);
+      expect(view.getUint32(40, true)).toBe(0.5 * 16000 * 2);  // half a second of 16-bit samples
+      expect(recorder).toBeDefined();
+    });
+
+    it('can record again, and refuses to stop when it is not recording', async () => {
+      const audio = new AudioRecorder();
+      await expect(audio.stop()).rejects.toThrow('Not recording');
+
+      await audio.start();
+      await audio.stop();
+      await audio.start();
+
+      expect(audio.recording).toBe(true);
+    });
+
+    it('explains when the page cannot record', async () => {
+      vi.stubGlobal('navigator', {});
+
+      await expect(new AudioRecorder().start()).rejects.toThrow('HTTPS or localhost');
+    });
   });
 });

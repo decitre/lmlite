@@ -153,6 +153,21 @@ results = await classifier.map(photos, batch_size=8, progress_callback=lambda do
 - `await pipe.cancel()` stops after the current batch, and `map()` returns the results so far. The pipeline stays usable. Only one `map()` runs on a pipeline at a time.
 - Batched results can differ from single calls by rounding error, because batches are padded together.
 
+#### Recording the microphone
+
+`lmlite.audio.AudioRecorder` is an [anywidget](https://anywidget.dev/) with a Record/Stop button, for notebooks on a laptop or a tablet. Install it with `pip install 'lmlite[audio]'` (a JupyterLite site build takes the same extra, and `lite-build.sh` does).
+
+```python
+from lmlite.audio import AudioRecorder
+
+recorder = AudioRecorder()
+recorder                           # tap Record, speak, tap Stop
+wav = await recorder.wait()        # the last recording, waiting for one if there is none (recorder.clear() to forget it)
+text = (await transcriber(wav))["text"]
+```
+
+A notebook kernel runs in a Web Worker, which cannot open the microphone, so the widget records on the page: its JavaScript loads `llm.js` there (`globalThis.lmLite.AudioRecorder`), records with `MediaRecorder`, decodes and resamples with `AudioContext`, and returns a 16 kHz mono 16-bit WAV, which speech recognition takes as bytes. The page must be on HTTPS or localhost, and the browser asks for microphone permission the first time. The recording reaches the kernel as base64 text in the `recording` trait (`audio` is the decoded bytes), because in xeus-python a binary trait set by the browser never arrives.
+
 Expect a pipeline in a browser kernel to be slower than native inference, especially sequence-to-sequence tasks (translation and speech recognition), which decode token by token. WebGPU can help when the browser, model and dtype support it. Each pipeline holds its own model in browser memory; call `dispose()` before loading the next one.
 
 ### Bare ONNX models

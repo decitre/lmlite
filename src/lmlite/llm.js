@@ -1316,6 +1316,89 @@ async function loadOnnxModel(source, backend = 'wasm', expectedSha256 = null, us
   });
 }
 
+// --- Microphone recording ---
+
+// Main thread only: kernels run in Web Workers, which have no navigator.mediaDevices, so the recorder widget loads
+// this file on the page too. What Whisper and most speech recognition models expect:
+const RECORDING_RATE = 16000;
+
+// A 16-bit PCM mono WAV file from float samples in [-1, 1].
+function encodeWav(samples, sampleRate) {
+  const bytes = new Uint8Array(44 + samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  const text = (offset, value) => [...value].forEach((char, i) => view.setUint8(offset + i, char.charCodeAt(0)));
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);  // PCM
+  view.setUint16(22, 1, true);  // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, i) => view.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true));
+  return bytes;
+}
+
+// Records the microphone and returns a 16 kHz mono WAV, which speech recognition pipelines take as bytes.
+class AudioRecorder {
+  constructor() {
+    this.recorder = null;
+    this.stream = null;
+    this.chunks = [];
+  }
+
+  get recording() {
+    return this.recorder !== null;
+  }
+
+  async start() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      throw new Error('Recording needs a page on HTTPS or localhost, in a browser with MediaRecorder.');
+    }
+    if (this.recording) {
+      throw new Error('Already recording.');
+    }
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.chunks = [];
+    this.recorder = new MediaRecorder(this.stream);
+    this.recorder.ondataavailable = (event) => event.data.size && this.chunks.push(event.data);
+    this.recorder.start();
+  }
+
+  // Stops and returns the recording as WAV bytes.
+  async stop() {
+    const { recorder, stream } = this;
+    if (!recorder) {
+      throw new Error('Not recording.');
+    }
+    const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((track) => track.stop());
+    this.recorder = this.stream = null;
+    // Browsers record WebM/Opus (Chrome, Firefox) or MP4/AAC (Safari); AudioContext decodes both.
+    const context = new AudioContext();
+    try {
+      const decoded = await context.decodeAudioData(await new Blob(this.chunks, { type: recorder.mimeType }).arrayBuffer());
+      // An offline context of the target rate resamples and mixes the channels down to mono.
+      const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * RECORDING_RATE)), RECORDING_RATE);
+      const source = offline.createBufferSource();
+      source.buffer = decoded;
+      source.connect(offline.destination);
+      source.start();
+      return encodeWav((await offline.startRendering()).getChannelData(0), RECORDING_RATE);
+    } finally {
+      this.chunks = [];
+      await context.close();
+    }
+  }
+}
+
 // --- Cache injection ---
 
 async function isModelCached(modelName) {
@@ -1643,6 +1726,8 @@ globalThis.lmLite = {
   getModelTask,
   loadTokenizer,
   loadOnnxModel,
+  AudioRecorder,
+  encodeWav,
 };
 
 undefined;

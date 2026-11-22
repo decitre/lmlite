@@ -26,6 +26,7 @@ dependencies:
   - ipywidgets
   - numpy
   - pillow
+  - anywidget
 """
 
 
