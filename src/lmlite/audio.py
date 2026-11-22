@@ -28,10 +28,16 @@ export default {
     }
     const recorder = new globalThis.lmLite.AudioRecorder();
     const button = document.createElement("button");
+    const raw = document.createElement("input");
+    raw.type = "checkbox";
+    const rawLabel = document.createElement("label");
+    rawLabel.style.marginLeft = "0.75em";
+    rawLabel.title = "Turn off the browser's echo cancellation, noise suppression and gain control. Try it when a recording is silent.";
+    rawLabel.append(raw, " Raw input");
     const status = document.createElement("span");
     status.style.marginLeft = "0.75em";
     button.textContent = "Record";
-    el.append(button, status);
+    el.append(button, rawLabel, status);
     button.onclick = async () => {
       button.disabled = true;
       try {
@@ -42,16 +48,23 @@ export default {
           for (let i = 0; i < wav.length; i += 0x8000) {
             text += String.fromCharCode(...wav.subarray(i, i + 0x8000));
           }
+          raw.disabled = false;
+          const { seconds, peak, channels, sampleRate, mimeType } = recorder.info;
+          model.set("info", recorder.info);  // before the recording, which wakes up whoever waits for it
           model.set("recording", btoa(text));
           model.save_changes();
-          status.textContent = `Recorded ${((wav.byteLength - 44) / 2 / 16000).toFixed(1)} s`;
+          status.textContent = peak < 0.005
+            ? `Recorded ${seconds.toFixed(1)} s, but it is silent. ${raw.checked ? "" : "Tick Raw input and record again. "}Check that the browser may use the microphone and that the right input is selected in the system settings. (${channels} channel(s), ${sampleRate} Hz, ${mimeType})`
+            : `Recorded ${seconds.toFixed(1)} s`;
           button.textContent = "Record again";
         } else {
-          await recorder.start();
+          await recorder.start({ raw: raw.checked });
+          raw.disabled = true;
           status.textContent = "Recording...";
           button.textContent = "Stop";
         }
       } catch (error) {
+        raw.disabled = false;
         status.textContent = String(error?.message ?? error);
       } finally {
         button.disabled = false;
@@ -78,6 +91,9 @@ class AudioRecorder(anywidget.AnyWidget):
     # The WAV as base64 text: in xeus-python, a binary trait set by the browser never reaches the kernel, while
     # a string does.
     recording = traitlets.Unicode("").tag(sync=True)
+    # How the browser recorded it: seconds, peak (0 to 1; near 0 means silence), channels, sampleRate, mimeType,
+    # raw (the "Raw input" box was ticked) and gain (the factor applied to a raw recording).
+    info = traitlets.Dict().tag(sync=True)
 
     def __init__(self, **kwargs):
         super().__init__(runtime=files("lmlite").joinpath("llm.js").read_text(), **kwargs)
@@ -107,3 +123,4 @@ class AudioRecorder(anywidget.AnyWidget):
     def clear(self):
         """Forget the recording, so ``wait()`` waits for a new one."""
         self.recording = ""
+        self.info = {}

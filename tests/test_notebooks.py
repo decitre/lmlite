@@ -403,7 +403,21 @@ def _fake_microphone(monkeypatch):
         wav.setsampwidth(2)
         wav.setframerate(16000)
         wav.writeframes(b"\x00\x01" * 16000)
-    monkeypatch.setattr("lmlite.audio.AudioRecorder.wait", AsyncMock(return_value=buffer.getvalue()))
+    info = {
+        "seconds": 0.5,
+        "peak": 0.4,
+        "channels": 2,
+        "sampleRate": 48000,
+        "mimeType": "audio/webm",
+        "raw": True,
+        "gain": 2.2,
+    }
+
+    async def wait(self):
+        self.info = info  # what the browser sends before the recording itself
+        return buffer.getvalue()
+
+    monkeypatch.setattr("lmlite.audio.AudioRecorder.wait", wait)
 
 
 def _fake_onnx_notebook_world(monkeypatch):
