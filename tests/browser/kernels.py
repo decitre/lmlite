@@ -7,6 +7,8 @@ import json
 import os
 import urllib.parse
 
+import pytest
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "300000"))
@@ -49,12 +51,20 @@ def run_in_xeus(xeus_site, code):
         browser = playwright.chromium.launch()
         try:
             page = browser.new_page()
+            console = []
+            page.on("console", lambda message: console.append(f"{message.type}: {message.text[:300]}"))
             page.goto(url)
             # The echoed input never contains 'RESULT{', so this waits for kernel output.
-            page.wait_for_function(
-                "document.body.innerText.includes('RESULT{') || document.body.innerText.includes('Traceback')",
-                timeout=TIMEOUT,
-            )
+            try:
+                page.wait_for_function(
+                    "document.body.innerText.includes('RESULT{') || document.body.innerText.includes('Traceback')",
+                    timeout=TIMEOUT,
+                )
+            except PlaywrightTimeoutError:
+                output = page.inner_text("body").split("]:", 1)[-1][-2500:]
+                pytest.fail(
+                    f"Kernel gave no result in {TIMEOUT} ms. Page end:\n{output}\nConsole:\n" + "\n".join(console[-10:])
+                )
             text = page.inner_text("body")
         finally:
             browser.close()
