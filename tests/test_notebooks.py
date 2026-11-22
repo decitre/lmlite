@@ -370,6 +370,23 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]
     if path.name == "ch08b_vision.ipynb":
+        # Run the picking cell again: no photo repeats until all 36 have been shown, then it starts over.
+        cell = next(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["cell_type"] == "code" and "count = 8" in "".join(cell["source"])
+        )
+        namespace["detector"].disposed = False  # the notebook's last cell released it; use it again here
+        shown = [[title for title, _ in namespace["photos"]]]
+        for _ in range(3):
+            await eval(compile(cell, str(path), "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT), namespace)
+            shown.append([title for title, _ in namespace["photos"]])
+        flat = [title for batch in shown for title in batch]
+        assert len(flat) == 32 and len(set(flat)) == 32 and set(namespace["seen"]) == set(flat)
+        assert all(isinstance(file, bytes) for _, file in namespace["seen"].values())  # the downloads are kept
+        await eval(compile(cell, str(path), "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT), namespace)  # 4 left: restart
+        assert len(namespace["seen"]) == 8 and len(namespace["photos"]) == 8
+        namespace["detector"].disposed = True
         results = namespace["results"]
         assert len(results) == 8 and len(namespace["photos"]) == 8
         assert any(isinstance(r, list) and r for r in results)  # a photo with objects
