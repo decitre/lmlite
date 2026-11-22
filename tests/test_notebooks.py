@@ -241,8 +241,14 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
 
     def js_eval(source):
         # The GPU notebook's JavaScript probes: the adapter, then per-backend tensor locations.
+        if "shader-f16" in source:  # the text-to-image notebook also needs float16 shaders and big buffers
+            return AsyncMock(
+                return_value='{"vendor": "example", "fallback": false, "shader_f16": true, "max_buffer_bytes": 4294967292}'
+            )
         if "requestAdapter" in source:
             return AsyncMock(return_value='{"vendor": "example", "fallback": false}')
+        if "performance.memory" in source:
+            return AsyncMock(return_value='{"used_mb": 1900, "limit_mb": 3760}')
         return AsyncMock(
             side_effect=lambda llm: '{"cpu": 1, "gpu-buffer": 2}' if llm.backend == "webgpu" else '{"cpu": 3}'
         )
@@ -257,6 +263,8 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     onnx_models = []
     if path.name == "ch08c_onnx-models.ipynb":
         onnx_models = _fake_onnx_notebook_world(monkeypatch)
+    if path.name == "ch08g_text-to-image.ipynb":
+        onnx_models = _fake_diffusion_models(monkeypatch)
     notebook = json.loads(path.read_text())
     namespace = {}
     for cell in notebook["cells"]:
@@ -271,6 +279,16 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         result = eval(code, namespace)
         if inspect.isawaitable(result):
             await result
+    if path.name == "ch08g_text-to-image.ipynb":
+        import io
+
+        from PIL import Image
+
+        assert [model.part for model in onnx_models] == ["text_encoder", "unet", "vae_decoder"]
+        assert all(model.calls == 1 for model in onnx_models)
+        assert Image.open(io.BytesIO(namespace["png"])).size == (512, 512)
+        assert set(namespace["seconds"]) == {"text encoder", "unet", "decoder", "total"}
+        assert set(namespace["load_seconds"]) == {"text_encoder", "unet", "vae_decoder"}
     if path.name == "ch08f_image-outputs.ipynb":
         assert [instance.config["task"] for instance in instances] == [
             "background-removal",
@@ -493,6 +511,50 @@ def _fake_onnx_notebook_world(monkeypatch):
 
     _fake_commons(monkeypatch)
     monkeypatch.setattr("lmlite.OnnxModel", FakeOnnxModel)
+    return models
+
+
+def _fake_diffusion_models(monkeypatch):
+    """Three OnnxModels with SD-Turbo's input and output signatures; each run checks the dtypes it was given."""
+    np = pytest.importorskip("numpy")
+    models = []
+    signatures = {
+        "text_encoder": ({"input_ids": ("int32", [1, 77])}, "last_hidden_state", (1, 77, 1024)),
+        "unet": (
+            {
+                "sample": ("float16", [1, 4, 64, 64]),
+                "timestep": ("int64", [1]),
+                "encoder_hidden_states": ("float16", [1, 77, 1024]),
+            },
+            "out_sample",
+            (1, 4, 64, 64),
+        ),
+        "vae_decoder": ({"latent_sample": ("float16", [1, 4, 64, 64])}, "sample", (1, 3, 512, 512)),
+    }
+
+    class FakeDiffusionModel:
+        def __init__(self, part):
+            inputs, output, self.shape = signatures[part]
+            self.part, self.disposed, self.calls = part, False, 0
+            self.inputs = [{"name": name, "dtype": dtype, "shape": shape} for name, (dtype, shape) in inputs.items()]
+            self.outputs = [{"name": output, "dtype": "float32", "shape": list(self.shape)}]
+
+        @classmethod
+        async def load(cls, source, **options):
+            assert source.endswith("/model.onnx") and options["backend"] == "webgpu" and options["cache"] is False
+            models.append(cls(source.rsplit("/", 2)[-2]))
+            return models[-1]
+
+        async def run(self, feeds):
+            self.calls += 1
+            assert {i["name"]: i["dtype"] for i in self.inputs} == {k: str(v.dtype) for k, v in feeds.items()}
+            assert not self.disposed
+            return {self.outputs[0]["name"]: np.zeros(self.shape, np.float32)}
+
+        async def dispose(self):
+            self.disposed = True
+
+    monkeypatch.setattr("lmlite.OnnxModel", FakeDiffusionModel)
     return models
 
 

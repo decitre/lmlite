@@ -152,6 +152,10 @@ Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after c
 pixi run --environment model-fixture generate-tokenizer-fixture
 ```
 
+**WebGPU in the tests.** Headless Chromium gives WebGPU a software adapter (SwiftShader: no `shader-f16`, 1 GB buffers), so the tests that pass `backend="webgpu"` run functionally but not on your GPU, and their float16 cases skip. Set `LMLITE_WEBGPU_ARGS` to the flags that select the GPU, for example on macOS `LMLITE_WEBGPU_ARGS="--enable-unsafe-webgpu --enable-gpu --use-angle=metal --ignore-gpu-blocklist"`; then `onnx-smoke` and `task-smoke` run on it and the float16 parity test with native onnxruntime passes.
+
+The opt-in `text-to-image-smoke` task runs the cells of `ch08g_text-to-image.ipynb` on a hardware GPU in Pyodide and (with `pixi run -e xeus-site text-to-image-smoke`) xeus-python, against a local copy of the 2.4 GB SD-Turbo files named by `LMLITE_SD_TURBO_DIR` (non-commercial research licence, `schmuell/sd-turbo-ort-web`); it skips without them. It checks a 512 x 512 PNG that is not flat, that two seeds differ, and that the adapter has `shader-f16`.
+
 The opt-in `image-output-smoke` task runs the four tasks that return images with the models in `MODELS.md`: in Chromium, the PNG files and their sizes, the PNG encoding inside a Web Worker, and in Pyodide and (with `pixi run -e xeus-site image-output-smoke`) xeus-python the Python results, `as_array=True` and `map()`. Override the models with `LMLITE_TEST_BACKGROUND_REMOVAL_MODEL`, `LMLITE_TEST_DEPTH_MODEL`, `LMLITE_TEST_SEGMENTATION_MODEL` and `LMLITE_TEST_IMAGE_TO_IMAGE_MODEL`.
 
 The opt-in `vision-notebook-smoke` task runs the object-detection cells of `ch08b_vision.ipynb` (random Commons photos, `map()`, the contact sheets) in Pyodide and, with `pixi run -e xeus-site vision-notebook-smoke`, in xeus-python, runs the picking cell twice, and checks that boxes were drawn onto the photos and that the second pick repeats none of the first. It needs network access. Loading a FreeType font hangs in xeus-python (Pillow 13 in the browser), which is why the notebook draws its labels with the built-in bitmap font.
