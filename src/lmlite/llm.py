@@ -16,8 +16,17 @@ IMAGE_TASKS = (
     "object-detection",
 )
 
+# Text-to-speech under both names Transformers.js accepts; keep in sync with llm.js.
+SPEECH_TASKS = ("text-to-speech", "text-to-audio")
+
 # Transformers.js tasks available through LLM.pipeline(); keep in sync with llm.js.
-SUPPORTED_TASKS = ("zero-shot-classification", "automatic-speech-recognition", "translation", *IMAGE_TASKS)
+SUPPORTED_TASKS = (
+    "zero-shot-classification",
+    "automatic-speech-recognition",
+    "translation",
+    *IMAGE_TASKS,
+    *SPEECH_TASKS,
+)
 
 # Sampling rate expected by Whisper and most Transformers.js speech recognition models.
 AUDIO_SAMPLING_RATE = 16000
@@ -225,6 +234,16 @@ def _to_python_deep(value):
     return value
 
 
+def _bytes_of(value):
+    """The raw bytes of a JavaScript Uint8Array proxy (Pyodide or xeus-python)."""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value)
+    if callable(getattr(value, "to_bytes", None)):  # Pyodide JsBuffer
+        return value.to_bytes()
+    converted = value.to_py() if callable(getattr(value, "to_py", None)) else value
+    return bytes(converted)
+
+
 def _to_js(value):
     try:
         from pyodide.ffi import to_js
@@ -349,6 +368,64 @@ def _image_inputs(inputs):
     return _image_input(inputs) if single else [_image_input(item) for item in inputs]
 
 
+class Speech:
+    """Synthesised speech: mono float32 ``samples`` at ``sampling_rate`` Hz.
+
+    ``samples`` is a NumPy array when NumPy is installed, else an ``array.array("f")``. Evaluating a ``Speech``
+    in a notebook cell shows an audio player; ``to_wav()`` returns a WAV file's bytes.
+    """
+
+    def __init__(self, samples, sampling_rate):
+        self.samples = samples
+        self.sampling_rate = sampling_rate
+
+    @classmethod
+    def _from_bytes(cls, sampling_rate, raw):
+        """From little-endian float32 bytes, which is how the browser hands over the samples."""
+        try:
+            import numpy as np
+        except ImportError:
+            import array
+
+            samples = array.array("f")
+            samples.frombytes(raw)
+        else:
+            samples = np.frombuffer(raw, dtype="<f4").astype(np.float32)
+        return cls(samples, int(sampling_rate))
+
+    @property
+    def duration(self):
+        """Length in seconds."""
+        return len(self.samples) / self.sampling_rate
+
+    def __repr__(self):
+        return f"Speech(duration={self.duration:.2f}s, sampling_rate={self.sampling_rate})"
+
+    def to_wav(self):
+        """The speech as a 16-bit PCM mono WAV file."""
+        import array
+        import io
+        import sys
+        import wave
+
+        pcm = array.array("h", (max(-32768, min(32767, round(float(x) * 32767))) for x in self.samples))
+        if sys.byteorder == "big":
+            pcm.byteswap()
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(self.sampling_rate)
+            wav.writeframes(pcm.tobytes())
+        return buffer.getvalue()
+
+    def _repr_html_(self):
+        import base64
+
+        data = base64.b64encode(self.to_wav()).decode("ascii")
+        return f'<audio controls src="data:audio/wav;base64,{data}"></audio>'
+
+
 class Pipeline:
     """A loaded Transformers.js task pipeline, created with ``LLM.pipeline()``."""
 
@@ -368,13 +445,21 @@ class Pipeline:
             inputs = _audio_input(inputs)
         elif self.task in IMAGE_TASKS:
             inputs = _image_inputs(inputs)
+        elif self.task in SPEECH_TASKS and not isinstance(inputs, str):
+            raise TypeError(f"{self.task} takes one text; use map() for several, got {type(inputs).__name__}")
         elif not isinstance(inputs, str):
             inputs = list(inputs)
         if not isinstance(inputs, str):
             inputs = _to_js(inputs)
         options = json.dumps(kwargs, allow_nan=False)
         result = await self.llm.js.runTask(inputs, options)
-        return _to_python_deep(result)
+        return self._result(_to_python_deep(result))
+
+    def _result(self, result):
+        """A task result as a Python object: speech arrives as ``[sampling_rate, float32 bytes]``."""
+        if self.task in SPEECH_TASKS:
+            return Speech._from_bytes(result[0], _bytes_of(result[1]))
+        return result
 
     def _prepare(self, item):
         """One input of ``map()`` in the form the JavaScript task takes."""
@@ -442,7 +527,7 @@ class Pipeline:
             elif positions[index] in errors:
                 value = RuntimeError(errors[positions[index]])
             else:
-                value = results[positions[index]]
+                value = self._result(results[positions[index]])
             if on_error == "skip" and isinstance(value, Exception):
                 continue
             output.append(value)

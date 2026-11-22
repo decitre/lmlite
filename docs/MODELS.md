@@ -77,6 +77,14 @@ Transformers.js only runs models with ONNX weights and a browser-supported archi
 3. [`Xenova/whisper-tiny.en`](https://huggingface.co/Xenova/whisper-tiny.en) (`automatic-speech-recognition`)
    English-only Whisper speech recognition model, about 40 MB quantized. `Xenova/whisper-tiny` and `Xenova/whisper-base` are multilingual, and accept `language` and `task="translate"` arguments. Larger Whisper models are more accurate, but slow and memory-heavy in a browser.
 
+### Text to speech
+
+| Task | Model | Licence |
+|------|-------|---------|
+| `text-to-speech` | [`Xenova/mms-tts-eng`](https://huggingface.co/Xenova/mms-tts-eng) | CC-BY-NC-4.0 (the base model, Meta's `facebook/mms-tts-eng`): non-commercial use only |
+
+It is a VITS model with one English voice, 16 kHz output, and `model.onnx`, `model_fp16.onnx` and `model_quantized.onnx` files. Other MMS languages follow the same naming (`Xenova/mms-tts-<language>`) and carry the same licence. `Xenova/speecht5_tts` (MIT) does not run in Transformers.js 4.3.2 (see USAGE.md), and Kokoro (Apache-2.0) is not supported by the pipeline.
+
 ### Vision pipelines
 
 These models are covered by the same `task-smoke` test:

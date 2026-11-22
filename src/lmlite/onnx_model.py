@@ -12,7 +12,7 @@ import json
 import os
 import re
 
-from .llm import _js_function, _native, _to_js, _to_python_deep
+from .llm import _bytes_of, _js_function, _native, _to_js, _to_python_deep
 
 # onnxruntime tensor type -> NumPy dtype name, as onnxruntime-web reports it.
 _NATIVE_DTYPES = {
@@ -37,16 +37,6 @@ def _numpy():
     except ImportError as exc:
         raise ModuleNotFoundError("OnnxModel needs NumPy: pip install numpy", name="numpy") from exc
     return np
-
-
-def _bytes_of(value):
-    """The raw bytes of a JavaScript Uint8Array proxy (Pyodide or xeus-python)."""
-    if isinstance(value, (bytes, bytearray, memoryview)):
-        return bytes(value)
-    if callable(getattr(value, "to_bytes", None)):  # Pyodide JsBuffer
-        return value.to_bytes()
-    converted = value.to_py() if callable(getattr(value, "to_py", None)) else value
-    return bytes(converted)
 
 
 def _verify(data, sha256):

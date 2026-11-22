@@ -152,6 +152,8 @@ Regenerate the tokenizer and its expected ids, with `tokenizers` pinned, after c
 pixi run --environment model-fixture generate-tokenizer-fixture
 ```
 
+The opt-in `speech-smoke` task runs text to speech with `Xenova/mms-tts-eng` (override with `LMLITE_TEST_SPEECH_MODEL`): the samples crossing the bridge as one buffer in Chromium, `LLM.model_info()` for the task, and the `Speech` object in Pyodide (without NumPy) and, with `pixi run -e xeus-site speech-smoke`, in xeus-python (with NumPy).
+
 The opt-in `map-smoke` task checks `Pipeline.map()` with real models: batches against single calls, progress, `on_error` and cancelling in Chromium, and the bridge's progress callback in Pyodide and (with `pixi run -e xeus-site map-smoke`) in xeus-python.
 
 The opt-in `onnx-smoke` task runs a 150-byte model (`tests/fixtures/onnx/scale_add.onnx`, regenerated with `uv run --with onnx python scripts/generate_onnx_fixture.py`) through `OnnxModel`'s browser code on WASM and WebGPU, and through the Python bridge in Pyodide. It downloads onnxruntime-web from jsDelivr. `xeus-onnx-smoke` runs the same model through the xeus-python bridge (`pixi run -e xeus-site xeus-onnx-smoke`); it shares one site build with `xeus-tokenizer-smoke` when both run in one session. `onnx-notebook-smoke` (`pixi run -e xeus-site onnx-notebook-smoke`) runs the code of `ch08c_onnx-models.ipynb` in Pyodide and in xeus-python, with a seeded random photo from Wikimedia Commons, the UltraFace model from GitHub and the xeus environment's NumPy and Pillow, so it needs network access.
