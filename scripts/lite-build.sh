@@ -88,7 +88,7 @@ else
 fi
 
 # jl-forge makes breaking changes only in minor releases before 1.0 (its Compatibility Guarantees).
-JL_FORGE_VERSION="~=0.6.0"
+JL_FORGE_VERSION="~=0.8.0"
 # Kept between builds: xeus environments, Pyodide release and wheel downloads, Transformers.js files.
 JL_FORGE_CACHE="${JL_FORGE_CACHE:-$HOME/.cache/jl-forge}"
 
@@ -176,7 +176,10 @@ process_for_pyodide() {
     printf "${YELLOW}Install jupyter/pyodide packages:${NC}\n"
     # https://pyodide.org/en/stable/usage/packages-in-pyodide.html
     # Kernel 0.8.x (Python 3.14, no Voici) is a jl-forge supported combination, tested weekly against the latest release.
-    $pip_cmd install build "jl-forge$JL_FORGE_VERSION" -e '..' \
+    # uv: jl-forge 0.8's pyodide-wheels needs it (the `pyodide` extra adds it; written out so the jl-forge pin stays
+    # on one line). The audio extra puts anywidget in this venv: piplite installs the package in the browser, but
+    # the build copies its widget frontend from the venv, and without it the recorder widget does not render.
+    $pip_cmd install build uv "jl-forge$JL_FORGE_VERSION" -e '..[audio]' \
       jupyter_server jupyterlab_server jupyterlite-core "jupyterlite-pyodide-kernel~=0.8.6" libarchive-c
 
     printf "${YELLOW}Build lmlite wheel${NC}\n"
@@ -197,7 +200,10 @@ process_for_pyodide() {
     # jupyter lite build indexes <lite-dir>/pypi, so piplite installs these from the site.
     jl-forge pyodide-wheels --pyproject "$ROOT_DIR/pyproject.toml" \
         --cache-dir "$JL_FORGE_CACHE" --out-dir "$WORKSPACE/lite-pyodide/pypi" --extras images audio
-    PYODIDE_DIST=$(jl-forge pyodide-dist --pyproject "$ROOT_DIR/pyproject.toml" \
+    # --wheels-dir keeps the Pyodide packages the bundled wheels need (anywidget needs typing_extensions), so the
+    # site fetches nothing from PyPI.
+    PYODIDE_DIST=$(jl-forge pyodide-dist --pyproject "$ROOT_DIR/pyproject.toml" --extras images audio \
+        --wheels-dir "$WORKSPACE/lite-pyodide/pypi" \
         --cache-dir "$JL_FORGE_CACHE/pyodide" --out "$WORKSPACE/pyodide-dist.tar.bz2")
 
     jupyter lite build \
