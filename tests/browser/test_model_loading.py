@@ -101,3 +101,57 @@ def test_hosted_config_loads_directly_over_http(source_server):
     assert "progress" in result["progress"]
     assert f"{source_server}/files/models/org/test-model/config.json" in requests
     assert not any("huggingface.co/" in url or url.endswith(".zip") for url in requests)
+
+
+def discover_hosted_base(source_server, manifest_answers):
+    """Call getHostedModelBase('gpt2') on a page under lab/ (so the site's manifest is looked up on its own), with
+    the manifest route answering from `manifest_answers` in turn, the last answer repeating. Returns (result, calls)."""
+    page_url = f"{source_server}/lab/lmlite-test.html"
+    calls = []
+    warnings = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(60000)
+            page.on("console", lambda message: warnings.append(message.text) if message.type == "warning" else None)
+
+            def answer(route):
+                status, body = manifest_answers[min(len(calls), len(manifest_answers) - 1)]
+                calls.append(status)
+                route.fulfill(status=status, body=body, content_type="application/json")
+
+            page.route("**/files/models/manifest.json", answer)
+            page.route(page_url, lambda route: route.fulfill(body="<html></html>", content_type="text/html"))
+            page.goto(page_url)
+            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.wait_for_function("typeof globalThis.lmLite === 'object'")
+            result = page.evaluate("async () => await globalThis.lmLite.getHostedModelBase('gpt2')")
+        finally:
+            browser.close()
+    return result, calls, warnings
+
+
+def test_a_flaky_site_manifest_does_not_break_hosted_discovery(source_server):
+    """GitHub Pages answers 503 now and then: the probe retries, and the model is still found when it is hosted."""
+    listed = json.dumps({"models": ["Xenova/gpt2"]})
+
+    result, calls, warnings = discover_hosted_base(source_server, [(503, ""), (503, ""), (200, listed)])
+
+    assert result == f"{source_server}/files/models/"
+    assert calls == [503, 503, 200]
+    assert not warnings
+
+
+def test_an_unavailable_site_manifest_means_nothing_is_hosted(source_server):
+    """A manifest that stays 503 must not make LLM.pipeline() fail: the model then loads from the Hub."""
+    result, calls, warnings = discover_hosted_base(source_server, [(503, "")])
+
+    assert result is None and calls == [503, 503, 503]
+    assert any("loading from the Hub" in warning for warning in warnings)
+
+
+def test_a_missing_site_manifest_is_asked_for_once(source_server):
+    result, calls, warnings = discover_hosted_base(source_server, [(404, "")])
+
+    assert result is None and calls == [404] and not warnings

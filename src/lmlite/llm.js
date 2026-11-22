@@ -225,6 +225,9 @@ function loadTransformers() {
   return transformersModule;
 }
 
+const MANIFEST_ATTEMPTS = 3;
+const MANIFEST_RETRY_MS = 250;
+
 async function getHostedModelBase(modelName, configuredBase = null) {
   const [modelId, revision] = resolveModelId(modelName).split('@', 2);
   // Hosted trees represent one snapshot, not arbitrary Hub revisions.
@@ -243,9 +246,38 @@ async function getHostedModelBase(modelName, configuredBase = null) {
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error('hosted_models_url must be an HTTP(S) URL');
   }
-  const response = await fetch(new URL('manifest.json', url), { signal: AbortSignal.timeout(15000) });
-  if (response.status === 404 && !configuredBase) {
-    return null;
+  const manifestUrl = new URL('manifest.json', url);
+  let response;
+  let failure = null;  // what the last attempt hit, if it did not give a usable answer
+  // GitHub Pages and other hosts answer 5xx now and then, and a worker's fetch can fail: try a few times.
+  for (let attempt = 1; attempt <= MANIFEST_ATTEMPTS; attempt++) {
+    try {
+      response = await fetch(manifestUrl, { signal: AbortSignal.timeout(15000) });
+      failure = response.status >= 500 ? new Error(`Hosted model manifest request failed: ${response.status} ${response.url}`) : null;
+    } catch (error) {
+      response = null;
+      failure = error;
+    }
+    if (!failure) {
+      break;
+    }
+    if (attempt < MANIFEST_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, MANIFEST_RETRY_MS * attempt));
+    }
+  }
+  if (!configuredBase) {
+    // The site's own manifest is optional: its absence, or a host that will not serve it, means "nothing hosted",
+    // and the model loads from the Hub. Only an explicit hosted_models_url is held to a working manifest.
+    if (failure) {
+      console.warn(`Could not read the site's hosted model manifest (${failure.message ?? failure}); loading from the Hub.`);
+      return null;
+    }
+    if (!response.ok) {
+      return null;  // 404 when the site hosts no models; anything else is not a manifest either
+    }
+  }
+  if (failure) {
+    throw failure;
   }
   if (!response.ok) {
     throw new Error(`Hosted model manifest request failed: ${response.status} ${response.url}`);

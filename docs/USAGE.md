@@ -281,6 +281,8 @@ llm = await LLM.create(
 
 Hosted models are discovered from the browser kernel's JupyterLite URL. If your kernel uses a URL that cannot identify the site root (for example, a blob URL), pass `hosted_models_url="https://your-host/path/to/site/files/models/"` to `LLM.create(...)`.
 
+The site's `files/models/manifest.json` is looked up on every load, and it is optional: a site that hosts no models answers 404 (asked once). A host that answers 5xx or fails the request, as GitHub Pages does now and then, is retried up to three times; if the manifest still cannot be read, lmLite logs a console warning and loads from the Hub, as for a site without hosted models. An explicit `hosted_models_url` is held to a working manifest and raises after the same retries, and a manifest that arrives but is invalid raises in both cases.
+
 Hosted trees represent a single snapshot: explicit revisions other than `@main` use the existing model-resolution path rather than the hosted snapshot. `auto_detect_local=False` disables automatic model-source discovery. Clear the model cache after changing files in a hosted snapshot if you want to force fresh downloads.
 
 ```python
