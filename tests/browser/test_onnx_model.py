@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 import pytest
+from kernels import webgpu_args
 from playwright.sync_api import sync_playwright
 
 pytestmark = pytest.mark.browser
@@ -21,7 +22,7 @@ FIXTURE = FIXTURE_DIR / "scale_add.onnx"
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_bare_onnx_model_runs_in_browser(source_server, backend):
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(args=["--enable-unsafe-webgpu"] if backend == "webgpu" else [])
+        browser = playwright.chromium.launch(args=webgpu_args(backend))
         try:
             page = browser.new_page()
             page.set_default_timeout(120000)
@@ -170,7 +171,7 @@ def test_browser_matches_native_onnxruntime(source_server, backend, model_file, 
     expected = ort.InferenceSession(str(FIXTURE_DIR / model_file)).run(None, {"x": x, "b": b})[0]
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(args=["--enable-unsafe-webgpu"] if backend == "webgpu" else [])
+        browser = playwright.chromium.launch(args=webgpu_args(backend))
         try:
             page = browser.new_page()
             page.set_default_timeout(120000)
