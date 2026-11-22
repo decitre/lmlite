@@ -114,6 +114,82 @@ describe('Hosted model discovery', () => {
     await expect(getHostedModelBase('gpt2', 'https://example.test/models/')).rejects.toThrow('manifest request failed');
   });
 
+  describe('when the manifest request does not give a usable answer', () => {
+    const listed = () => new Response(JSON.stringify({ models: ['Xenova/gpt2'] }));
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      vi.stubGlobal('location', new URL('https://example.test/lab/index.html'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    // The retries wait between attempts, so run the timers, with the rejection handled as soon as it happens.
+    async function settle(promise) {
+      const outcome = promise.then((value) => ({ value }), (error) => ({ error }));
+      await vi.runAllTimersAsync();
+      return await outcome;
+    }
+
+    it('tries again after a 5xx and uses the manifest that follows', async () => {
+      const fetch = vi.fn()
+        .mockResolvedValueOnce(new Response('', { status: 503 }))
+        .mockResolvedValueOnce(new Response('', { status: 503 }))
+        .mockResolvedValueOnce(listed());
+      vi.stubGlobal('fetch', fetch);
+
+      expect((await settle(getHostedModelBase('gpt2'))).value).toBe('https://example.test/files/models/');
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it.each([
+      ['a 503', () => new Response('', { status: 503 })],
+      ['a network error', () => Promise.reject(new TypeError('NetworkError when attempting to fetch resource.'))],
+    ])('treats %s on the auto-discovered manifest as nothing hosted, with a warning', async (name, answer) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fetch = vi.fn(async () => answer());
+      vi.stubGlobal('fetch', fetch);
+
+      expect((await settle(getHostedModelBase('gpt2'))).value).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(warn.mock.calls[0][0]).toContain('loading from the Hub');
+    });
+
+    it('does not retry a 404, the normal answer of a site that hosts no models', async () => {
+      const fetch = vi.fn(async () => new Response('', { status: 404 }));
+      vi.stubGlobal('fetch', fetch);
+
+      expect((await settle(getHostedModelBase('gpt2'))).value).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('still reports an invalid manifest that did arrive, even when auto-discovered', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ models: [5] }))));
+
+      expect((await settle(getHostedModelBase('gpt2'))).error.message).toContain('Invalid hosted model manifest');
+    });
+
+    it('keeps raising for an explicit manifest URL that stays unavailable, after the same retries', async () => {
+      const fetch = vi.fn(async () => new Response('', { status: 503 }));
+      vi.stubGlobal('fetch', fetch);
+
+      expect((await settle(getHostedModelBase('gpt2', 'https://example.test/models/'))).error.message).toContain('manifest request failed: 503');
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('lets an explicit manifest URL recover from one network error', async () => {
+      const fetch = vi.fn()
+        .mockRejectedValueOnce(new TypeError('NetworkError'))
+        .mockResolvedValueOnce(listed());
+      vi.stubGlobal('fetch', fetch);
+
+      expect((await settle(getHostedModelBase('gpt2', 'https://example.test/models/'))).value).toBe('https://example.test/models/');
+    });
+  });
+
   it('falls back for models not listed in the manifest', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ models: ['org/other'] }))));
     expect(await getHostedModelBase('gpt2', 'https://example.test/models/')).toBeNull();
