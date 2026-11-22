@@ -81,3 +81,37 @@ def xeus_site(tmp_path_factory):
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+
+
+class _CorsHandler(http.server.SimpleHTTPRequestHandler):
+    """Static files that a page on another origin may fetch, as a hosted models site's files are."""
+
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture(scope="session")
+def hosted_speech_models(tmp_path_factory):
+    """A hosted models tree with Xenova/mms-tts-eng (its JSON files and quantized weights), served over HTTP."""
+    huggingface_hub = pytest.importorskip("huggingface_hub")
+    root = tmp_path_factory.mktemp("hosted-models")
+    huggingface_hub.snapshot_download(
+        "Xenova/mms-tts-eng",
+        local_dir=root / "Xenova/mms-tts-eng",
+        allow_patterns=["*.json", "onnx/model_quantized.onnx"],
+    )
+    (root / "manifest.json").write_text(json.dumps({"models": ["Xenova/mms-tts-eng"]}))
+    handler = functools.partial(_CorsHandler, directory=str(root))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()

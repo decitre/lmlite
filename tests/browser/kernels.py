@@ -15,12 +15,14 @@ TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "300000"))
 PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"
 
 
-def run_in_pyodide(source_server, code, packages=("tqdm",)):
+def run_in_pyodide(source_server, code, packages=("tqdm",), requests=None):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         try:
             page = browser.new_page()
             page.set_default_timeout(TIMEOUT)
+            if requests is not None:
+                page.on("request", lambda request: requests.append(request.url))
             page.goto(source_server, wait_until="domcontentloaded")
             page.add_script_tag(url=PYODIDE_URL)
             output = page.evaluate(
@@ -45,7 +47,7 @@ def run_in_pyodide(source_server, code, packages=("tqdm",)):
     return json.loads(line.removeprefix("RESULT"))
 
 
-def run_in_xeus(xeus_site, code):
+def run_in_xeus(xeus_site, code, requests=None):
     url = f"{xeus_site}/repl/index.html?kernel=xpython&execute=1&code={urllib.parse.quote(code)}"
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -53,6 +55,8 @@ def run_in_xeus(xeus_site, code):
             page = browser.new_page()
             console = []
             page.on("console", lambda message: console.append(f"{message.type}: {message.text[:300]}"))
+            if requests is not None:
+                page.on("request", lambda request: requests.append(request.url))
             page.goto(url)
             # The echoed input never contains 'RESULT{', so this waits for kernel output.
             try:

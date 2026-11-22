@@ -158,7 +158,7 @@ The opt-in `vision-notebook-smoke` task runs the object-detection cells of `ch08
 
 The opt-in `audio-smoke` task records with Chromium's fake microphone (a repeating beep): the recorder in `llm.js`, the widget's JavaScript on a page without lmLite, and (with `pixi run -e xeus-site audio-smoke`) the widget in a real xeus-python kernel, from a click on Record and Stop to `await recorder.wait()`. No real microphone, tablet or Safari is involved, so those stay untested.
 
-The opt-in `speech-smoke` task runs text to speech with `Xenova/mms-tts-eng` (override with `LMLITE_TEST_SPEECH_MODEL`): the samples crossing the bridge as one buffer in Chromium, `LLM.model_info()` for the task, and the `Speech` object in Pyodide (without NumPy) and, with `pixi run -e xeus-site speech-smoke`, in xeus-python (with NumPy).
+The opt-in `speech-smoke` task runs text to speech with `Xenova/mms-tts-eng` (override with `LMLITE_TEST_SPEECH_MODEL`): the samples crossing the bridge as one buffer in Chromium, `LLM.model_info()` for the task, and the `Speech` object in Pyodide (without NumPy) and, with `pixi run -e xeus-site speech-smoke`, in xeus-python (with NumPy). It also downloads the model's files once into a temporary hosted tree, served with CORS headers by a local server, and loads the pipeline from it in Chromium, Pyodide and xeus-python, checking that no request goes to huggingface.co.
 
 The opt-in `map-smoke` task checks `Pipeline.map()` with real models: batches against single calls, progress, `on_error` and cancelling in Chromium, and the bridge's progress callback in Pyodide and (with `pixi run -e xeus-site map-smoke`) in xeus-python.
 
