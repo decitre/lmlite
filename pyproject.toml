@@ -145,6 +145,7 @@ uv = "*"
 
 [tool.pixi.feature.dev.dependencies]
 anywidget = "*"  # the audio recorder tests
+pillow = "*"  # the tests of the notebooks that decode and draw images
 pytest = "*"
 pytest-asyncio = "*"
 pytest-cov = "*"
@@ -224,6 +225,7 @@ audio-smoke = "pytest tests/browser/test_audio.py -m browser -v"
 vision-notebook-smoke = "pytest tests/browser/test_vision_notebook.py -m browser -v"
 image-output-smoke = "pytest tests/browser/test_image_outputs.py -m browser -v"
 text-to-image-smoke = "pytest tests/browser/test_text_to_image.py -m browser -v"
+lab-smoke = "pytest tests/browser/test_lab_notebooks.py -m browser -v"
 native-parity = "pytest tests/browser/test_native_parity.py -m browser -v"
 generate-tokenizer-fixture = "python scripts/generate_tokenizer_fixture.py"
 coverage = "coverage run -m pytest --ignore=tests/test_notebooks.py --ignore=tests/browser -m 'not browser' && coverage report -m"

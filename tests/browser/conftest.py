@@ -54,6 +54,8 @@ def xeus_site(tmp_path_factory):
     shutil.copytree(TOKENIZER_FIXTURE_DIR, models / "lmlite/tiny-unigram")
     (models / "manifest.json").write_text(json.dumps({"models": ["lmlite/tiny-unigram"]}))
     shutil.copytree(ONNX_FIXTURE_DIR, root / "content/onnx")
+    for notebook in (REPO_ROOT / "notebooks").glob("*.ipynb"):  # for the tests that open them in Lab
+        shutil.copy(notebook, root / "content" / notebook.name)
     (root / "environment.yml").write_text(ENVIRONMENT)
     subprocess.run(
         [
@@ -106,6 +108,21 @@ def hosted_speech_models(tmp_path_factory):
     )
     (root / "manifest.json").write_text(json.dumps({"models": ["Xenova/mms-tts-eng"]}))
     handler = functools.partial(_CorsHandler, directory=str(root))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+@pytest.fixture(scope="session")
+def hosted_onnx_models():
+    """The hosted ONNX fixture tree (a manifest and lmlite/scale-add/model.onnx), served with CORS headers."""
+    handler = functools.partial(_CorsHandler, directory=str(ONNX_FIXTURE_DIR / "hosted"))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
