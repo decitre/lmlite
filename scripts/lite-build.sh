@@ -180,7 +180,8 @@ process_for_pyodide() {
       jupyter_server jupyterlab_server jupyterlite-core "jupyterlite-pyodide-kernel~=0.8.6" libarchive-c
 
     printf "${YELLOW}Build lmlite wheel${NC}\n"
-    $PYTHON_CMD -m build "$ROOT_DIR" --wheel --outdir "$PYODIDE_WORKSPACE" --skip-dependency-check
+    # The venv's python: `build` was installed into it above, and $PYTHON_CMD is the python outside it.
+    python -m build "$ROOT_DIR" --wheel --outdir "$PYODIDE_WORKSPACE" --skip-dependency-check
 
     printf "${YELLOW}Copy static content for jupyterlite-pyodide site${NC}\n"
     cp "$NOTEBOOKS_DIR"/*.ipynb "$PYODIDE_WORKSPACE"
