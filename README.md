@@ -14,7 +14,7 @@
 
 # lmLite
 
-Package version: `0.12.1`
+Package version: `0.13.0`
 
 **A Python bridge to Transformers.js for JupyterLite** — run language models, embeddings, vision, speech and bare ONNX models entirely in your browser.
 
