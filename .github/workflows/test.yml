@@ -168,7 +168,7 @@ jobs:
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.11.2
         with:
-          environments: default
+          environments: default docs
 
       # The month matches lite-build.sh's monthly xeus environment, so each new one is saved.
       - name: Get month
@@ -187,6 +187,10 @@ jobs:
           pixi run jupyterlite || true
           ls -la workspace
           mv workspace/public .
+
+      # The docs go at the site root, next to xeus/ and pyodide/; -W fails the job on a broken link or anchor.
+      - name: Build the docs into the page
+        run: pixi run --environment docs sphinx-build -W -b html -d "$RUNNER_TEMP/doctrees" docs public
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
