@@ -277,6 +277,8 @@ llm = await LLM.create(
 )
 ```
 
+When a generator or task model fails to load, the `RuntimeError` keeps the runtime's own message and adds the stage (`load`, or `warm up` for the one-token test that follows a generator load), the backend, the dtypes tried and the Transformers.js and onnxruntime-web versions. A message that says the runtime ran out of memory (for example `RangeError: Out of memory` on WASM) means the model is too large for the browser or device, not that it is unsupported: try a smaller model or dtype, close other tabs or reload. Embedding and classification models keep their shorter messages.
+
 ### Hosted Models Discovery
 
 Hosted models are discovered from the browser kernel's JupyterLite URL. If your kernel uses a URL that cannot identify the site root (for example, a blob URL), pass `hosted_models_url="https://your-host/path/to/site/files/models/"` to `LLM.create(...)`.

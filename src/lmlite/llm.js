@@ -6,6 +6,27 @@ const DEFAULT_MODEL_NAMESPACE = 'Xenova';
 const TRANSFORMERS_VERSION = '4.3.2';
 const TRANSFORMERS_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSFORMERS_VERSION}`;
 
+// What the runtimes in this project report when they cannot allocate memory (WASM RangeError, ONNX Runtime
+// allocation failures, the WebGPU buffer limit).
+const MEMORY_ERROR = /out of memory|failed to allocate|bad_alloc/i;
+
+// The error for a model that failed to load or to warm up: it keeps the runtime's own message, and names the stage,
+// the backend, the dtypes tried and the runtime versions, with advice that fits the failure.
+function loadFailure({ stage, what, model, backend, error, env }) {
+  const message = String(error?.message ?? error);
+  const dtypes = error?.dtypesTried?.length ? `, dtype ${error.dtypesTried.join(' then ')}` : '';
+  const onnxVersion = env?.backends?.onnx?.versions?.web;
+  const runtime = `Transformers.js ${TRANSFORMERS_VERSION}${onnxVersion ? `, onnxruntime-web ${onnxVersion}` : ''}`;
+  const advice = MEMORY_ERROR.test(message)
+    ? 'The runtime ran out of memory, which usually means the model is too large for this browser or device, ' +
+      'not that it is unsupported. Try a smaller model or dtype (for example q4), close other tabs, or reload the page to free memory.'
+    : stage === 'warm up'
+      ? 'The model loaded but could not generate one token, so it may not be supported by this runtime or backend.'
+      : `This model may not be supported by the current Transformers.js browser runtime or backend '${backend}'. ` +
+        'Check the WebGPU guide and model/dtype availability in the Transformers.js docs before picking a model.';
+  return new Error(`Failed to ${stage} ${what} model '${model}': ${message}. ${advice} (backend '${backend}'${dtypes}; ${runtime})`);
+}
+
 // Transformers.js tasks exposed through the generic pipeline interface.
 // Generation, embeddings and text classification keep their dedicated methods.
 // Tasks that return images (the others return labels, boxes and vectors); their inputs are images too.
@@ -448,7 +469,9 @@ class BrowserLLM {
 
   async _loadPipelineWithDtypeFallback(pipelineFn, task, modelId, extraOptions, dtypes = DEFAULT_DTYPES) {
     let lastError;
+    const tried = [];
     for (const dtype of this._resolveDtypes(dtypes)) {
+      tried.push(dtype);
       try {
         return await pipelineFn(task, modelId, { ...extraOptions, dtype });
       } catch (error) {
@@ -457,11 +480,11 @@ class BrowserLLM {
           console.warn(`dtype '${dtype}' not available for ${modelId}, trying next…`);
           lastError = error;
         } else {
-          throw error;
+          throw Object.assign(error, { dtypesTried: tried });
         }
       }
     }
-    throw lastError;
+    throw Object.assign(lastError, { dtypesTried: tried });
   }
 
   async init(progressCallback = null) {
@@ -514,6 +537,7 @@ class BrowserLLM {
       : {};
 
     if (this.generatorModel) {
+      let stage = 'load';
       try {
         const generatorModelId = resolveModelId(this.generatorModel).replace(/@main$/, '');
         report(generatorModelId, 'loading');
@@ -532,15 +556,11 @@ class BrowserLLM {
         console.log(`Model loaded successfully: ${this.generatorModel}`);
         console.log(`Warming up model...`);
         report(generatorModelId, 'warming up');
+        stage = 'warm up';
         await this.generator("test", { max_new_tokens: 1 });
         console.log(`Model warm-up complete`);
       } catch (error) {
-        const errorMessage = String(error?.message ?? error);
-        throw new Error(
-          `Failed to load text-generation model '${this.generatorModel}': ${errorMessage}. ` +
-          `This model may not be supported by the current Transformers.js browser runtime or backend '${this.backend}'. ` +
-          `Check the WebGPU guide and model/dtype availability in the Transformers.js docs before picking a model.`
-        );
+        throw loadFailure({ stage, what: 'text-generation', model: this.generatorModel, backend: this.backend, error, env });
       }
     }
 
@@ -620,10 +640,7 @@ class BrowserLLM {
         );
         console.log(`${this.task} model loaded successfully: ${this.taskModel}`);
       } catch (error) {
-        throw new Error(
-          `Failed to load ${this.task} model '${this.taskModel}': ${String(error?.message ?? error)}. ` +
-          `This model may not be supported by the current Transformers.js browser runtime or backend '${this.backend}'.`
-        );
+        throw loadFailure({ stage: 'load', what: this.task, model: this.taskModel, backend: this.backend, error, env });
       }
     }
     report('', 'ready');
