@@ -151,7 +151,7 @@ process_for_xeus() {
     local xeus_cache="$JL_FORGE_CACHE/xeus-$(date +%Y-%m)"
     find "$JL_FORGE_CACHE" -mindepth 1 -maxdepth 1 -name 'xeus*' ! -path "$xeus_cache" -exec rm -rf {} +
     XEUS_PREFIX=$(jl-forge xeus-env --cache-dir "$xeus_cache" --pyproject "$ROOT_DIR/pyproject.toml" \
-        --extras images audio)
+        --extras images audio camera)
 
     jupyter lite build \
         --contents "$XEUS_WORKSPACE" \
@@ -179,7 +179,7 @@ process_for_pyodide() {
     # uv: jl-forge 0.8's pyodide-wheels needs it (the `pyodide` extra adds it; written out so the jl-forge pin stays
     # on one line). The audio extra puts anywidget in this venv: piplite installs the package in the browser, but
     # the build copies its widget frontend from the venv, and without it the recorder widget does not render.
-    $pip_cmd install build uv "jl-forge$JL_FORGE_VERSION" -e '..[audio]' \
+    $pip_cmd install build uv "jl-forge$JL_FORGE_VERSION" -e '..[audio,camera]' \
       jupyter_server jupyterlab_server jupyterlite-core "jupyterlite-pyodide-kernel~=0.8.6" libarchive-c
 
     printf "${YELLOW}Build lmlite wheel${NC}\n"
@@ -191,7 +191,7 @@ process_for_pyodide() {
 
     printf "${YELLOW}Generate install.py and patch notebooks${NC}\n"
     jl-forge pyodide-install --pyproject "$ROOT_DIR/pyproject.toml" \
-        --package-name lmlite --wheel-dir "$PYODIDE_WORKSPACE" --extras images audio
+        --package-name lmlite --wheel-dir "$PYODIDE_WORKSPACE" --extras images audio camera
     jl-forge notebooks "$PYODIDE_WORKSPACE" --pyodide-install
 
     ls -l "$PYODIDE_WORKSPACE"
@@ -199,10 +199,10 @@ process_for_pyodide() {
     printf "${YELLOW}Bundle PyPI wheels and self-hosted Pyodide${NC}\n"
     # jupyter lite build indexes <lite-dir>/pypi, so piplite installs these from the site.
     jl-forge pyodide-wheels --pyproject "$ROOT_DIR/pyproject.toml" \
-        --cache-dir "$JL_FORGE_CACHE" --out-dir "$WORKSPACE/lite-pyodide/pypi" --extras images audio
+        --cache-dir "$JL_FORGE_CACHE" --out-dir "$WORKSPACE/lite-pyodide/pypi" --extras images audio camera
     # --wheels-dir keeps the Pyodide packages the bundled wheels need (anywidget needs typing_extensions), so the
     # site fetches nothing from PyPI.
-    PYODIDE_DIST=$(jl-forge pyodide-dist --pyproject "$ROOT_DIR/pyproject.toml" --extras images audio \
+    PYODIDE_DIST=$(jl-forge pyodide-dist --pyproject "$ROOT_DIR/pyproject.toml" --extras images audio camera \
         --wheels-dir "$WORKSPACE/lite-pyodide/pypi" \
         --cache-dir "$JL_FORGE_CACHE/pyodide" --out "$WORKSPACE/pyodide-dist.tar.bz2")
 

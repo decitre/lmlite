@@ -72,4 +72,19 @@ A notebook kernel runs in a Web Worker, which cannot open the microphone, so the
 
 The recording reaches the kernel as base64 text in the `recording` trait (`audio` is the decoded bytes), because in xeus-python a binary trait set by the browser never arrives.
 
+## Taking a photo with the camera
+
+`lmlite.camera.CameraCapture` is an [anywidget](https://anywidget.dev/) with Start camera, Take photo and Stop camera buttons and a Rear/Front choice, for notebooks on a laptop, tablet or phone. Install it with `pip install 'lmlite[camera]'` (a JupyterLite site build takes the same extra, and `lite-build.sh` does).
+
+```python
+from lmlite.camera import CameraCapture
+
+camera = CameraCapture()
+camera                              # Start camera, aim, Take photo
+jpeg = await camera.wait()          # the last photo, waiting for one if there is none (camera.clear() to forget it)
+detections = await detector(jpeg, threshold=0.6)   # any image pipeline takes the bytes
+```
+
+The photo is a JPEG of at most 1024 pixels on the longer side, taken from the page's video preview. A notebook kernel runs in a Web Worker, which cannot open the camera, so the widget works on the page, as `AudioRecorder` does. The page must be on HTTPS or localhost, and the browser asks for camera permission the first time. "Rear camera" is a preference: a device with one camera uses it. `camera.info` holds the photo's `width`, `height` and `bytes`. The photo reaches the kernel as base64 text in the `photo` trait (`image` is the decoded bytes), for the same reason as the recording. The widget shows one photo at a time and has no live detection: each detection is one call to the pipeline, which takes a few seconds with `detr-resnet-50` on WebAssembly.
+
 Expect a pipeline in a browser kernel to be slower than native inference, especially sequence-to-sequence tasks (translation and speech recognition), which decode token by token. WebGPU can help when the browser, model and dtype support it. Each pipeline holds its own model in browser memory; call `dispose()` before loading the next one.
