@@ -7,8 +7,8 @@
 [![Tests][ci-badge]][ci-url]
 [![codecov-python][codecov-python-badge]][codecov-url]
 [![codecov-js][codecov-js-badge]][codecov-url]
-[![Docs][docs-badge]][docs-url]
 [![Transformers.js][transformers-badge]][transformers-url]
+[![Docs][docs-badge]][docs-url]
 [![Try xeus-python][xeus-badge]][xeus-url]
 [![Try Pyodide][pyodide-badge]][pyodide-url]
 
