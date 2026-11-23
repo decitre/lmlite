@@ -255,17 +255,17 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
 
     browser.eval = js_eval
     monkeypatch.setitem(sys.modules, "js", browser)
-    if path.name == "ch08b_vision.ipynb":
+    if path.name == "ch09_vision.ipynb":
         _fake_commons(monkeypatch)
         random.seed(0)
-    if path.name == "ch08e_microphone.ipynb":
+    if path.name == "ch13_microphone.ipynb":
         _fake_microphone(monkeypatch)
-    if path.name == "ch08h_camera.ipynb":
+    if path.name == "ch11_camera.ipynb":
         _fake_camera(monkeypatch)
     onnx_models = []
-    if path.name == "ch08c_onnx-models.ipynb":
+    if path.name == "ch14_onnx-models.ipynb":
         onnx_models = _fake_onnx_notebook_world(monkeypatch)
-    if path.name == "ch08g_text-to-image.ipynb":
+    if path.name == "ch15_text-to-image.ipynb":
         onnx_models = _fake_diffusion_models(monkeypatch)
     notebook = json.loads(path.read_text())
     namespace = {}
@@ -281,7 +281,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         result = eval(code, namespace)
         if inspect.isawaitable(result):
             await result
-    if path.name == "ch08g_text-to-image.ipynb":
+    if path.name == "ch15_text-to-image.ipynb":
         import io
 
         from PIL import Image
@@ -291,7 +291,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert Image.open(io.BytesIO(namespace["png"])).size == (512, 512)
         assert set(namespace["seconds"]) == {"text encoder", "unet", "decoder", "total"}
         assert set(namespace["load_seconds"]) == {"text_encoder", "unet", "vae_decoder"}
-    if path.name == "ch08f_image-outputs.ipynb":
+    if path.name == "ch10_image-outputs.ipynb":
         assert [instance.config["task"] for instance in instances] == [
             "background-removal",
             "depth-estimation",
@@ -299,20 +299,20 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             "image-to-image",
         ]
         assert namespace["png_size"](namespace["larger"]) == (1224, 408) and len(namespace["segments"]) == 2
-    if path.name == "ch08h_camera.ipynb":
+    if path.name == "ch11_camera.ipynb":
         assert [instance.config["task"] for instance in instances] == ["object-detection"]
         assert namespace["photo"].size == (64, 48) and namespace["detections"] and instances[0].disposed
-    if path.name == "ch08e_microphone.ipynb":
+    if path.name == "ch13_microphone.ipynb":
         assert [instance.config["task"] for instance in instances] == ["automatic-speech-recognition"]
         assert namespace["wav"][:4] == b"RIFF" and namespace["result"]["text"] == "Example transcript."
-    if path.name == "ch08d_speech.ipynb":
+    if path.name == "ch12_speech.ipynb":
         assert [instance.config["task"] for instance in instances] == ["text-to-speech"]
         assert namespace["progress"] == ["1/3", "2/3", "3/3"] and len(namespace["clips"]) == 3
         assert namespace["wav"][:4] == b"RIFF" and namespace["speech"].sampling_rate == 16000
-    if path.name == "ch08c_onnx-models.ipynb":
+    if path.name == "ch14_onnx-models.ipynb":
         assert len(namespace["faces"]) == 1  # the overlapping box was suppressed
         assert namespace["author"] == "Ann Author"
-    if path.name == "ch09_orchestration.ipynb":
+    if path.name == "ch16_orchestration.ipynb":
         panel = namespace["panel"]
         panel.question.value = "<script>alert('test')</script>"
         panel.send.click()
@@ -381,7 +381,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert instances[0].config["backend"] == "wasm"
     if path.name in {
         "ch01_demo.ipynb",
-        "ch09_orchestration.ipynb",
+        "ch16_orchestration.ipynb",
         "ch04_generation-tinyllama.ipynb",
         "ch05_generation-lamini.ipynb",
     }:
@@ -389,27 +389,27 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     if path.name == "ch99_model-info.ipynb":
         assert callable(instances[0].config["progress_callback"])
         assert hosted_checks == ["Xenova/distilgpt2"]
-    if path.name == "ch10_streaming.ipynb":
+    if path.name == "ch17_streaming.ipynb":
         assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-135M-Instruct"
         assert len(namespace["chunks"]) > 1
         assert namespace["task"].result() == ["Example "]
-    if path.name == "ch11_token-scores.ipynb":
+    if path.name == "ch18_token-scores.ipynb":
         assert instances[0].config["do_sample"] is False
         assert namespace["runner_ups"] == [{"text": " alt", "prob": 0.3}] * 2
-    if path.name == "ch12_tokenizers.ipynb":
+    if path.name == "ch19_tokenizers.ipynb":
         assert not instances, "The tokenizer notebook must not load model weights"
         assert [t.model for t in tokenizers] == [
             "gpt2",
             "Xenova/bert-base-multilingual-cased",
             "minishlab/potion-base-8M",
         ]
-    if path.name == "ch13_webgpu.ipynb":
+    if path.name == "ch20_webgpu.ipynb":
         assert [instance.config["backend"] for instance in instances] == ["webgpu", "wasm"]
         assert instances[0].config["dtype"] == instances[1].config["dtype"] and prompts[0] == prompts[1]
     if path.name == "ch08_tasks.ipynb":
         tasks = [instance.config["task"] for instance in instances]
         assert tasks == ["zero-shot-classification", "translation", "automatic-speech-recognition"]
-    if path.name == "ch08b_vision.ipynb":
+    if path.name == "ch09_vision.ipynb":
         # Run the picking cell again: no photo repeats until all 36 have been shown, then it starts over.
         cell = next(
             "".join(cell["source"])
@@ -439,7 +439,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             "image-feature-extraction",
             "object-detection",
         ]
-    if path.name == "ch09_orchestration.ipynb":
+    if path.name == "ch16_orchestration.ipynb":
         assert instances[0].config["generator_model"] == "HuggingFaceTB/SmolLM2-360M-Instruct"
         assert instances[0].config["backend"] == "wasm"
         assert chats

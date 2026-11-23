@@ -52,7 +52,7 @@ def in_lab(xeus_site, notebook, action=None, args=(), permissions=(), browser_na
 
 @pytest.mark.parametrize("browser_name", BROWSERS)
 def test_image_outputs_notebook_shows_its_images(xeus_site, browser_name):
-    shown = in_lab(xeus_site, "ch08f_image-outputs.ipynb", browser_name=browser_name)
+    shown = in_lab(xeus_site, "ch10_image-outputs.ipynb", browser_name=browser_name)
 
     assert shown["errors"] == []
     loaded = [image for image in shown["images"] if image["width"] > 0]
@@ -66,7 +66,7 @@ def test_image_outputs_notebook_shows_its_images(xeus_site, browser_name):
 
 @pytest.mark.parametrize("browser_name", BROWSERS)
 def test_speech_notebook_shows_audio_players_that_decode(xeus_site, browser_name):
-    shown = in_lab(xeus_site, "ch08d_speech.ipynb", browser_name=browser_name)
+    shown = in_lab(xeus_site, "ch12_speech.ipynb", browser_name=browser_name)
 
     assert shown["errors"] == []
     # the sentence, then one player per mapped sentence
@@ -87,7 +87,7 @@ def test_microphone_notebook_records_in_the_widget_and_transcribes(xeus_site, br
         stop.click()
 
     shown = in_lab(
-        xeus_site, "ch08e_microphone.ipynb", record_when_the_widget_shows, FAKE_MICROPHONE, ["microphone"], browser_name
+        xeus_site, "ch13_microphone.ipynb", record_when_the_widget_shows, FAKE_MICROPHONE, ["microphone"], browser_name
     )
 
     assert shown["errors"] == []
@@ -115,7 +115,7 @@ def test_camera_notebook_takes_a_photo_in_the_widget_and_detects_objects(xeus_si
 
     shown = in_lab(
         xeus_site,
-        "ch08h_camera.ipynb",
+        "ch11_camera.ipynb",
         take_a_photo_when_the_widget_shows,
         [*FAKE_MICROPHONE, f"--use-file-for-fake-video-capture={cats}"],
         ["camera"],

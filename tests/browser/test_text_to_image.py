@@ -23,7 +23,7 @@ from kernels import run_in_pyodide, run_in_xeus
 
 pytestmark = pytest.mark.browser
 
-NOTEBOOK = Path(__file__).resolve().parents[2] / "notebooks/ch08g_text-to-image.ipynb"
+NOTEBOOK = Path(__file__).resolve().parents[2] / "notebooks/ch15_text-to-image.ipynb"
 HUB_URL = "https://huggingface.co/schmuell/sd-turbo-ort-web/resolve/main"
 DEFAULT_ARGS = "--enable-unsafe-webgpu --enable-gpu --ignore-gpu-blocklist" + (
     " --use-angle=metal" if sys.platform == "darwin" else ""
