@@ -53,6 +53,8 @@ native = ["onnxruntime", "tokenizers", "huggingface_hub", "numpy"]
 images = ["numpy", "pillow>=10.1"]  # 10.1 adds ImageFont.load_default_imagefont()
 # The microphone recorder widget for notebooks.
 audio = ["anywidget"]
+# The camera widget for notebooks.
+camera = ["anywidget"]
 
 [project.scripts]
 lmlite-models = "lmlite.model_assets:main"
@@ -232,6 +234,7 @@ onnx-map-smoke = "pytest tests/browser/test_onnx_map.py -m browser -v"
 map-smoke = "pytest tests/browser/test_map.py -m browser -v"
 speech-smoke = "pytest tests/browser/test_speech.py -m browser -v"
 audio-smoke = "pytest tests/browser/test_audio.py -m browser -v"
+camera-smoke = "pytest tests/browser/test_camera.py -m browser -v"
 vision-notebook-smoke = "pytest tests/browser/test_vision_notebook.py -m browser -v"
 image-output-smoke = "pytest tests/browser/test_image_outputs.py -m browser -v"
 text-to-image-smoke = "pytest tests/browser/test_text_to_image.py -m browser -v"

@@ -260,6 +260,8 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         random.seed(0)
     if path.name == "ch08e_microphone.ipynb":
         _fake_microphone(monkeypatch)
+    if path.name == "ch08h_camera.ipynb":
+        _fake_camera(monkeypatch)
     onnx_models = []
     if path.name == "ch08c_onnx-models.ipynb":
         onnx_models = _fake_onnx_notebook_world(monkeypatch)
@@ -297,6 +299,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             "image-to-image",
         ]
         assert namespace["png_size"](namespace["larger"]) == (1224, 408) and len(namespace["segments"]) == 2
+    if path.name == "ch08h_camera.ipynb":
+        assert [instance.config["task"] for instance in instances] == ["object-detection"]
+        assert namespace["photo"].size == (64, 48) and namespace["detections"] and instances[0].disposed
     if path.name == "ch08e_microphone.ipynb":
         assert [instance.config["task"] for instance in instances] == ["automatic-speech-recognition"]
         assert namespace["wav"][:4] == b"RIFF" and namespace["result"]["text"] == "Example transcript."
@@ -477,6 +482,24 @@ def _fake_microphone(monkeypatch):
         return buffer.getvalue()
 
     monkeypatch.setattr("lmlite.audio.AudioRecorder.wait", wait)
+
+
+def _fake_camera(monkeypatch):
+    """The camera widget hands over a small JPEG, as if the user had started the camera and taken a photo."""
+    pytest.importorskip("anywidget")
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 48), "gray").save(buffer, format="JPEG")
+
+    async def wait(self):
+        self.info = {"width": 64, "height": 48, "bytes": len(buffer.getvalue())}
+        return buffer.getvalue()
+
+    monkeypatch.setattr("lmlite.camera.CameraCapture.wait", wait)
 
 
 def _fake_onnx_notebook_world(monkeypatch):

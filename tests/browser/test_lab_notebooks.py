@@ -3,6 +3,9 @@
 
 """Notebooks in the real JupyterLab UI of the xeus-python site: what a reader sees (needs network access)."""
 
+import re
+import urllib.request
+
 import lab
 import pytest
 from playwright.sync_api import sync_playwright
@@ -11,6 +14,7 @@ pytestmark = pytest.mark.browser
 
 FAKE_MICROPHONE = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"]
 FIREFOX_PREFS = {"media.navigator.streams.fake": True, "media.navigator.permission.disabled": True}
+CATS_URL = "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/cats.jpg"
 BROWSERS = ["chromium", "firefox"]  # Firefox is the reporter's browser; Safari is not covered
 
 
@@ -91,3 +95,36 @@ def test_microphone_notebook_records_in_the_widget_and_transcribes(xeus_site, br
     assert " s of audio, " in text and "peak " in text and "raw input: False" in text
     assert "silent" not in text  # the fake microphone beeps
     assert len(shown["audios"]) == 1 and shown["audios"][0]["error"] is None  # the player for the recording
+
+
+@pytest.mark.parametrize("browser_name", BROWSERS)
+def test_camera_notebook_takes_a_photo_in_the_widget_and_detects_objects(xeus_site, browser_name, tmp_path):
+    cats = (
+        tmp_path / "cats.mjpeg"
+    )  # Chromium plays one JPEG as a still camera picture; Firefox's fake camera is a pattern
+    cats.write_bytes(urllib.request.urlopen(CATS_URL).read())
+
+    def take_a_photo_when_the_widget_shows(page):
+        lab.run_all(page)
+        page.get_by_role("button", name="Start camera", exact=True).click()  # the anywidget, rendered in Lab
+        take = page.get_by_role("button", name="Take photo", exact=True)
+        page.wait_for_function(
+            "[...document.querySelectorAll('button')].some(b => b.textContent === 'Take photo' && !b.disabled)"
+        )
+        take.click()
+
+    shown = in_lab(
+        xeus_site,
+        "ch08h_camera.ipynb",
+        take_a_photo_when_the_widget_shows,
+        [*FAKE_MICROPHONE, f"--use-file-for-fake-video-capture={cats}"],
+        ["camera"],
+        browser_name,
+    )
+
+    assert shown["errors"] == []
+    text = "".join(shown["text"])
+    assert " pixels, " in text and " bytes" in text
+    assert all(image["width"] > 0 for image in shown["images"]) and len(shown["images"]) >= 3  # preview, photo, boxes
+    if browser_name == "chromium":
+        assert len(re.findall(r"cat \d\.\d\d", text)) == 2 and "couch" in text  # the fake camera shows the cats photo
