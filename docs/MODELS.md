@@ -110,7 +110,7 @@ Each task below was run with the model in the table, in a real browser, by the o
 
 | Model | What it is | Licence | Where |
 |-------|-----------|---------|-------|
-| [UltraFace `version-RFB-320.onnx`](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB) | 1.2 MB face detector, `(1, 3, 240, 320)` float32 in, scores and boxes out | MIT | `ch08c_onnx-models.ipynb`, `onnx-notebook-smoke` |
+| [UltraFace `version-RFB-320.onnx`](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB) | 1.2 MB face detector, `(1, 3, 240, 320)` float32 in, scores and boxes out | MIT | `ch14_onnx-models.ipynb`, `onnx-notebook-smoke` |
 | `tests/fixtures/onnx/scale_add.onnx` and `scale_add_fp16.onnx` | 150-byte `y = x * 2 + b` models with a dynamic batch dimension | repository licence | `onnx-smoke`, `xeus-onnx-smoke` |
 
 Limits: a model with external data files (`.onnx_data`) is not supported, and the whole file must fit in browser memory (a single file over 2 GB cannot load at all). `float16` models run on WASM, and on WebGPU only where the adapter has `shader-f16`. The licence of a bare `.onnx` file is often missing: pass `licence="..."` to `OnnxModel.load()` and read it back from `model_info()`. Some popular detector weights are for non-commercial research only, so check before you ship one.
@@ -119,7 +119,7 @@ To host a bare model with a site, put it at `files/models/<namespace>/<model>/mo
 
 ## Text to image: a recipe, not a pipeline task
 
-Transformers.js 4.3.2 has no text-to-image task, so `LLM.pipeline()` cannot offer one. [`ch08g_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch08g_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `LLM.tokenizer`, three ONNX models on WebGPU, and the scheduler in NumPy.
+Transformers.js 4.3.2 has no text-to-image task, so `LLM.pipeline()` cannot offer one. [`ch15_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch15_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `LLM.tokenizer`, three ONNX models on WebGPU, and the scheduler in NumPy.
 
 | Model | Licence | Files |
 |-------|---------|-------|
