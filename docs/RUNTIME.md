@@ -81,6 +81,24 @@ Model preparation does work outside the browser. The `lmlite-models` CLI and
 assets for static hosting or ZIP portability without performing inference.
 They can be used from desktop Python or CI independently of JupyterLite.
 
+## Choosing a kernel: xeus-python or Pyodide
+
+lmLite runs the same Python API on both, and both are covered by the browser tests (see [DEVELOPMENT.md](DEVELOPMENT.md)). The model code is the same JavaScript (`llm.js`, Transformers.js, ONNX Runtime Web) in both, so inference speed does not depend on the kernel.
+
+| | xeus-python | Pyodide |
+|:--|:--|:--|
+| What it is | CPython built with emscripten, packages from the emscripten-forge conda channel, bridged with `pyjs` | CPython built with emscripten, wheels from the Pyodide distribution and PyPI, bridged with `pyodide.ffi` |
+| Cross-origin isolation (multi-threaded WASM) | works with pyjs 4.1.0 or later (jl-forge 0.6.0 and later); 137 ms to 50 ms on a long input | works; the same 2.5 to 3.5 times speedup (see [NATIVE.md](NATIVE.md)) |
+| Python call overhead | about 0.05 ms per `encode()` | about 0.02 ms per `encode()` |
+| Differences lmLite works around | a function passed to JavaScript is an object, not a callable; binary widget traits set by the browser never reach the kernel (the microphone recording travels as base64); loading a FreeType font hangs (use `ImageFont.load_default_imagefont()`) | none found so far |
+| Site build | `jl-forge` solves a conda environment on the first build | `jl-forge` with `uv` and the wheels in `pyproject.toml`; the site fetches nothing from PyPI |
+
+Both kernels need the same things from the host: the page's service worker proxies cross-origin requests, so headers for isolation have to come from the server (GitHub Pages cannot send them).
+
+**Recommendation.** Use xeus-python by default: it is the kernel of the hosted demos and of most tests (the real JupyterLab UI test, `lab-smoke`, runs on it). Use Pyodide when you want the smallest differences from desktop Python: an install of any pure-Python wheel from PyPI at run time, no workarounds in widget or font code, and a site build without a conda solve. The workarounds above are in lmLite and the notebooks, so a notebook of this project runs on either.
+
+Not measured: kernel start-up time, the size of each site, and memory use of the kernel itself. Measure those with your own notebooks before choosing on size or start-up.
+
 ## Browsers tested
 
 - **Chromium and Firefox:** the notebooks for images, speech and the microphone run in the real JupyterLab UI with xeus-python (`lab-smoke`, with Playwright's browsers; see [DEVELOPMENT.md](DEVELOPMENT.md)). A user report adds stock Firefox 159 on an Apple-silicon Mac: model downloads, text to speech and the text-to-image recipe on WebGPU worked.
