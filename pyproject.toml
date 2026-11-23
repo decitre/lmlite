@@ -187,6 +187,15 @@ xeus-tokenizer-smoke = "pytest tests/browser/test_tokenizer_xeus.py -m browser -
 xeus-onnx-smoke = "pytest tests/browser/test_onnx_model_xeus.py -m browser -v -s"
 onnx-notebook-smoke = "pytest tests/browser/test_onnx_notebook.py -m browser -v -s"
 
+[tool.pixi.feature.docs.pypi-dependencies]
+sphinx = "*"
+furo = "*"
+myst-parser = "*"
+
+[tool.pixi.feature.docs.tasks]
+# Warnings are errors: a broken link or anchor fails the build.
+docs = "sphinx-build -W -b html docs docs/_build"
+
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
 
@@ -197,6 +206,7 @@ python = "3.13.*"
 default = ["dev"]
 model-fixture = ["dev", "model-fixture"]
 xeus-site = ["dev", "xeus-site"]
+docs = ["py313", "docs"]
 py311 = ["py311", "dev"]
 py312 = ["py312", "dev"]
 py313 = ["py313", "dev"]
