@@ -54,11 +54,17 @@ embedding = await llm.embed("Hello world")
 docs = ["JupyterLite runs in the browser.", "Python is widely used for ML."]
 results = await llm.similarity_search("Where does JupyterLite run?", docs)
 print(results)
+
+# Any Transformers.js task is an awaitable callable: here, the objects in a photo
+detector = await LLM.pipeline("object-detection", model="detr-resnet-50")
+detections = await detector("https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/cats.jpg", threshold=0.6)
+print(detections)  # [{'label': 'cat', 'score': 1.0, 'box': {'xmin': ..., ...}}, ...]
 ```
 
 ## Features
 
 - **Browser-native**: Run LLMs entirely in the browser, no server required
+- **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection), image-output tasks (background removal, depth estimation, image segmentation, image-to-image), text to speech via `LLM.pipeline(task, model=...)`, over many inputs with `pipe.map()` (batches, progress, cancel)
 - **Instruction-tuned models**: Chat and instruction-following with browser-compatible models such as SmolLM2-360M-Instruct.
 - **Composable workflows**: Build simple RAG pipelines and conversational interfaces with memory using Python.
 - **Privacy-first**: All computation happens locally in your browser
@@ -66,7 +72,6 @@ print(results)
 - **Multiple backends**: WebAssembly (WASM) or WebGPU
 - **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
 - **Embeddings & classification**: Sentence vectors and text classification
-- **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection), image-output tasks (background removal, depth estimation, image segmentation, image-to-image), text to speech via `LLM.pipeline(task, model=...)`, over many inputs with `pipe.map()` (batches, progress, cancel)
 - **Bare ONNX models**: `OnnxModel` runs a single `.onnx` file with NumPy in and NumPy out, with caching, hosted files, a sha256 check, float16 and `map()`
 - **Notebook widgets**: `AudioRecorder` records the microphone in a notebook (`pip install 'lmlite[audio]'`); `pip install 'lmlite[images]'` adds NumPy and Pillow for the image notebooks
 - **Model caching**: Browser-cached downloads, portable ZIP export/import, and cache inspection before loading (`LLM.model_info()`, `cached_models()`, per-model `clear_cache()`) with Python progress callbacks
@@ -77,7 +82,8 @@ print(results)
 
 lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in the browser**, designed for JupyterLite notebooks. It provides:
 
-- Async Python API for text generation, embeddings, classification, similarity search, and additional Transformers.js task pipelines
+- `LLM.pipeline()`: Transformers.js tasks as awaitable Python callables, for vision, speech, images out, translation and zero-shot classification, over many inputs with `map()`; the newer features are built on it
+- `LLM.create()`: text generation, chat with streaming, embeddings, classification and similarity search
 - Model loading, caching, and portable ZIP workflows
 - Independent backend/dtype controls for embeddings and generation
 

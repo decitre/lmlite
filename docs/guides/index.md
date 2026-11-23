@@ -5,9 +5,9 @@ Each guide solves one task. For exact signatures and options see the [reference]
 ```{toctree}
 :maxdepth: 1
 
+pipelines.md
 generate-and-chat.md
 embeddings-and-search.md
-pipelines.md
 onnx-models.md
 tokenizers.md
 models-and-cache.md
