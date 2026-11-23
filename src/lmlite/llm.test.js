@@ -491,6 +491,51 @@ describe('BrowserLLM embedding dtype pinning', () => {
     expect(pipeline.mock.calls[0][2].device).toBe('webgpu');
   });
 
+  describe('the message when a generator or task model fails', () => {
+    const failing = async (options, mock) => {
+      const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+      pipeline.mockReset();
+      mock(pipeline);
+      return new BrowserLLM(options).init().then(() => null, (error) => error.message);
+    };
+
+    it('says a WASM out-of-memory error is memory, and keeps the runtime message', async () => {
+      const message = await failing({ generator_model: 'distilgpt2', backend: 'wasm' }, (pipeline) =>
+        pipeline.mockRejectedValue(new Error('no available backend found. ERR: [wasm] RangeError: Out of memory')));
+
+      expect(message).toContain("Failed to load text-generation model 'distilgpt2': no available backend found. ERR: [wasm] RangeError: Out of memory");
+      expect(message).toContain('ran out of memory');
+      expect(message).toContain("backend 'wasm'");
+      expect(message).toContain('Transformers.js 4.3.2');
+      expect(message).not.toContain('may not be supported');
+    });
+
+    it('names the warm-up stage when the model loaded but could not generate', async () => {
+      const message = await failing({ generator_model: 'gpt2' }, (pipeline) =>
+        pipeline.mockResolvedValue(Object.assign(vi.fn().mockRejectedValue(new Error('session run failed')), { model: {} })));
+
+      expect(message).toContain("Failed to warm up text-generation model 'gpt2': session run failed");
+      expect(message).toContain('loaded but could not generate one token');
+    });
+
+    it('lists the dtypes tried when none is available, and keeps the compatibility advice', async () => {
+      const message = await failing({ generator_model: 'org/model', dtype_fallbacks: ['q4', 'fp32'] }, (pipeline) =>
+        pipeline.mockRejectedValue(new Error('Could not locate file model.onnx')));
+
+      expect(message).toContain("Failed to load text-generation model 'org/model': Could not locate file model.onnx");
+      expect(message).toMatch(/dtype \w+( then \w+)+/);
+      expect(message).toContain('may not be supported');
+    });
+
+    it('gives a task model the same message', async () => {
+      const message = await failing({ task: 'translation', task_model: 'org/foo' }, (pipeline) =>
+        pipeline.mockRejectedValue(new Error('failed to allocate a buffer of size 1733430199')));
+
+      expect(message).toContain("Failed to load translation model 'org/foo': failed to allocate a buffer of size 1733430199");
+      expect(message).toContain('ran out of memory');
+    });
+  });
+
   it('surfaces a pinned dtype failure without retrying', async () => {
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockRejectedValue(new Error('Could not locate file model_quantized.onnx'));
