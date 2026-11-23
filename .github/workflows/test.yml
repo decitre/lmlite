@@ -28,7 +28,7 @@ jobs:
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.11.2
         with:
-          environments: py311 py312 py313
+          environments: py311 py312 py313 docs
 
       - name: Test (Linux / macOS)
         if: matrix.os != 'windows-latest'
@@ -37,6 +37,10 @@ jobs:
       - name: Lint
         if: matrix.os == 'ubuntu-latest'
         run: pixi run --environment py313 lint-check
+
+      - name: Build the docs
+        if: matrix.os == 'ubuntu-latest'
+        run: pixi run --environment docs docs
 
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'

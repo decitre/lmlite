@@ -157,7 +157,7 @@ If any of your decisions sits closer to the threshold than the drift for your dt
 
 ### 4. Ship to the browser
 
-Use the same model id and dtype in the notebook, and host the same files with the site (see "Hosted Models Discovery" in `USAGE.md`):
+Use the same model id and dtype in the notebook, and host the same files with the site (see [Hosted Models Discovery](guides/models-and-cache.md#hosted-models-discovery)):
 
 ```python
 llm = await LLM.create(embedding_model="Xenova/multilingual-e5-small", embedding_dtype="fp16")
