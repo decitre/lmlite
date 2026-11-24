@@ -30,6 +30,12 @@ from lmlite import LLM, Classifier, Embedder, pipeline
 llm = await LLM.create(generator_model="HuggingFaceTB/SmolLM2-360M-Instruct", backend="wasm", dtype="q4")
 print(await llm.chat([{"role": "user", "content": "Explain embeddings in simple terms."}]))
 
+# Chat with memory: keep the conversation in a list and pass it back at each turn
+history = [{"role": "user", "content": "What is Python?"}]
+history.append({"role": "assistant", "content": await llm.chat(history)})
+history.append({"role": "user", "content": "What can I use it for?"})  # "it" is Python
+print(await llm.chat(history))
+
 # Embeddings and similarity search
 embedder = await Embedder.create("all-MiniLM-L6-v2")
 docs = ["JupyterLite runs in the browser.", "Python is widely used for ML."]
@@ -63,6 +69,7 @@ Extras: `images` (NumPy and Pillow), `audio` and `camera` (the widgets), `native
 - **[Speak to the notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch13_microphone.ipynb)**: record your voice, transcribe it, or name the instrument you play.
 - **[Pipelines that return images](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_image-outputs.ipynb)**: background removal, depth estimation, segmentation and a 2x upscale.
 - **[Text to image](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch15_text-to-image.ipynb)**: SD-Turbo on WebGPU with prompt widgets (a hardware GPU and about 7 GB of memory).
+- **[Chat with memory](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch16_orchestration.ipynb)**: a retrieval-augmented answer, then a multi-turn chat widget with conversation memory and streamed, stoppable answers.
 
 [All the notebooks](https://decitre.github.io/lmlite/tutorials/index.html), from the first demo to a retrieval-augmented chat, are listed in the documentation.
 
