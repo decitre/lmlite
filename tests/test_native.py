@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from lmlite import LLM
+from lmlite import LLM, Classifier, Embedder
 
 FIXTURES = Path(__file__).parent / "fixtures/models/lmlite"
 GPT2 = Path(__file__).parents[1] / "models/Xenova/gpt2"
@@ -25,7 +25,7 @@ async def test_missing_native_extra_raises_actionable_error(monkeypatch):
     monkeypatch.delitem(sys.modules, "js", raising=False)
     monkeypatch.setitem(sys.modules, "lmlite.native", None)
     with pytest.raises(ModuleNotFoundError, match=r"pip install 'lmlite\[native\]'"):
-        await LLM.create(embedding_model="any")
+        await Embedder.create("any")
 
 
 async def test_browser_only_calls_explain_the_native_limits(monkeypatch):
@@ -57,9 +57,7 @@ async def test_tokenizer_matches_reference_ids():
 async def test_embed_is_pooled_normalized_and_uses_requested_weights(monkeypatch, dtype):
     monkeypatch.delitem(sys.modules, "js", raising=False)
     events = []
-    llm = await LLM.create(
-        embedding_model=str(FIXTURES / "tiny-bert"), embedding_dtype=dtype, progress_callback=events.append
-    )
+    llm = await Embedder.create(str(FIXTURES / "tiny-bert"), dtype=dtype, progress_callback=events.append)
     assert llm.js.embedder.path.endswith("model.onnx" if dtype == "fp32" else "model_quantized.onnx")
     short, long = await llm.embed("Hello."), await llm.embed("A considerably longer sentence to embed.")
     for vector in (short, long):
@@ -68,16 +66,13 @@ async def test_embed_is_pooled_normalized_and_uses_requested_weights(monkeypatch
     assert short != long
     assert events[-1]["status"] == "ready"
     with pytest.raises(NotImplementedError, match="native backend"):
-        await llm.chat([{"role": "user", "content": "hi"}])
+        await LLM(llm.js).chat([{"role": "user", "content": "hi"}])
 
 
 @needs_native
 async def test_explicit_native_backend_and_models_path_lookup():
-    llm = await LLM.create(
-        backend="native",
-        embedding_model="lmlite/tiny-bert",
-        local_models_path=str(FIXTURES.parent),
-        embedding_dtype="q8",
+    llm = await Embedder.create(
+        "lmlite/tiny-bert", backend="native", dtype="q8", local_models_path=str(FIXTURES.parent)
     )
     assert len(await llm.embed("Hello.")) == 16
 
@@ -95,7 +90,7 @@ async def test_classify_softmax_top_k_and_labels():
         encoder_feed=lambda ids: {},
         run=lambda feed: {"logits": np.array([[0.0, 2.0, 1.0]], np.float32)},
     )
-    wrapped = LLM(llm)
+    wrapped = Classifier(llm)
     top = await wrapped.classify("x")
     assert [r["label"] for r in top] == ["pos"] and top[0]["score"] == pytest.approx(0.66524, abs=1e-5)
     every = await wrapped.classify("x", top_k=3)

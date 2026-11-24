@@ -198,14 +198,14 @@ class TestLLMEmbed:
 
     async def test_embed(self):
         """Test embed method calls JS instance and returns list."""
-        from lmlite import LLM
+        from lmlite import Embedder
 
         mock_js_instance = MagicMock()
         # JS returns a JS array-like object
         mock_vec = [0.1, 0.2, 0.3]
         mock_js_instance.embed = AsyncMock(return_value=mock_vec)
 
-        llm = LLM(mock_js_instance)
+        llm = Embedder(mock_js_instance)
         result = await llm.embed("Test text")
 
         assert result == [0.1, 0.2, 0.3]
@@ -216,30 +216,30 @@ class TestLLMClassify:
     """Test LLM text classification."""
 
     async def test_classify_default_top_k(self):
-        from lmlite import LLM
+        from lmlite import Classifier
 
         mock_js_instance = MagicMock()
         mock_js_instance.classify = AsyncMock(return_value=[{"label": "POSITIVE", "score": 0.99}])
 
-        llm = LLM(mock_js_instance)
+        llm = Classifier(mock_js_instance)
         result = await llm.classify("Great movie")
 
         assert result[0]["label"] == "POSITIVE"
         mock_js_instance.classify.assert_awaited_once_with("Great movie")
 
     async def test_classify_with_top_k(self):
-        from lmlite import LLM
+        from lmlite import Classifier
 
         mock_js_instance = MagicMock()
         mock_js_instance.classify = AsyncMock(return_value=[{"label": "POSITIVE", "score": 0.99}])
 
-        llm = LLM(mock_js_instance)
+        llm = Classifier(mock_js_instance)
         await llm.classify("Great movie", top_k=2)
 
         mock_js_instance.classify.assert_awaited_once_with("Great movie", 2)
 
     async def test_classify_converts_nested_proxy_items(self):
-        from lmlite import LLM
+        from lmlite import Classifier
 
         class JsProxyLabel:
             def __init__(self, payload):
@@ -252,7 +252,7 @@ class TestLLMClassify:
 
         mock_js_instance = MagicMock()
         mock_js_instance.classify = AsyncMock(return_value=[proxy_item])
-        llm = LLM(mock_js_instance)
+        llm = Classifier(mock_js_instance)
 
         import sys
 
@@ -280,7 +280,7 @@ class TestLLMSimilaritySearch:
 
     async def test_similarity_search(self):
         """Test similarity search with mocked JS function."""
-        from lmlite import LLM
+        from lmlite import Embedder
 
         mock_js_instance = MagicMock()
         # Mock embeddings
@@ -293,7 +293,7 @@ class TestLLMSimilaritySearch:
             ]
         )
 
-        llm = LLM(mock_js_instance)
+        llm = Embedder(mock_js_instance)
 
         # Mock the JS cosineSimilarityBatch function
         mock_similarities = [1.0, 0.0, 0.7]
@@ -816,6 +816,7 @@ class TestLLMAutoDetect:
                     if "js" in sys.modules:
                         del sys.modules["js"]
 
+    @pytest.mark.filterwarnings("ignore:.*will be removed in 0.15:DeprecationWarning")
     async def test_auto_detect_checks_all_configured_models(self, capsys):
         """Test generator and embedding models are both checked and reported."""
         from lmlite import LLM
@@ -1032,25 +1033,89 @@ class TestLLMLoadingProgress:
 
     @pytest.mark.parametrize("embedding_dtype", [None, "q8"])
     @pytest.mark.parametrize("embedding_backend", [None, "wasm", "webgpu"])
-    async def test_embedding_settings_are_forwarded_to_js(self, loading, embedding_dtype, embedding_backend):
-        from lmlite import LLM
+    async def test_embedder_settings_are_forwarded_to_js(self, loading, embedding_dtype, embedding_backend):
+        from lmlite import Embedder
 
         _, instance, js, ffi = loading
-        await LLM.create(
-            embedding_model="all-MiniLM-L6-v2",
-            embedding_dtype=embedding_dtype,
-            embedding_backend=embedding_backend,
-            dtype="fp32",
-            auto_detect_local=False,
+        embedder = await Embedder.create(
+            "all-MiniLM-L6-v2", dtype=embedding_dtype, backend=embedding_backend, auto_detect_local=False
         )
 
         config = js.lmLite.createRuntime.call_args.args[0]
         assert config["embedding_dtype"] == embedding_dtype
         assert config["embedding_backend"] == embedding_backend
-        assert config["dtype"] == "fp32"
-        assert config["embedding_model"] == "all-MiniLM-L6-v2"
+        assert config["embedding_model"] == "all-MiniLM-L6-v2" and config["generator_model"] is None
+        assert isinstance(embedder, Embedder)
         ffi.to_js.assert_called_once_with(config)
         instance.init.assert_awaited_once()
+
+    async def test_embedder_native_backend_runs_the_whole_session(self, loading, monkeypatch):
+        import lmlite._session
+
+        native = MagicMock()
+        native.NativeLLM.return_value.init = AsyncMock()
+        monkeypatch.setattr(lmlite._session, "_native", lambda requested=False: native if requested else None)
+        from lmlite import Embedder
+
+        await Embedder.create("lmlite/tiny-bert", backend="native", dtype="q8", auto_detect_local=False)
+
+        config = native.NativeLLM.call_args.args[0]
+        assert config["backend"] == "native" and config["embedding_backend"] is None
+        assert config["embedding_model"] == "lmlite/tiny-bert" and config["embedding_dtype"] == "q8"
+
+    async def test_classifier_settings_are_forwarded_to_js(self, loading):
+        from lmlite import Classifier
+
+        _, _, js, _ = loading
+        classifier = await Classifier.create(
+            "acme/sentiment", backend="webgpu", dtype_fallbacks=["q8", "fp32"], auto_detect_local=False
+        )
+
+        config = js.lmLite.createRuntime.call_args.args[0]
+        assert config["classification_model"] == "acme/sentiment" and config["generator_model"] is None
+        assert config["backend"] == "webgpu" and config["dtype_fallbacks"] == ["q8", "fp32"] and config["dtype"] is None
+        assert isinstance(classifier, Classifier)
+
+    async def test_llm_create_still_loads_an_embedding_model_with_a_warning(self, loading):
+        from lmlite import LLM
+
+        _, _, js, _ = loading
+        with pytest.warns(DeprecationWarning, match=r"LLM.create\(embedding_model=\).*0\.15.*Embedder\.create"):
+            await LLM.create(
+                embedding_model="all-MiniLM-L6-v2", embedding_dtype="q8", dtype="fp32", auto_detect_local=False
+            )
+
+        config = js.lmLite.createRuntime.call_args.args[0]
+        assert config["embedding_dtype"] == "q8" and config["dtype"] == "fp32"
+        assert config["embedding_model"] == "all-MiniLM-L6-v2"
+
+    async def test_llm_create_does_not_warn_for_a_generator(self, loading, recwarn):
+        from lmlite import LLM
+
+        await LLM.create(generator_model="gpt2", auto_detect_local=False)
+
+        assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning) and "0.15" in str(w.message)]
+
+    async def test_the_deprecated_llm_methods_warn_once_and_still_work(self):
+        from lmlite import LLM
+
+        js = MagicMock(embed=AsyncMock(return_value=[1.0, 0.0]), classify=AsyncMock(return_value=[{"label": "A"}]))
+        llm = LLM(js)
+        with pytest.warns(DeprecationWarning, match=r"LLM.embed\(\)") as embed_warnings:
+            assert await llm.embed("x") == [1.0, 0.0]
+        with pytest.warns(DeprecationWarning, match=r"LLM.classify\(\)"):
+            assert await llm.classify("x", top_k=1) == [{"label": "A"}]
+        with (
+            patch("lmlite.embedder._js_function", return_value=lambda query, docs: [0.5, 0.25]),
+            patch("lmlite.embedder._to_js", side_effect=lambda value: value),
+            pytest.warns(DeprecationWarning, match=r"LLM.similarity_search\(\)") as search_warnings,
+        ):
+            assert await llm.similarity_search("q", ["a", "b"]) == [("a", 0.5), ("b", 0.25)]
+
+        assert len(embed_warnings) == 1 and len(search_warnings) == 1  # the inner embed() calls do not warn again
+        assert all(
+            w.filename == __file__ for w in [*embed_warnings, *search_warnings]
+        )  # the warning points at the caller
 
     async def test_hosted_model_bypasses_zip_and_hub_revision_lookup(self, loading, tmp_path, monkeypatch):
         import sys
@@ -1071,6 +1136,7 @@ class TestLLMLoadingProgress:
         assert config["hosted_models"] == ["Xenova/gpt2"]
         instance.init.assert_awaited_once()
 
+    @pytest.mark.filterwarnings("ignore:.*will be removed in 0.15:DeprecationWarning")
     async def test_explicit_hosted_url_and_nonhosted_model_fallback(self, loading, tmp_path):
         from lmlite import LLM
 
@@ -1493,7 +1559,7 @@ class TestLLMSimilaritySearchWithK:
 
     async def test_similarity_search_with_k(self):
         """Test similarity search returns top k results."""
-        from lmlite import LLM
+        from lmlite import Embedder
 
         mock_js_instance = MagicMock()
         # Mock embeddings - need more for multiple calls
@@ -1512,7 +1578,7 @@ class TestLLMSimilaritySearchWithK:
             ]
         )
 
-        llm = LLM(mock_js_instance)
+        llm = Embedder(mock_js_instance)
 
         # Mock the JS cosineSimilarityBatch function
         mock_similarities = [1.0, 0.0, 0.7]
@@ -1613,7 +1679,7 @@ class TestConversionFallbacks:
 
     async def test_similarity_search_with_pyjs_fallback(self):
         """Test similarity search with pyjs module fallback."""
-        from lmlite import LLM
+        from lmlite import Embedder
 
         mock_js_instance = MagicMock()
         # Mock embeddings
@@ -1625,7 +1691,7 @@ class TestConversionFallbacks:
             ]
         )
 
-        llm = LLM(mock_js_instance)
+        llm = Embedder(mock_js_instance)
 
         import sys
 
@@ -1700,12 +1766,12 @@ class TestSimilaritySearchNoConversion:
     async def test_similarity_search_without_bridge_raises(self, monkeypatch):
         import sys
 
-        from lmlite import LLM
+        from lmlite import Embedder
 
         monkeypatch.setitem(sys.modules, "pyodide.ffi", None)
         monkeypatch.setitem(sys.modules, "pyjs", None)
         monkeypatch.setitem(sys.modules, "js", MagicMock())
-        llm = LLM(MagicMock(embed=AsyncMock(return_value=[1.0, 0.0])))
+        llm = Embedder(MagicMock(embed=AsyncMock(return_value=[1.0, 0.0])))
 
         with pytest.raises(RuntimeError, match="pyodide.ffi or pyjs"):
             await llm.similarity_search("query", ["doc1", "doc2"])

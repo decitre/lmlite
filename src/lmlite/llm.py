@@ -1,11 +1,19 @@
 # Copyright 2026 Emmanuel Decitre
 # SPDX-License-Identifier: Apache-2.0
 
-from ._bridge import _js_function, _to_js, _to_python_deep
+import warnings
+
+from ._bridge import _to_python_deep
 from ._session import Session
+from .classifier import _classify
+from .embedder import _embed, _similarity_search
 from .models import hosted_base, model_info, model_task
 from .pipeline import pipeline
 from .tokenizer import tokenizer
+
+
+def _deprecated(old, new):
+    warnings.warn(f"{old} is deprecated and will be removed in 0.15: use {new}.", DeprecationWarning, stacklevel=3)
 
 
 def _check_alternatives(alternatives):
@@ -92,49 +100,36 @@ class LLM(Session):
         """
         return bool(_to_python_deep(await self.js.cancel()))
 
+    # --- deprecated: embeddings and classification are not about language models ---
+
+    @classmethod
+    async def create(cls, progress_callback=None, **overrides):
+        """Load the generator model: ``LLM.create(generator_model=...)``. See ``Session.create``.
+
+        ``embedding_model`` and ``classification_model`` still load, with a ``DeprecationWarning``: use
+        ``Embedder.create()`` and ``Classifier.create()``. They will be removed in 0.15.
+        """
+        legacy = [name for name in ("embedding_model", "classification_model") if overrides.get(name)]
+        if legacy:
+            _deprecated(
+                f"LLM.create({', '.join(f'{name}=' for name in legacy)})", "Embedder.create() or Classifier.create()"
+            )
+        return await super().create(progress_callback, **overrides)
+
     async def embed(self, text: str):
-        vec = await self.js.embed(text)
-        return list(vec)
+        """Deprecated: use ``Embedder.embed``."""
+        _deprecated("LLM.embed()", "Embedder.create(...).embed()")
+        return await _embed(self, text)
 
     async def classify(self, text: str, top_k=None):
-        if top_k is None:
-            result = await self.js.classify(text)
-        else:
-            result = await self.js.classify(text, top_k)
-        return _to_python_deep(result)
+        """Deprecated: use ``Classifier.classify``."""
+        _deprecated("LLM.classify()", "Classifier.create(...).classify()")
+        return await _classify(self, text, top_k)
 
     async def similarity_search(self, query, docs, k=None):
-        """Search for the most similar documents to a query.
-
-        Args:
-            query: The query text
-            docs: List of documents to search
-            k: Number of top results to return (default: all)
-
-        Returns:
-            List of (doc, similarity_score) tuples, sorted by similarity descending
-        """
-        cosineSimilarityBatch = _js_function("cosineSimilarityBatch")
-
-        query_vec = await self.embed(query)
-
-        doc_vecs = []
-        for doc in docs:
-            doc_vecs.append(await self.embed(doc))
-
-        # Convert Python lists to JS arrays for the JS function
-        js_query_vec = _to_js(query_vec)
-        js_doc_vecs = _to_js(doc_vecs)
-
-        sims = cosineSimilarityBatch(js_query_vec, js_doc_vecs)
-
-        results = list(zip(docs, sims))
-        results.sort(key=lambda x: x[1], reverse=True)
-
-        # Return top k results if specified
-        if k is not None:
-            return results[:k]
-        return results
+        """Deprecated: use ``Embedder.similarity_search``."""
+        _deprecated("LLM.similarity_search()", "Embedder.create(...).similarity_search()")
+        return await _similarity_search(self, query, docs, k)
 
     # --- not about language models: the same as the functions in lmlite ---
 

@@ -8,11 +8,11 @@ from html import escape
 
 import ipywidgets as widgets
 
-from .llm import LLM
-from .models import cached_models, clear_cache
-from .pipeline import SUPPORTED_TASKS
+from ._session import Session
+from .models import cached_models, clear_cache, model_task
+from .pipeline import SUPPORTED_TASKS, pipeline
 
-# LLM.create() option for each task; SUPPORTED_TASKS load through LLM.pipeline().
+# The loading option for each task, for Session.create(); SUPPORTED_TASKS load through pipeline().
 _LOAD_OPTIONS = {
     "text-generation": "generator_model",
     "feature-extraction": "embedding_model",
@@ -99,14 +99,14 @@ class CacheManager:
         task = self.task_choice.value
         if task is None:
             self.status.value = f"Looking up the task of {name}..."
-            task = await LLM.model_task(name)
+            task = await model_task(name)
             if task is None:
                 raise ValueError(f"No task found on the Hub for {name}; pick one in the list.")
         self.status.value = f"Loading {name} as {task}..."
         if task in _LOAD_OPTIONS:
-            llm = await LLM.create(**{_LOAD_OPTIONS[task]: name}, progress_callback=self.on_progress)
+            llm = await Session.create(**{_LOAD_OPTIONS[task]: name}, progress_callback=self.on_progress)
         elif task in SUPPORTED_TASKS:
-            llm = await LLM.pipeline(task, name, progress_callback=self.on_progress)
+            llm = await pipeline(task, name, progress_callback=self.on_progress)
         else:
             raise ValueError(f"lmLite cannot load {task!r} models; pick a task in the list.")
         await llm.dispose()  # Only fill the cache; later loads read from it.

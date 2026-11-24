@@ -120,7 +120,7 @@ def _runtime():
     except ImportError as exc:
         raise ModuleNotFoundError(
             "This lmlite call needs a browser kernel (JupyterLite pyodide or xeus-python). Outside the browser, "
-            "only LLM.create() embed()/classify()/generate() and LLM.tokenizer() run, with pip install 'lmlite[native]'.",
+            "only Embedder, Classifier, LLM.generate(), OnnxModel and tokenizer() run, with pip install 'lmlite[native]'.",
             name="js",
         ) from exc
 
