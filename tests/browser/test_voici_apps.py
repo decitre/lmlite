@@ -64,6 +64,16 @@ def visible(page, text):
     return [button for button in page.evaluate(BUTTONS) if button["text"] == text]
 
 
+def test_the_apps_site_registers_the_widget_extensions(site):
+    """Built after the Lab site, the apps once had only three extensions: no anywidget, so no camera widget on the page."""
+    import json
+
+    config = json.loads((PUBLIC / "apps/jupyter-lite.json").read_text())["jupyter-config-data"]
+    names = {extension["name"] for extension in config["federated_extensions"]}
+    assert {"anywidget", "@jupyter-widgets/jupyterlab-manager"} <= names
+    assert (PUBLIC / "apps/extensions/anywidget/package.json").is_file()
+
+
 def test_camera_app_shows_the_camera_then_the_objects_with_a_retry_button(site, tmp_path):
     cats = tmp_path / "cats.mjpeg"
     cats.write_bytes(urllib.request.urlopen(CATS_URL).read())
