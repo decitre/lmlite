@@ -17,3 +17,6 @@ myst_heading_anchors = 3
 
 # USAGE.md only points at the new pages, for links that predate the split; the pages above it are in the toctrees.
 exclude_patterns = ["_build", "USAGE.md", ".DS_Store"]
+
+# llms.txt (an index of these pages for language models) is served at the site root.
+html_extra_path = ["llms.txt"]
