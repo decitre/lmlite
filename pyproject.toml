@@ -64,6 +64,10 @@ version = {attr = "lmlite.__version__"}
 
 [project.urls]
 repository = "https://github.com/decitre/lmlite"
+documentation = "https://decitre.github.io/lmlite/"
+issues = "https://github.com/decitre/lmlite/issues"
+releases = "https://github.com/decitre/lmlite/releases"
+demo = "https://decitre.github.io/lmlite/xeus/lab/?path=ch01_demo.ipynb"
 
 [tool.setuptools]
 include-package-data = true
