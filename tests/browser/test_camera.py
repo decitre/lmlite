@@ -97,3 +97,71 @@ def test_a_photo_from_the_camera_goes_through_object_detection(tmp_path):
 
     assert result["ok"], result.get("error")
     assert result["labels_found"].count("cat") == 2 and "couch" in result["labels_found"]  # the cats photo
+
+
+# A phone browser can refuse video.play() after the permission prompt (Brave on Android: "play() can only be initiated
+# by a user gesture."), and does not autoplay either. This page does the same until the video is tapped.
+REFUSE_PLAY = """
+const play = HTMLMediaElement.prototype.play;
+Object.defineProperty(HTMLMediaElement.prototype, 'autoplay', { get: () => false, set: () => {} });  // no autoplay either
+let tapped = false;
+document.addEventListener('click', (event) => { tapped = tapped || event.target.tagName === 'VIDEO'; }, true);
+HTMLMediaElement.prototype.play = function () {
+  return tapped ? play.call(this)
+    : Promise.reject(new DOMException('play() can only be initiated by a user gesture.', 'NotAllowedError'));
+};
+"""
+
+TAP_TO_START = """async ({esm}) => {
+  const url = URL.createObjectURL(new Blob([esm], {type: 'text/javascript'}));
+  const widget = (await import(url)).default;
+  const sent = {};
+  const model = {set: (name, value) => { sent[name] = value; }, save_changes: () => {}};
+  const el = document.createElement('div');
+  document.body.append(el);
+  widget.render({model, el});
+  const [controls, video] = el.children;
+  const [start, take, , status] = controls.children;
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  start.click();
+  for (let i = 0; i < 100 && start.textContent !== 'Stop camera'; i++) await wait(100);
+  await wait(500);
+  const before = {status: status.textContent, take: take.disabled, shown: video.style.display, start: start.textContent};
+  video.click();  // the tap on the picture
+  for (let i = 0; i < 100 && take.disabled; i++) await wait(100);
+  const after = {status: status.textContent, take: take.disabled, paused: video.paused};
+  take.click();
+  for (let i = 0; i < 100 && !sent.photo; i++) await wait(100);
+  const head = [...Uint8Array.from(atob(sent.photo), (char) => char.charCodeAt(0)).subarray(0, 3)];
+  return {before, after, head};
+}"""
+
+
+def test_a_refused_preview_starts_when_the_picture_is_tapped(tmp_path):
+    from lmlite.camera import CameraCapture
+
+    cats = tmp_path / "cats.mjpeg"
+    cats.write_bytes(urllib.request.urlopen(CATS_URL).read())
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(args=[*FAKE_CAMERA, f"--use-file-for-fake-video-capture={cats}"])
+        try:
+            context = browser.new_context()
+            context.grant_permissions(["camera"])
+            page = context.new_page()
+            page.set_default_timeout(60000)
+            page.route(PAGE_URL, lambda route: route.fulfill(body="<html></html>", content_type="text/html"))
+            page.add_init_script(REFUSE_PLAY)
+            page.goto(PAGE_URL)
+            result = page.evaluate(TAP_TO_START, {"esm": CameraCapture._esm})
+        finally:
+            browser.close()
+
+    # The camera stays on and says what to do, instead of stopping with the browser's error.
+    assert result["before"] == {
+        "status": "Tap the picture to start the preview.",
+        "take": True,
+        "shown": "",
+        "start": "Stop camera",
+    }
+    assert result["after"] == {"status": "", "take": False, "paused": False}
+    assert result["head"] == [0xFF, 0xD8, 0xFF]

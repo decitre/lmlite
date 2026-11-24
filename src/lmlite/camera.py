@@ -49,6 +49,14 @@ export default {
       facing.disabled = false;
     };
 
+    video.onplaying = () => {
+      take.disabled = false;
+      status.textContent = "";
+    };
+    video.onclick = () => video.play().catch((error) => {
+      status.textContent = String(error?.message ?? error);
+    });
+
     start.onclick = async () => {
       if (stream) {
         stop();
@@ -58,13 +66,16 @@ export default {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing.value } }, audio: false });
         video.srcObject = stream;
-        await video.play();
         video.style.display = "";
         photo.style.display = "none";
         facing.disabled = true;
-        take.disabled = false;
         start.textContent = "Stop camera";
         status.textContent = "";
+        await video.play().catch(() => {
+          // A browser can refuse to start the preview without a tap that comes after the permission prompt (seen
+          // in Brave on Android): keep the camera on, and start the preview when the picture is tapped.
+          status.textContent = "Tap the picture to start the preview.";
+        });
       } catch (error) {
         stop();
         status.textContent = String(error?.message ?? error);
