@@ -53,7 +53,7 @@ const AUDIO_SAMPLING_RATE = 16000;
 // Dtype order tried when no dtype is configured (generation, classification and task pipelines).
 const DEFAULT_DTYPES = ['q8', 'int8', 'fp32'];
 
-// Decode PCM or float WAV into mono Float32Array samples at samplingRate (mirrors _read_wav in llm.py).
+// Decode PCM or float WAV into mono Float32Array samples at samplingRate (mirrors _read_wav in pipeline.py).
 function decodeWav(buffer, samplingRate = AUDIO_SAMPLING_RATE) {
   const view = new DataView(buffer);
   const tag = (offset) => String.fromCharCode(...new Uint8Array(buffer, offset, 4));

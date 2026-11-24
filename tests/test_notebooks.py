@@ -206,6 +206,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
             self.closed = True
 
     monkeypatch.setattr("lmlite.LLM", ExampleLLM)
+    for name in ("pipeline", "tokenizer", "model_info", "model_task", "hosted_base"):
+        if hasattr(ExampleLLM, name):
+            monkeypatch.setattr(f"lmlite.{name}", getattr(ExampleLLM, name))
     monkeypatch.setattr("lmlite.clear_cache", AsyncMock(return_value={"deleted_caches": [], "deleted_databases": []}))
     monkeypatch.setattr(
         "lmlite.cached_models",

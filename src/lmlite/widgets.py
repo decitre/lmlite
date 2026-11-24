@@ -8,7 +8,9 @@ from html import escape
 
 import ipywidgets as widgets
 
-from .llm import LLM, SUPPORTED_TASKS, cached_models, clear_cache
+from .llm import LLM
+from .models import cached_models, clear_cache
+from .pipeline import SUPPORTED_TASKS
 
 # LLM.create() option for each task; SUPPORTED_TASKS load through LLM.pipeline().
 _LOAD_OPTIONS = {

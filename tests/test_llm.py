@@ -62,7 +62,7 @@ class TestClearCache:
             }
         )
 
-        with patch("lmlite.llm.ensure_runtime"):
+        with patch("lmlite._bridge.ensure_runtime"):
             sys.modules["js"] = mock_js_module
             try:
                 result = await clear_cache()
@@ -82,7 +82,7 @@ class TestClearCache:
 
         mock_js_module.lmLite = types.SimpleNamespace()
 
-        with patch("lmlite.llm.ensure_runtime"):
+        with patch("lmlite._bridge.ensure_runtime"):
             sys.modules["js"] = mock_js_module
             try:
                 try:
@@ -104,7 +104,7 @@ class TestCachedModels:
 
         js.lmLite = types.SimpleNamespace()
         monkeypatch.setitem(sys.modules, "js", js)
-        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        monkeypatch.setattr("lmlite._bridge.ensure_runtime", MagicMock())
         return js
 
     async def test_cached_models_returns_list(self, js):
@@ -345,7 +345,7 @@ class TestLLMExportModels:
 
         with (
             patch("os.path.exists", side_effect=lambda p: "model-Xenova-gpt2@" in p),
-            patch("lmlite.llm._get_latest_revision", return_value="bf2c7f02e0b826c60d03af341171bde20893da66"),
+            patch("lmlite.models._get_latest_revision", return_value="bf2c7f02e0b826c60d03af341171bde20893da66"),
         ):
             await llm.export_models()
 
@@ -604,7 +604,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="gpt2")
@@ -652,7 +652,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="gpt2")
@@ -690,7 +690,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=True)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="gpt2")
@@ -721,7 +721,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="gpt2")
@@ -750,7 +750,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="acme/gpt2")
@@ -778,7 +778,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="gpt2")
@@ -806,7 +806,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=True)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="gpt2")
@@ -835,7 +835,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.isModelCached = AsyncMock(side_effect=[True, False])
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     await LLM.create(
@@ -874,7 +874,7 @@ class TestLLMAutoDetect:
             mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = MagicMock(return_value=False)
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
                     try:
@@ -908,7 +908,7 @@ class TestLLMAutoDetect:
 
             import sys
 
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = types.SimpleNamespace(lmLite=js_proxy_like)
                 try:
                     await LLM.create(local_models_path=tmpdir, generator_model="gpt2")
@@ -925,7 +925,7 @@ class TestProgressRenderer:
 
         from tqdm import tqdm as text_tqdm
 
-        from lmlite.llm import _loading_progress
+        from lmlite._bridge import _loading_progress
 
         notebook = types.ModuleType("tqdm.notebook")
         notebook.IProgress = object()
@@ -947,7 +947,7 @@ class TestProgressRenderer:
     def test_browser_reports_missing_widget_support_and_uses_threadless_text(self, monkeypatch):
         import sys
 
-        from lmlite.llm import _loading_progress
+        from lmlite._bridge import _loading_progress
 
         notebook = types.ModuleType("tqdm.notebook")
         notebook.IProgress = None
@@ -967,7 +967,7 @@ class TestProgressRenderer:
 
         from tqdm import tqdm as text_tqdm
 
-        from lmlite.llm import _loading_progress
+        from lmlite._bridge import _loading_progress
 
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(text_tqdm, "monitor_interval", 10)
@@ -996,8 +996,8 @@ class TestLLMLoadingProgress:
         bar.reset.side_effect = reset
         bar.update.side_effect = update
         bar.__enter__.return_value = bar
-        monkeypatch.setattr("lmlite.llm._loading_progress", MagicMock(return_value=bar))
-        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        monkeypatch.setattr("lmlite._session._loading_progress", MagicMock(return_value=bar))
+        monkeypatch.setattr("lmlite._bridge.ensure_runtime", MagicMock())
 
         instance = MagicMock()
         instance.init = AsyncMock()
@@ -1060,7 +1060,7 @@ class TestLLMLoadingProgress:
         _, instance, js, _ = loading
         monkeypatch.setattr(sys, "platform", "emscripten")
         js.lmLite.getHostedModelBase = AsyncMock(return_value="https://example.test/demo/models/")
-        with patch("lmlite.llm.model_zip_candidates") as candidates:
+        with patch("lmlite._session.model_zip_candidates") as candidates:
             await LLM.create(generator_model="gpt2", local_models_path=str(tmp_path))
 
         candidates.assert_not_called()
@@ -1424,7 +1424,7 @@ class TestModelInfo:
 
         js.lmLite = types.SimpleNamespace()
         monkeypatch.setitem(sys.modules, "js", js)
-        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        monkeypatch.setattr("lmlite._bridge.ensure_runtime", MagicMock())
         return js
 
     async def test_model_info_returns_js_metadata(self, js):
@@ -1467,22 +1467,22 @@ class TestModelInfo:
 
 class TestModelZipNaming:
     async def test_model_zip_name_includes_default_revision(self):
-        from lmlite.llm import model_zip_name
+        from lmlite.models import model_zip_name
 
         with patch(
-            "lmlite.llm._get_latest_revision",
+            "lmlite.models._get_latest_revision",
             new_callable=AsyncMock,
             return_value="bf2c7f02e0b826c60d03af341171bde20893da66",
         ):
             assert await model_zip_name("gpt2") == "model-Xenova-gpt2@bf2c7f.zip"
 
     async def test_model_zip_name_keeps_explicit_revision(self):
-        from lmlite.llm import model_zip_name
+        from lmlite.models import model_zip_name
 
         assert await model_zip_name("acme/gpt2@v1") == "model-acme-gpt2@v1.zip"
 
     async def test_model_zip_name_shortens_full_sha_revision(self):
-        from lmlite.llm import model_zip_name
+        from lmlite.models import model_zip_name
 
         sha = "1234567890abcdef1234567890abcdef12345678"
         assert await model_zip_name(f"acme/gpt2@{sha}") == "model-acme-gpt2@123456.zip"
@@ -1583,7 +1583,7 @@ class TestConversionFallbacks:
         sys.modules["pyjs"] = mock_pyjs_module
 
         try:
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 llm = await LLM.create(generator_model="gpt2")
                 assert llm is not None
                 mock_js_module.lmLite.createRuntime.assert_called_once()
@@ -1608,7 +1608,7 @@ class TestConversionFallbacks:
         monkeypatch.setitem(sys.modules, "pyjs", None)
         monkeypatch.setitem(sys.modules, "js", MagicMock())
 
-        with patch("lmlite.llm.ensure_runtime"), pytest.raises(RuntimeError, match="pyodide.ffi or pyjs"):
+        with patch("lmlite._bridge.ensure_runtime"), pytest.raises(RuntimeError, match="pyodide.ffi or pyjs"):
             await LLM.create(generator_model="gpt2", auto_detect_local=False)
 
     async def test_similarity_search_with_pyjs_fallback(self):
@@ -1683,7 +1683,7 @@ class TestCreateWithPyodide:
         sys.modules["pyodide.ffi"] = mock_pyodide_ffi
 
         try:
-            with patch("lmlite.llm.ensure_runtime"):
+            with patch("lmlite._bridge.ensure_runtime"):
                 llm = await LLM.create(generator_model="gpt2")
                 assert llm is not None
                 mock_pyodide_ffi.to_js.assert_called_once()
@@ -1727,7 +1727,7 @@ class TestLLMPipeline:
         mock_js_module.lmLite.isModelCached = AsyncMock(return_value=True)
         monkeypatch.setitem(sys.modules, "js", mock_js_module)
 
-        with patch("lmlite.llm.ensure_runtime"):
+        with patch("lmlite._bridge.ensure_runtime"):
             pipe = await LLM.pipeline("translation", model="opus-mt-en-fr", backend="webgpu", dtype="fp32")
 
         assert isinstance(pipe, Pipeline)
@@ -1835,7 +1835,7 @@ class TestAudioInput:
         assert json.loads(options) == {"return_timestamps": True}
 
     def test_wav_file_stereo_and_resampling(self, tmp_path):
-        from lmlite.llm import _audio_input
+        from lmlite.pipeline import _audio_input
 
         path = tmp_path / "a.wav"
         # Stereo channels average to mono; 8 kHz is upsampled to 16 kHz.
@@ -1844,7 +1844,7 @@ class TestAudioInput:
 
     @pytest.mark.parametrize("width", [1, 3, 4])
     def test_wav_sample_widths(self, width):
-        from lmlite.llm import _read_wav
+        from lmlite.pipeline import _read_wav
 
         if width == 1:
             import io
@@ -1862,13 +1862,13 @@ class TestAudioInput:
         assert _read_wav(data) == pytest.approx([0.0, 0.5, -0.5], abs=1e-2)
 
     def test_urls_and_samples_pass_through(self):
-        from lmlite.llm import _audio_input
+        from lmlite.pipeline import _audio_input
 
         assert _audio_input("https://example.test/a.wav") == "https://example.test/a.wav"
         assert _audio_input((0, 1)) == [0.0, 1.0]
 
     def test_invalid_audio_reports_supported_inputs(self):
-        from lmlite.llm import _audio_input
+        from lmlite.pipeline import _audio_input
 
         with pytest.raises(FileNotFoundError, match="PCM WAV"):
             _audio_input("missing.wav")
@@ -1881,7 +1881,7 @@ class TestImageInput:
     JPEG = b"\xff\xd8\xff\xe0" + b"0" * 8
 
     def test_encoded_bytes_urls_and_paths(self, tmp_path):
-        from lmlite.llm import _image_input
+        from lmlite.pipeline import _image_input
 
         assert _image_input(self.JPEG) == self.JPEG
         assert _image_input(memoryview(bytearray(self.PNG))) == self.PNG
@@ -1893,7 +1893,7 @@ class TestImageInput:
 
     def test_numpy_array_is_sent_as_one_buffer_with_its_shape(self):
         np = pytest.importorskip("numpy")
-        from lmlite.llm import _image_input
+        from lmlite.pipeline import _image_input
 
         pixels = np.arange(2 * 3 * 4, dtype=np.uint8).reshape(2, 3, 4)
         assert _image_input(pixels) == ["raw", pixels.tobytes(), 3, 2, 4]
@@ -1903,12 +1903,12 @@ class TestImageInput:
 
     def test_pil_image_is_encoded_to_png(self):
         pil = pytest.importorskip("PIL.Image")
-        from lmlite.llm import _image_input
+        from lmlite.pipeline import _image_input
 
         assert _image_input(pil.new("RGB", (2, 2)))[:8] == self.PNG[:8]
 
     def test_invalid_inputs(self):
-        from lmlite.llm import _image_input
+        from lmlite.pipeline import _image_input
 
         with pytest.raises(ValueError, match="could not be decoded"):
             _image_input(b"not an image")
@@ -1918,7 +1918,7 @@ class TestImageInput:
             _image_input(3)
 
     async def test_pipeline_sends_bytes_and_batches_once(self, monkeypatch):
-        from lmlite.llm import Pipeline
+        from lmlite.pipeline import Pipeline
 
         js = types.SimpleNamespace(runTask=AsyncMock(return_value=[]))
         pipe = Pipeline(types.SimpleNamespace(js=js), "image-classification", "m")
@@ -1937,7 +1937,7 @@ class TestImageOutputs:
         return [json.dumps(structure), *buffers]
 
     def test_images_come_back_as_png_bytes_in_the_structure_the_task_returned(self):
-        from lmlite.llm import _unpack_images
+        from lmlite.pipeline import _unpack_images
 
         result = self.packed(
             [
@@ -1955,7 +1955,7 @@ class TestImageOutputs:
 
     def test_as_array_gives_uint8_pixels_of_the_right_shape(self):
         np = pytest.importorskip("numpy")
-        from lmlite.llm import _unpack_images
+        from lmlite.pipeline import _unpack_images
 
         pixels = bytes(range(12))
         result = self.packed({"$buffer": 0, "width": 2, "height": 2, "channels": 3}, pixels)
@@ -1969,7 +1969,7 @@ class TestImageOutputs:
         import struct
         import sys
 
-        from lmlite.llm import _unpack_images
+        from lmlite.pipeline import _unpack_images
 
         values = struct.pack("<6f", 0, 0.5, 1, 1.5, 2, 2.5)
         result = self.packed(
@@ -1993,7 +1993,7 @@ class TestImageOutputs:
 
     @pytest.mark.parametrize("task", ["background-removal", "image-to-image"])
     async def test_pipeline_returns_png_bytes_and_forwards_as_array_as_an_option(self, task):
-        from lmlite.llm import Pipeline
+        from lmlite.pipeline import Pipeline
 
         js = types.SimpleNamespace(
             runTask=AsyncMock(
@@ -2010,7 +2010,7 @@ class TestImageOutputs:
 
     async def test_pipeline_returns_arrays_on_request(self):
         np = pytest.importorskip("numpy")
-        from lmlite.llm import Pipeline
+        from lmlite.pipeline import Pipeline
 
         js = types.SimpleNamespace(
             runTask=AsyncMock(
@@ -2025,7 +2025,7 @@ class TestImageOutputs:
         assert json.loads(js.runTask.call_args.args[1]) == {"as_array": True}
 
     async def test_map_unpacks_each_result(self):
-        from lmlite.llm import Pipeline
+        from lmlite.pipeline import Pipeline
 
         async def run_tasks(items, batch_size, options, callback, continue_on_error):
             result = self.packed({"$buffer": 0, "width": 1, "height": 1, "channels": 4}, self.PNG)
@@ -2039,7 +2039,7 @@ class TestImageOutputs:
 
     def test_all_four_tasks_are_supported_with_image_inputs(self):
         from lmlite import SUPPORTED_TASKS
-        from lmlite.llm import IMAGE_OUTPUT_TASKS, IMAGE_TASKS
+        from lmlite.pipeline import IMAGE_OUTPUT_TASKS, IMAGE_TASKS
 
         assert set(IMAGE_OUTPUT_TASKS) == {
             "background-removal",
@@ -2106,7 +2106,7 @@ class TestSpeech:
     @pytest.mark.parametrize("task", ["text-to-speech", "text-to-audio"])
     async def test_pipeline_returns_speech_and_takes_one_text(self, task):
         from lmlite import Speech
-        from lmlite.llm import Pipeline
+        from lmlite.pipeline import Pipeline
 
         js = types.SimpleNamespace(runTask=AsyncMock(return_value=[16000, self.raw([0.25, -0.25])]))
         pipe = Pipeline(types.SimpleNamespace(js=js), task, "m")
@@ -2120,7 +2120,7 @@ class TestSpeech:
 
     async def test_map_wraps_each_result_in_speech(self):
         from lmlite import Speech
-        from lmlite.llm import Pipeline
+        from lmlite.pipeline import Pipeline
 
         async def run_tasks(items, batch_size, options, callback, continue_on_error):
             return {"results": [[16000, self.raw([0.5])] for _ in items], "errors": [], "cancelled": False}
@@ -2139,7 +2139,7 @@ class TestPipelineMap:
     @staticmethod
     def pipeline(task="translation", bad=("bad",), cancel_after=None):
         """A Pipeline whose fake ``runTasks`` mirrors the JavaScript loop: batches, progress, per-input errors."""
-        from lmlite.llm import Pipeline
+        from lmlite.pipeline import Pipeline
 
         async def run_tasks(items, batch_size, options, callback, continue_on_error):
             results, errors = [], []
@@ -2245,7 +2245,7 @@ class TestTokenizer:
         )
         js.lmLite = types.SimpleNamespace(loadTokenizer=AsyncMock(return_value=handle))
         monkeypatch.setitem(sys.modules, "js", js)
-        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        monkeypatch.setattr("lmlite._bridge.ensure_runtime", MagicMock())
         return js
 
     @pytest.mark.parametrize(
@@ -2300,7 +2300,7 @@ class TestHostedBase:
         js.lmLite = types.SimpleNamespace(getHostedModelBase=AsyncMock(return_value="https://example.test/models/"))
         monkeypatch.setitem(sys.modules, "js", js)
         ensure = MagicMock()
-        monkeypatch.setattr("lmlite.llm.ensure_runtime", ensure)
+        monkeypatch.setattr("lmlite._bridge.ensure_runtime", ensure)
         js.ensure_runtime = ensure
         return js
 
@@ -2322,7 +2322,8 @@ class TestHostedBase:
 
 
 class TestTopLevelFunctions:
-    """``lmlite.pipeline`` and the other functions that are not about language models are the ``LLM`` class methods."""
+    """``lmlite.pipeline`` and the other functions that are not about language models are the implementations;
+    the ``LLM`` class methods of the same names call them."""
 
     @pytest.mark.parametrize("name", ["pipeline", "tokenizer", "model_info", "model_task", "hosted_base"])
     def test_signature_matches_the_class_method(self, name):
@@ -2348,11 +2349,11 @@ class TestTopLevelFunctions:
             ("hosted_base", ("m",), {"hosted_models_url": "u"}, (("m",), {"hosted_models_url": "u"})),
         ],
     )
-    async def test_calls_the_class_method(self, monkeypatch, name, args, kwargs, expected):
-        import lmlite
+    async def test_the_class_methods_call_the_functions(self, monkeypatch, name, args, kwargs, expected):
+        import lmlite.llm
 
-        method = AsyncMock(return_value="result")
-        monkeypatch.setattr(lmlite.LLM, name, method)
+        function = AsyncMock(return_value="result")
+        monkeypatch.setattr(lmlite.llm, name, function)
 
-        assert await getattr(lmlite, name)(*args, **kwargs) == "result"
-        assert method.await_args == call(*expected[0], **expected[1])
+        assert await getattr(lmlite.LLM, name)(*args, **kwargs) == "result"
+        assert function.await_args == call(*expected[0], **expected[1])
