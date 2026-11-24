@@ -22,11 +22,13 @@ IMAGE_TASKS = (
 
 # Text-to-speech under both names Transformers.js accepts; keep in sync with llm.js.
 SPEECH_TASKS = ("text-to-speech", "text-to-audio")
+# Tasks whose input is audio: a WAV URL or file, WAV bytes, or mono samples at 16 kHz.
+AUDIO_INPUT_TASKS = ("automatic-speech-recognition", "audio-classification")
 
 # Transformers.js tasks available through LLM.pipeline(); keep in sync with llm.js.
 SUPPORTED_TASKS = (
     "zero-shot-classification",
-    "automatic-speech-recognition",
+    *AUDIO_INPUT_TASKS,
     "translation",
     *IMAGE_TASKS,
     *SPEECH_TASKS,
@@ -307,7 +309,7 @@ def _read_wav(source, sampling_rate=AUDIO_SAMPLING_RATE):
 
 
 def _audio_input(audio):
-    """Normalize ASR input to a URL string or a list of float samples."""
+    """Normalize the input of an audio task to a URL string or a list of float samples."""
     import os
 
     if isinstance(audio, str):
@@ -487,7 +489,7 @@ class Pipeline:
         """Run the task. Keyword arguments are forwarded as Transformers.js task options."""
         import json
 
-        if self.task == "automatic-speech-recognition":
+        if self.task in AUDIO_INPUT_TASKS:
             inputs = _audio_input(inputs)
         elif self.task in IMAGE_TASKS:
             inputs = _image_inputs(inputs)
@@ -512,7 +514,7 @@ class Pipeline:
 
     def _prepare(self, item):
         """One input of ``map()`` in the form the JavaScript task takes."""
-        if self.task == "automatic-speech-recognition":
+        if self.task in AUDIO_INPUT_TASKS:
             return _audio_input(item)
         if self.task in IMAGE_TASKS:
             return _image_input(item)

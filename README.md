@@ -64,7 +64,7 @@ print(detections)  # [{'label': 'cat', 'score': 1.0, 'box': {'xmin': ..., ...}},
 ## Features
 
 - **Browser-native**: Run LLMs entirely in the browser, no server required
-- **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection), image-output tasks (background removal, depth estimation, image segmentation, image-to-image), text to speech via `LLM.pipeline(task, model=...)`, over many inputs with `pipe.map()` (batches, progress, cancel)
+- **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection), image-output tasks (background removal, depth estimation, image segmentation, image-to-image), audio classification, text to speech via `LLM.pipeline(task, model=...)`, over many inputs with `pipe.map()` (batches, progress, cancel)
 - **Instruction-tuned models**: Chat and instruction-following with browser-compatible models such as SmolLM2-360M-Instruct.
 - **Composable workflows**: Build simple RAG pipelines and conversational interfaces with memory using Python.
 - **Privacy-first**: All computation happens locally in your browser

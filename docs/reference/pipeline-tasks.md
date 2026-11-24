@@ -16,3 +16,4 @@ Keyword arguments to a pipeline call are forwarded as Transformers.js options fo
 | `image-to-image` | image or list of images | none | PNG bytes of the result (a 2x upscale for Swin2SR) |
 | `text-to-speech` / `text-to-audio` | one string | model options such as `speaker_embeddings` (a URL string), if the model takes them | a `Speech` object (see below) |
 | `automatic-speech-recognition` | audio (see below) | `return_timestamps`, `chunk_length_s`, `stride_length_s`, `language`/`task` for multilingual Whisper | `{"text"}`, plus `"chunks"` with timestamps |
+| `audio-classification` | audio (as for speech recognition) or a list of clips | `top_k` | `[{"label", "score"}]` sorted by score, one list per clip |

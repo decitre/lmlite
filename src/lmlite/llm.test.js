@@ -838,6 +838,20 @@ describe('BrowserLLM task pipelines', () => {
     vi.unstubAllGlobals();
   });
 
+  it('gives audio classification the same audio input as speech recognition, one clip per call', async () => {
+    const llm = new BrowserLLM({ task: 'audio-classification' });
+    llm.taskPipeline = vi.fn(async (clip) => [{ label: 'Violin', score: clip.length / 10 }]);
+
+    expect(await llm.runTask([0, 0.5, -0.5], '{"top_k": 3}')).toEqual([{ label: 'Violin', score: 0.3 }]);
+    const [audio, options] = llm.taskPipeline.mock.calls[0];
+    expect(audio).toBeInstanceOf(Float32Array);
+    expect(options).toEqual({ top_k: 3 });
+
+    const { results } = await llm.runTasks([new Float32Array(2), new Float32Array(4)], 8);
+    expect(results).toEqual([[{ label: 'Violin', score: 0.2 }], [{ label: 'Violin', score: 0.4 }]]);
+    expect(llm.taskPipeline).toHaveBeenCalledTimes(3);
+  });
+
   it('fetches and decodes WAV URLs when AudioContext is unavailable (kernel workers)', async () => {
     // 8 kHz stereo 16-bit PCM: frames (0.5, -0.5) and (1.0, 0.0) average to 0 and 0.5.
     const pcm = [16384, -16384, 32767, 0];

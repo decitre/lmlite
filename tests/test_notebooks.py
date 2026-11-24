@@ -150,6 +150,8 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
                     {"label": "cat", "score": 0.9, "mask": _png(612, 408)},
                     {"label": "sky", "score": None, "mask": _png(612, 408)},
                 ]
+            if task == "audio-classification":
+                return [{"label": "Violin", "score": 0.4}, {"label": "flute", "score": 0.2}][: kwargs.get("top_k", 2)]
             if task == "text-to-speech":
                 from lmlite import Speech
 
@@ -303,7 +305,10 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert [instance.config["task"] for instance in instances] == ["object-detection"]
         assert namespace["photo"].size == (64, 48) and namespace["detections"] and instances[0].disposed
     if path.name == "ch13_microphone.ipynb":
-        assert [instance.config["task"] for instance in instances] == ["automatic-speech-recognition"]
+        assert [instance.config["task"] for instance in instances] == [
+            "automatic-speech-recognition",
+            "audio-classification",
+        ]
         assert namespace["wav"][:4] == b"RIFF" and namespace["result"]["text"] == "Example transcript."
     if path.name == "ch12_speech.ipynb":
         assert [instance.config["task"] for instance in instances] == ["text-to-speech"]

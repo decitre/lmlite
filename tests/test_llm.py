@@ -1804,7 +1804,21 @@ def _wav_bytes(samples, rate=16000, channels=1, width=2):
 
 
 class TestAudioInput:
-    """Test speech recognition input normalization."""
+    """Test the input normalization of the audio tasks."""
+
+    async def test_audio_classification_decodes_wav_bytes_and_map_prepares_each_clip(self):
+        from lmlite import SUPPORTED_TASKS, Pipeline
+
+        llm = MagicMock()
+        llm.js.runTask = AsyncMock(return_value=[{"label": "Violin", "score": 0.3}])
+        pipe = Pipeline(llm, "audio-classification", "m")
+        result = await pipe(_wav_bytes([0.0, 0.5, -0.5]), top_k=3)
+
+        assert "audio-classification" in SUPPORTED_TASKS and result == [{"label": "Violin", "score": 0.3}]
+        samples, options = llm.js.runTask.await_args.args
+        assert samples == pytest.approx([0.0, 0.5, -0.5], abs=1e-4)
+        assert json.loads(options) == {"top_k": 3}
+        assert pipe._prepare([0.0, 0.25]) == [0.0, 0.25]
 
     async def test_asr_decodes_wav_bytes_to_samples(self):
         from lmlite import Pipeline
