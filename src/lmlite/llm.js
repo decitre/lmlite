@@ -36,7 +36,9 @@ const IMAGE_TASKS = [
   ...IMAGE_OUTPUT_TASKS,
 ];
 const SPEECH_TASKS = ['text-to-speech', 'text-to-audio'];  // Transformers.js treats them as one task
-const SUPPORTED_TASKS = ['zero-shot-classification', 'automatic-speech-recognition', 'translation', ...IMAGE_TASKS, ...SPEECH_TASKS];
+// Tasks whose input is audio: a WAV URL, or mono samples at 16 kHz.
+const AUDIO_INPUT_TASKS = ['automatic-speech-recognition', 'audio-classification'];
+const SUPPORTED_TASKS = ['zero-shot-classification', ...AUDIO_INPUT_TASKS, 'translation', ...IMAGE_TASKS, ...SPEECH_TASKS];
 
 function unsupportedTaskError(task) {
   return new Error(
@@ -1139,10 +1141,10 @@ class BrowserLLM {
       options = JSON.parse(options);
     }
     options = options ?? {};
-    if (this.task === 'automatic-speech-recognition' && typeof inputs === 'string' && typeof AudioContext === 'undefined') {
+    if (AUDIO_INPUT_TASKS.includes(this.task) && typeof inputs === 'string' && typeof AudioContext === 'undefined') {
       // Kernels run in Web Workers, where Transformers.js cannot decode URLs without AudioContext.
       inputs = await fetchWavSamples(inputs);
-    } else if (this.task === 'automatic-speech-recognition' && typeof inputs !== 'string' && !(inputs instanceof Float32Array)) {
+    } else if (AUDIO_INPUT_TASKS.includes(this.task) && typeof inputs !== 'string' && !(inputs instanceof Float32Array)) {
       // Raw samples (e.g. a Python list or Float64Array) become the Float32Array audio input.
       inputs = Float32Array.from(inputs);
     }
@@ -1202,7 +1204,7 @@ class BrowserLLM {
     const total = inputs.length;
     // A list of numbers is one audio clip, speech synthesis takes one text, and an image result is one structure:
     // those tasks run one input per call.
-    const oneAtATime = this.task === 'automatic-speech-recognition' || SPEECH_TASKS.includes(this.task)
+    const oneAtATime = AUDIO_INPUT_TASKS.includes(this.task) || SPEECH_TASKS.includes(this.task)
       || IMAGE_OUTPUT_TASKS.includes(this.task);
     const size = oneAtATime ? 1 : Math.max(1, batchSize);
     const callBatch = async (items) => {

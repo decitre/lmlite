@@ -78,16 +78,18 @@ def test_speech_notebook_shows_audio_players_that_decode(xeus_site, browser_name
 
 @pytest.mark.parametrize("browser_name", BROWSERS)
 def test_microphone_notebook_records_in_the_widget_and_transcribes(xeus_site, browser_name):
-    def record_when_the_widget_shows(page):
+    def record_when_the_widgets_show(page):
         lab.run_all(page)
-        page.get_by_role("button", name="Record", exact=True).click()  # the anywidget, rendered in Lab
-        stop = page.get_by_role("button", name="Stop", exact=True)
-        stop.wait_for()  # it appears once the browser has opened the microphone
-        page.wait_for_timeout(1500)
-        stop.click()
+        for _ in range(2):  # the sentence to transcribe, then the instrument to name
+            page.get_by_role("button", name="Record", exact=True).first.click()  # the anywidget, rendered in Lab
+            stop = page.get_by_role("button", name="Stop", exact=True)
+            stop.wait_for()  # it appears once the browser has opened the microphone
+            page.wait_for_timeout(1500)
+            stop.click()
+            page.get_by_role("button", name="Record again", exact=True).first.wait_for()
 
     shown = in_lab(
-        xeus_site, "ch13_microphone.ipynb", record_when_the_widget_shows, FAKE_MICROPHONE, ["microphone"], browser_name
+        xeus_site, "ch13_microphone.ipynb", record_when_the_widgets_show, FAKE_MICROPHONE, ["microphone"], browser_name
     )
 
     assert shown["errors"] == []
@@ -95,6 +97,9 @@ def test_microphone_notebook_records_in_the_widget_and_transcribes(xeus_site, br
     assert " s of audio, " in text and "peak " in text and "raw input: False" in text
     assert "silent" not in text  # the fake microphone beeps
     assert len(shown["audios"]) == 1 and shown["audios"][0]["error"] is None  # the player for the recording
+    assert "#" in text and any(
+        label in text for label in ("Violin", "Trumpet", "Hi_Hats", "Keyboard", "flute", "Guitar", "Drum")
+    )  # the instrument names
 
 
 @pytest.mark.parametrize("browser_name", BROWSERS)
