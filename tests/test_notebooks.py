@@ -34,7 +34,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         def __init__(self, config):
             self.config = config
             self.disposed = False
-            self.js = types.SimpleNamespace(backend=config.get("backend"))  # the BrowserLLM handle
+            self.js = types.SimpleNamespace(backend=config.get("backend"))  # the BrowserRuntime handle
             instances.append(self)
 
         @classmethod

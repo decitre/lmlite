@@ -92,8 +92,8 @@ JL_FORGE_VERSION="~=0.8.0"
 # Kept between builds: xeus environments, Pyodide release and wheel downloads, Transformers.js files.
 JL_FORGE_CACHE="${JL_FORGE_CACHE:-$HOME/.cache/jl-forge}"
 
-# Download the Transformers.js version llm.js pins, and the onnxruntime-web files it loads, for self-hosting.
-TRANSFORMERS_VERSION=$(sed -n "s/^const TRANSFORMERS_VERSION = '\(.*\)';$/\1/p" "$ROOT_DIR/src/lmlite/llm.js")
+# Download the Transformers.js version lmlite.js pins, and the onnxruntime-web files it loads, for self-hosting.
+TRANSFORMERS_VERSION=$(sed -n "s/^const TRANSFORMERS_VERSION = '\(.*\)';$/\1/p" "$ROOT_DIR/src/lmlite/lmlite.js")
 TRANSFORMERS_DIR="$JL_FORGE_CACHE/lmlite-transformers/$TRANSFORMERS_VERSION"
 # .complete-2: caches from before ort.webgpu.min.mjs was added are downloaded again.
 if [ ! -f "$TRANSFORMERS_DIR/.complete-2" ]; then
@@ -120,7 +120,7 @@ if [ ! -f "$TRANSFORMERS_DIR/.complete-2" ]; then
 fi
 
 # Added to the built site, not its contents: xeus would otherwise pack them into the kernel's mounted files.
-# llm.js fetches both over HTTP.
+# lmlite.js fetches both over HTTP.
 add_site_assets() {
     local site_dir="$1"
     mkdir -p "$site_dir/vendor/transformers"

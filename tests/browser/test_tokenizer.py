@@ -44,7 +44,7 @@ def page(source_server):
 
 
 def test_ids_match_reference_without_weights_or_hub(page, source_server):
-    page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+    page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
     page.wait_for_function("globalThis.lmLite")
     base = f"{source_server}/tests/fixtures/models/"
     result = page.evaluate(
@@ -82,7 +82,7 @@ def test_pyodide_encode_returns_plain_ints_synchronously(page, source_server):
     result = page.evaluate(
         """async ({server, text}) => {
           const pyodide = await loadPyodide();
-          for (const name of ['__init__.py', 'llm.py', 'llm.js', 'onnx_model.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
+          for (const name of ['__init__.py', 'llm.py', 'lmlite.js', 'onnx_model.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
             pyodide.FS.mkdirTree('/lib/lmlite/bridge');
             pyodide.FS.writeFile(`/lib/lmlite/${name}`, await (await fetch(`${server}/src/lmlite/${name}`)).text());
           }

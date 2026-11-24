@@ -179,7 +179,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/jl-forge
-          key: jl-forge-${{ steps.month.outputs.month }}-${{ hashFiles('pyproject.toml', 'scripts/lite-build.sh', 'src/lmlite/llm.js') }}
+          key: jl-forge-${{ steps.month.outputs.month }}-${{ hashFiles('pyproject.toml', 'scripts/lite-build.sh', 'src/lmlite/lmlite.js') }}
           restore-keys: jl-forge-
 
       - name: Create page

@@ -51,7 +51,7 @@ and [the model guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md
 
 ### JavaScript browser applications
 
-**JavaScript runtime:** `llm.js` exposes `BrowserLLM` and helper functions
+**JavaScript runtime:** `lmlite.js` exposes `BrowserRuntime` and helper functions
 under a single `globalThis.lmLite` namespace for integration with the Python API. These interfaces are
 internal implementation details, not a separately documented or versioned
 JavaScript SDK. Direct JavaScript usage may be possible, but its initialization,
@@ -83,7 +83,7 @@ They can be used from desktop Python or CI independently of JupyterLite.
 
 ## Choosing a kernel: xeus-python or Pyodide
 
-lmLite runs the same Python API on both, and both are covered by the browser tests (see [DEVELOPMENT.md](DEVELOPMENT.md)). The model code is the same JavaScript (`llm.js`, Transformers.js, ONNX Runtime Web) in both, so inference speed does not depend on the kernel.
+lmLite runs the same Python API on both, and both are covered by the browser tests (see [DEVELOPMENT.md](DEVELOPMENT.md)). The model code is the same JavaScript (`lmlite.js`, Transformers.js, ONNX Runtime Web) in both, so inference speed does not depend on the kernel.
 
 | | xeus-python | Pyodide |
 |:--|:--|:--|

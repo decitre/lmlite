@@ -53,11 +53,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 def browser_embed(page, origin, model, dtype, texts):
     page.goto(origin, wait_until="domcontentloaded")
-    page.add_script_tag(url=f"{origin}/src/lmlite/llm.js", type="module")
-    page.wait_for_function("!!globalThis.lmLite?.createLLM")
+    page.add_script_tag(url=f"{origin}/src/lmlite/lmlite.js", type="module")
+    page.wait_for_function("!!globalThis.lmLite?.createRuntime")
     return page.evaluate(
         """async ({base, model, dtype, texts, warmup, long, runs}) => {
-          const llm = globalThis.lmLite.createLLM({embedding_model: model, embedding_dtype: dtype,
+          const llm = globalThis.lmLite.createRuntime({embedding_model: model, embedding_dtype: dtype,
             embedding_backend: 'wasm', hosted_model_base: base, hosted_models: [model]});
           let t = performance.now();
           await llm.init();

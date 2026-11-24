@@ -111,6 +111,6 @@ async def test_greedy_generation_is_deterministic():
     llm = await LLM.create(
         backend="native", generator_model=str(GPT2), do_sample=False, max_new_tokens=8, return_full_text=False
     )
-    assert llm.js.generator.dtype == "int8"  # no model_quantized.onnx locally: falls back like llm.js
+    assert llm.js.generator.dtype == "int8"  # no model_quantized.onnx locally: falls back like lmlite.js
     first = await llm.generate("The capital of France is")
     assert first and first == await llm.generate("The capital of France is")

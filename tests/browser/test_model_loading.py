@@ -24,11 +24,11 @@ def test_transformers_model_loads_and_generates(source_server):
             page = browser.new_page()
             page.set_default_timeout(MODEL_TIMEOUT)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
 
             result = page.evaluate(
                 """async ({modelId, backend}) => {
-                  const llm = globalThis.lmLite.createLLM({
+                  const llm = globalThis.lmLite.createRuntime({
                     generator_model: modelId,
                     backend,
                     max_new_tokens: 1,
@@ -59,7 +59,7 @@ def test_hosted_config_loads_directly_over_http(source_server):
             page = browser.new_page()
             page.set_default_timeout(60000)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             page.route(
                 "**/files/models/manifest.json",
                 lambda route: route.fulfill(
@@ -78,7 +78,7 @@ def test_hosted_config_loads_directly_over_http(source_server):
             result = page.evaluate(
                 """async (base) => {
                   const hosted = await globalThis.lmLite.getHostedModelBase('org/test-model', base);
-                  await globalThis.lmLite.createLLM({
+                  await globalThis.lmLite.createRuntime({
                     hosted_model_base: hosted,
                     hosted_models: ['org/test-model'],
                   }).init();
@@ -124,7 +124,7 @@ def discover_hosted_base(source_server, manifest_answers):
             page.route("**/files/models/manifest.json", answer)
             page.route(page_url, lambda route: route.fulfill(body="<html></html>", content_type="text/html"))
             page.goto(page_url)
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             page.wait_for_function("typeof globalThis.lmLite === 'object'")
             result = page.evaluate("async () => await globalThis.lmLite.getHostedModelBase('gpt2')")
         finally:

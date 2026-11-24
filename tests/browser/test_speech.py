@@ -24,12 +24,12 @@ def test_raw_samples_cross_the_bridge_as_one_buffer(source_server, task):
             page = browser.new_page()
             page.set_default_timeout(TIMEOUT)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 """async ({task, model}) => {
                   await new Promise(resolve => setTimeout(resolve, 0));
                   try {
-                    const llm = globalThis.lmLite.createLLM({task, task_model: model, backend: 'wasm'});
+                    const llm = globalThis.lmLite.createRuntime({task, task_model: model, backend: 'wasm'});
                     await llm.init();
                     const [rate, bytes] = await llm.runTask('Hello from the browser', '{}');
                     const batch = await llm.runTasks(['One.', 'Two.'], 8, {}, null, true);
@@ -64,7 +64,7 @@ def test_model_info_reports_the_speech_task(source_server, backend):
             page = browser.new_page()
             page.set_default_timeout(TIMEOUT)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             info = page.evaluate(
                 """async ({model, backend}) => {
                   await new Promise(resolve => setTimeout(resolve, 0));
@@ -145,13 +145,13 @@ def test_speech_loads_from_a_hosted_snapshot_without_the_hub(source_server, host
             page.set_default_timeout(TIMEOUT)
             page.on("request", lambda request: requests.append(request.url))
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 """async ({base, model}) => {
                   await new Promise(resolve => setTimeout(resolve, 0));
                   try {
                     const hosted = await globalThis.lmLite.getHostedModelBase(model, base);
-                    const llm = globalThis.lmLite.createLLM({
+                    const llm = globalThis.lmLite.createRuntime({
                       task: 'text-to-speech', task_model: model, backend: 'wasm',
                       hosted_model_base: hosted, hosted_models: [model],
                     });

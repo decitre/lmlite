@@ -62,7 +62,7 @@ def test_recorder_returns_a_16khz_mono_wav(source_server):
             return {ok: false, error: String(error?.stack ?? error)};
           }
         }""",
-        f"{source_server}/src/lmlite/llm.js",
+        f"{source_server}/src/lmlite/lmlite.js",
     )
 
     assert result["ok"], result.get("error")
@@ -204,7 +204,7 @@ def test_raw_recording_keeps_the_sound_of_any_input_and_levels_it(source_server,
     channels, polarity, audible = INPUTS[name]
     capture = write_input(tmp_path / f"{name}.wav", channels, polarity)
 
-    result = in_page(source_server, RECORD, {"url": f"{source_server}/src/lmlite/llm.js", "raw": True}, capture)
+    result = in_page(source_server, RECORD, {"url": f"{source_server}/src/lmlite/lmlite.js", "raw": True}, capture)
 
     peak = peak_of(result)
     info = result["info"]
@@ -222,7 +222,7 @@ def test_default_recording_describes_what_it_recorded(source_server, tmp_path, n
     channels, polarity, audible = INPUTS[name]
     capture = write_input(tmp_path / f"{name}.wav", channels, polarity)
 
-    result = in_page(source_server, RECORD, {"url": f"{source_server}/src/lmlite/llm.js", "raw": False}, capture)
+    result = in_page(source_server, RECORD, {"url": f"{source_server}/src/lmlite/lmlite.js", "raw": False}, capture)
 
     peak = peak_of(result)
     assert result["info"]["peak"] == pytest.approx(peak, abs=0.01) and result["info"]["raw"] is False

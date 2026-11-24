@@ -4,7 +4,7 @@
 """Record the microphone in a JupyterLite notebook. Imported separately: it needs ``pip install 'lmlite[audio]'``.
 
 Kernels run in a Web Worker, which cannot open the microphone, so the widget works on the page: its JavaScript loads
-the same ``llm.js`` the kernel uses (``globalThis.lmLite.AudioRecorder``), records, and hands the kernel a WAV file.
+the same ``lmlite.js`` the kernel uses (``globalThis.lmLite.AudioRecorder``), records, and hands the kernel a WAV file.
 """
 
 import asyncio
@@ -96,7 +96,7 @@ class AudioRecorder(anywidget.AnyWidget):
     info = traitlets.Dict().tag(sync=True)
 
     def __init__(self, **kwargs):
-        super().__init__(runtime=files("lmlite").joinpath("llm.js").read_text(), **kwargs)
+        super().__init__(runtime=files("lmlite").joinpath("lmlite.js").read_text(), **kwargs)
         self._waiters = []
         self.observe(self._received, names="recording")
 

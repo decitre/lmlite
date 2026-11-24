@@ -25,7 +25,7 @@ def reply(recorder, wav, peak=0.3):
 def test_the_widget_carries_the_runtime_and_uses_the_lmlite_global():
     recorder = AudioRecorder()
 
-    assert recorder.runtime == (Path(__file__).parents[1] / "src/lmlite/llm.js").read_text()
+    assert recorder.runtime == (Path(__file__).parents[1] / "src/lmlite/lmlite.js").read_text()
     assert "globalThis.lmLite.AudioRecorder" in recorder._esm and 'model.get("runtime")' in recorder._esm
     assert recorder.audio == b"" and recorder.recording == ""
 

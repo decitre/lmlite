@@ -52,19 +52,19 @@ def test_model_generates_without_other_hosts(public_server, site):
                     route.abort()
 
             page.route("**/*", block_external)
-            # An empty page under lab/, so llm.js finds the site root as it does in JupyterLite.
+            # An empty page under lab/, so lmlite.js finds the site root as it does in JupyterLite.
             page.route(
                 f"{public_server}/{site}/lab/lmlite-test.html", lambda route: route.fulfill(body="<html></html>")
             )
             page.goto(f"{public_server}/{site}/lab/lmlite-test.html")
-            page.add_script_tag(path=REPO_ROOT / "src/lmlite/llm.js", type="module")
+            page.add_script_tag(path=REPO_ROOT / "src/lmlite/lmlite.js", type="module")
             page.wait_for_function("globalThis.lmLite")
 
             result = page.evaluate(
                 """async (modelId) => {
                   try {
                     const hosted = await globalThis.lmLite.getHostedModelBase(modelId);
-                    const llm = globalThis.lmLite.createLLM({
+                    const llm = globalThis.lmLite.createRuntime({
                       generator_model: modelId,
                       hosted_model_base: hosted,
                       hosted_models: [modelId],

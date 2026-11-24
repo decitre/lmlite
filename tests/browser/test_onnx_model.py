@@ -29,7 +29,7 @@ def test_bare_onnx_model_runs_in_browser(source_server, backend):
             page.goto(source_server, wait_until="domcontentloaded")
             if backend == "webgpu" and not page.evaluate("async () => Boolean(await navigator.gpu?.requestAdapter())"):
                 pytest.skip("WebGPU adapter unavailable in this browser")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 """async ({url, backend}) => {
                   await new Promise(resolve => setTimeout(resolve, 0));
@@ -81,7 +81,7 @@ def test_onnx_model_runs_through_the_pyodide_bridge(source_server):
                   const pyodide = await loadPyodide();
                   await pyodide.loadPackage('numpy');
                   pyodide.FS.mkdirTree('/lib/lmlite/bridge');
-                  for (const name of ['__init__.py', 'llm.py', 'llm.js', 'onnx_model.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
+                  for (const name of ['__init__.py', 'llm.py', 'lmlite.js', 'onnx_model.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
                     pyodide.FS.writeFile(`/lib/lmlite/${name}`, await (await fetch(`${server}/src/lmlite/${name}`)).text());
                   }
                   const model = new Uint8Array(await (await fetch(`${server}/tests/fixtures/onnx/scale_add.onnx`)).arrayBuffer());
@@ -184,7 +184,7 @@ def test_browser_matches_native_onnxruntime(source_server, backend, model_file, 
                 and not page.evaluate("async () => (await navigator.gpu.requestAdapter()).features.has('shader-f16')")
             ):
                 pytest.skip("This WebGPU adapter has no shader-f16 support")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 RUN_JS,
                 {
@@ -215,7 +215,7 @@ def test_urls_are_cached_and_checked_against_sha256(source_server):
             requests = []
             page.on("request", lambda request: requests.append(request.url))
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 """async ({url, digest}) => {
                   await new Promise(resolve => setTimeout(resolve, 0));

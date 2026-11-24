@@ -11,7 +11,7 @@ DEFAULT_MODEL_NAMESPACE = "Xenova"
 # Tasks that return images (PNG bytes, or NumPy arrays with as_array=True); their inputs are images too.
 IMAGE_OUTPUT_TASKS = ("background-removal", "depth-estimation", "image-segmentation", "image-to-image")
 
-# Tasks whose inputs are images; keep in sync with llm.js.
+# Tasks whose inputs are images; keep in sync with lmlite.js.
 IMAGE_TASKS = (
     "image-classification",
     "zero-shot-image-classification",
@@ -20,12 +20,12 @@ IMAGE_TASKS = (
     *IMAGE_OUTPUT_TASKS,
 )
 
-# Text-to-speech under both names Transformers.js accepts; keep in sync with llm.js.
+# Text-to-speech under both names Transformers.js accepts; keep in sync with lmlite.js.
 SPEECH_TASKS = ("text-to-speech", "text-to-audio")
 # Tasks whose input is audio: a WAV URL or file, WAV bytes, or mono samples at 16 kHz.
 AUDIO_INPUT_TASKS = ("automatic-speech-recognition", "audio-classification")
 
-# Transformers.js tasks available through LLM.pipeline(); keep in sync with llm.js.
+# Transformers.js tasks available through LLM.pipeline(); keep in sync with lmlite.js.
 SUPPORTED_TASKS = (
     "zero-shot-classification",
     *AUDIO_INPUT_TASKS,
@@ -815,7 +815,7 @@ class LLM:
 
         config = {**cls.DEFAULTS, **overrides}
         native = _native(config.get("backend") == "native")
-        createLLM = None if native else _js_function("createLLM")
+        createRuntime = None if native else _js_function("createRuntime")
 
         # Auto-detect local zip and inject files directly into the browser Cache API.
         # This avoids any filesystem extraction: bytes flow zip → memory → Cache API.
@@ -950,7 +950,7 @@ class LLM:
         progress.bar_format = "{desc}"
         progress.set_description("Initializing browser runtime")
         with _js_callable(report_progress) as callback:
-            instance = native.NativeLLM(config) if native else createLLM(js_config)
+            instance = native.NativeLLM(config) if native else createRuntime(js_config)
             await instance.init(callback)
             progress.bar_format = "{desc}{percentage:3.0f}%|{bar}|"
             progress.reset(total=1)

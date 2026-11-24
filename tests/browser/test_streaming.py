@@ -21,10 +21,10 @@ def test_chat_stream_and_cancel_in_browser(source_server):
             page = browser.new_page()
             page.set_default_timeout(MODEL_TIMEOUT)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 """async (model) => {
-                  const llm = globalThis.lmLite.createLLM({generator_model: model, max_new_tokens: 40, do_sample: false});
+                  const llm = globalThis.lmLite.createRuntime({generator_model: model, max_new_tokens: 40, do_sample: false});
                   const messages = JSON.stringify([{role: 'user', content: 'Explain embeddings simply.'}]);
                   const readAll = async (stream, limit = Infinity) => {
                     const chunks = [];
@@ -72,10 +72,10 @@ def test_chat_tokens_report_probabilities_in_browser(source_server):
             page = browser.new_page()
             page.set_default_timeout(MODEL_TIMEOUT)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 """async (model) => {
-                  const llm = globalThis.lmLite.createLLM({generator_model: model, max_new_tokens: 40, do_sample: false});
+                  const llm = globalThis.lmLite.createRuntime({generator_model: model, max_new_tokens: 40, do_sample: false});
                   const messages = JSON.stringify([{role: 'user', content: 'Explain embeddings simply.'}]);
                   try {
                     await llm.init();

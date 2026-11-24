@@ -37,7 +37,7 @@ def png_size(data):
 # In the page: runs the task on the tiger photo and returns each image buffer's size and first 32 bytes.
 RUN = """async ({task, model, url, dtype, inWorker}) => {
   const run = async ({task, model, url, dtype}) => {
-    const llm = globalThis.lmLite.createLLM({task, task_model: model, backend: 'wasm', ...(dtype ? {dtype} : {})});
+    const llm = globalThis.lmLite.createRuntime({task, task_model: model, backend: 'wasm', ...(dtype ? {dtype} : {})});
     await llm.init();
     const [structure, ...buffers] = await llm.runTask(url, '{}');
     await llm.dispose();
@@ -51,7 +51,7 @@ RUN = """async ({task, model, url, dtype, inWorker}) => {
   const code = `self.onmessage = async ({data}) => {
     try {
       await import(data.src);
-      const llm = globalThis.lmLite.createLLM({task: data.task, task_model: data.model, backend: 'wasm', ...(data.dtype ? {dtype: data.dtype} : {})});
+      const llm = globalThis.lmLite.createRuntime({task: data.task, task_model: data.model, backend: 'wasm', ...(data.dtype ? {dtype: data.dtype} : {})});
       await llm.init();
       const [structure, ...buffers] = await llm.runTask(data.url, '{}');
       await llm.dispose();
@@ -64,7 +64,7 @@ RUN = """async ({task, model, url, dtype, inWorker}) => {
     return await new Promise((resolve) => {
       worker.onmessage = ({data}) => resolve(data);
       worker.onerror = (event) => resolve({ok: false, error: event.message});
-      worker.postMessage({src: new URL('/src/lmlite/llm.js', location.href).href, task, model, url, dtype});
+      worker.postMessage({src: new URL('/src/lmlite/lmlite.js', location.href).href, task, model, url, dtype});
     });
   } finally { worker.terminate(); }
 }"""
@@ -77,7 +77,7 @@ def run_in_chromium(source_server, task, in_worker):
             page = browser.new_page()
             page.set_default_timeout(TIMEOUT)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             args = {
                 "task": task,
                 "model": MODELS[task],

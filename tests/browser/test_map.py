@@ -38,7 +38,7 @@ def in_page(source_server, script, args, timeout=TIMEOUT):
             page = browser.new_page()
             page.set_default_timeout(timeout)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             return page.evaluate(script, args)
         finally:
             browser.close()
@@ -50,7 +50,7 @@ def test_batches_match_single_calls_report_progress_and_cancel(source_server):
         """async ({model, texts, labels}) => {
           await new Promise(resolve => setTimeout(resolve, 0));
           try {
-            const llm = globalThis.lmLite.createLLM({task: 'zero-shot-classification', task_model: model, backend: 'wasm'});
+            const llm = globalThis.lmLite.createRuntime({task: 'zero-shot-classification', task_model: model, backend: 'wasm'});
             await llm.init();
             const options = {candidate_labels: labels};
             const single = [];
@@ -88,7 +88,7 @@ def test_an_undecodable_image_fails_only_itself(source_server):
         """async ({model, url}) => {
           await new Promise(resolve => setTimeout(resolve, 0));
           try {
-            const llm = globalThis.lmLite.createLLM({task: 'image-classification', task_model: model, backend: 'wasm'});
+            const llm = globalThis.lmLite.createRuntime({task: 'image-classification', task_model: model, backend: 'wasm'});
             await llm.init();
             const good = new Uint8Array(await (await fetch(url)).arrayBuffer());
             // The PNG signature passes Python's check, but the data is not an image.

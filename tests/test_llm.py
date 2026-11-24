@@ -600,7 +600,7 @@ class TestLLMAutoDetect:
             import sys
 
             mock_js_module = MagicMock()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
@@ -622,8 +622,8 @@ class TestLLMAutoDetect:
                     # No filesystem extraction
                     assert not os.path.exists(os.path.join(tmpdir, "Xenova"))
 
-                    # Config passed to createLLM has no use_local_models / emfs_model_uri
-                    config = mock_js_module.lmLite.createLLM.call_args[0][0]
+                    # Config passed to createRuntime has no use_local_models / emfs_model_uri
+                    config = mock_js_module.lmLite.createRuntime.call_args[0][0]
                     if isinstance(config, dict):
                         assert "use_local_models" not in config
                         assert "emfs_model_uri" not in config
@@ -648,7 +648,7 @@ class TestLLMAutoDetect:
             import sys
 
             mock_js_module = MagicMock()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
@@ -686,7 +686,7 @@ class TestLLMAutoDetect:
             import sys
 
             mock_js_module = MagicMock()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=True)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
@@ -718,7 +718,7 @@ class TestLLMAutoDetect:
             mock_js_module = types.ModuleType("js")
 
             mock_js_module.lmLite = types.SimpleNamespace()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
             with patch("lmlite.llm.ensure_runtime"):
@@ -746,7 +746,7 @@ class TestLLMAutoDetect:
             import sys
 
             mock_js_module = MagicMock()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
@@ -774,7 +774,7 @@ class TestLLMAutoDetect:
             import sys
 
             mock_js_module = MagicMock()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=False)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
@@ -802,7 +802,7 @@ class TestLLMAutoDetect:
             import sys
 
             mock_js_module = MagicMock()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = AsyncMock(return_value=True)
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
@@ -831,7 +831,7 @@ class TestLLMAutoDetect:
             import sys
 
             mock_js_module = MagicMock()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = AsyncMock(side_effect=[True, False])
             mock_js_module.lmLite.loadModelToCache = AsyncMock()
 
@@ -871,7 +871,7 @@ class TestLLMAutoDetect:
             mock_js_module = types.ModuleType("js")
 
             mock_js_module.lmLite = types.SimpleNamespace()
-            mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+            mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
             mock_js_module.lmLite.isModelCached = MagicMock(return_value=False)
 
             with patch("lmlite.llm.ensure_runtime"):
@@ -894,10 +894,10 @@ class TestLLMAutoDetect:
         mock_js_instance.init = AsyncMock()
 
         class JsProxyLike:
-            __slots__ = ("createLLM", "isModelCached", "loadModelToCache")
+            __slots__ = ("createRuntime", "isModelCached", "loadModelToCache")
 
         js_proxy_like = JsProxyLike()
-        js_proxy_like.createLLM = MagicMock(return_value=mock_js_instance)
+        js_proxy_like.createRuntime = MagicMock(return_value=mock_js_instance)
         js_proxy_like.isModelCached = AsyncMock(return_value=False)
         js_proxy_like.loadModelToCache = AsyncMock()
 
@@ -1003,7 +1003,7 @@ class TestLLMLoadingProgress:
         instance.init = AsyncMock()
         js = types.ModuleType("js")
         js.lmLite = types.SimpleNamespace()
-        js.lmLite.createLLM = MagicMock(return_value=instance)
+        js.lmLite.createRuntime = MagicMock(return_value=instance)
         js.lmLite.isModelCached = AsyncMock(return_value=False)
         js.lmLite.loadModelToCache = AsyncMock()
         monkeypatch.setitem(sys.modules, "js", js)
@@ -1025,7 +1025,7 @@ class TestLLMLoadingProgress:
             auto_detect_local=False,
         )
 
-        config = js.lmLite.createLLM.call_args.args[0]
+        config = js.lmLite.createRuntime.call_args.args[0]
         assert config["return_full_text"] is return_full_text
         ffi.to_js.assert_called_once_with(config)
         instance.init.assert_awaited_once()
@@ -1044,7 +1044,7 @@ class TestLLMLoadingProgress:
             auto_detect_local=False,
         )
 
-        config = js.lmLite.createLLM.call_args.args[0]
+        config = js.lmLite.createRuntime.call_args.args[0]
         assert config["embedding_dtype"] == embedding_dtype
         assert config["embedding_backend"] == embedding_backend
         assert config["dtype"] == "fp32"
@@ -1066,7 +1066,7 @@ class TestLLMLoadingProgress:
         candidates.assert_not_called()
         js.lmLite.isModelCached.assert_not_awaited()
         js.lmLite.loadModelToCache.assert_not_awaited()
-        config = js.lmLite.createLLM.call_args.args[0]
+        config = js.lmLite.createRuntime.call_args.args[0]
         assert config["hosted_model_base"] == "https://example.test/demo/models/"
         assert config["hosted_models"] == ["Xenova/gpt2"]
         instance.init.assert_awaited_once()
@@ -1083,7 +1083,7 @@ class TestLLMLoadingProgress:
             local_models_path=str(tmp_path),
         )
 
-        config = js.lmLite.createLLM.call_args.args[0]
+        config = js.lmLite.createRuntime.call_args.args[0]
         assert config["hosted_models"] == ["Xenova/gpt2"]
         assert js.lmLite.getHostedModelBase.await_count == 2
         js.lmLite.isModelCached.assert_awaited_once_with("acme/embed@v1")
@@ -1193,7 +1193,7 @@ class TestLLMLoadingProgress:
         monkeypatch.setitem(sys.modules, "pyjs", pyjs)
         error = RuntimeError("Loading failed")
         if failure_stage == "create":
-            js.lmLite.createLLM.side_effect = error
+            js.lmLite.createRuntime.side_effect = error
         elif failure_stage == "init":
             instance.init.side_effect = error
         else:
@@ -1400,7 +1400,7 @@ class TestLLMLoadingProgress:
             "loaded": 5,
             "total": 10,
         }
-        assert "progress_callback" not in js.lmLite.createLLM.call_args.args[0]
+        assert "progress_callback" not in js.lmLite.createRuntime.call_args.args[0]
 
     async def test_progress_callback_receives_errors(self, loading):
         from lmlite import LLM
@@ -1570,7 +1570,7 @@ class TestConversionFallbacks:
         mock_js_module = types.ModuleType("js")
 
         mock_js_module.lmLite = types.SimpleNamespace()
-        mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+        mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
 
         # Remove pyodide, use pyjs
         pyodide_backup = sys.modules.pop("pyodide", None)
@@ -1586,7 +1586,7 @@ class TestConversionFallbacks:
             with patch("lmlite.llm.ensure_runtime"):
                 llm = await LLM.create(generator_model="gpt2")
                 assert llm is not None
-                mock_js_module.lmLite.createLLM.assert_called_once()
+                mock_js_module.lmLite.createRuntime.assert_called_once()
                 mock_pyjs_module.to_js.assert_called()
         finally:
             if "js" in sys.modules:
@@ -1674,7 +1674,7 @@ class TestCreateWithPyodide:
         mock_js_module = types.ModuleType("js")
 
         mock_js_module.lmLite = types.SimpleNamespace()
-        mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+        mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
 
         mock_pyodide_ffi = MagicMock()
         mock_pyodide_ffi.to_js = MagicMock(side_effect=lambda x: x)
@@ -1723,7 +1723,7 @@ class TestLLMPipeline:
         mock_js_instance.init = AsyncMock()
         mock_js_module = types.ModuleType("js")
         mock_js_module.lmLite = types.SimpleNamespace()
-        mock_js_module.lmLite.createLLM = MagicMock(return_value=mock_js_instance)
+        mock_js_module.lmLite.createRuntime = MagicMock(return_value=mock_js_instance)
         mock_js_module.lmLite.isModelCached = AsyncMock(return_value=True)
         monkeypatch.setitem(sys.modules, "js", mock_js_module)
 
@@ -1732,7 +1732,7 @@ class TestLLMPipeline:
 
         assert isinstance(pipe, Pipeline)
         assert (pipe.task, pipe.model) == ("translation", "opus-mt-en-fr")
-        config = mock_js_module.lmLite.createLLM.call_args.args[0]
+        config = mock_js_module.lmLite.createRuntime.call_args.args[0]
         assert config["task"] == "translation"
         assert config["task_model"] == "opus-mt-en-fr"
         assert config["backend"] == "webgpu"
