@@ -9,6 +9,7 @@ pipelines.md
 generate-and-chat.md
 embeddings-and-search.md
 onnx-models.md
+apps.md
 tokenizers.md
 models-and-cache.md
 native-backend.md

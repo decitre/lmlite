@@ -80,6 +80,8 @@ Extras: `images` (NumPy and Pillow), `audio` and `camera` (the widgets), `native
 
 [All the notebooks](https://decitre.github.io/lmlite/tutorials/index.html), from the first demo to a retrieval-augmented chat, are listed in the documentation.
 
+**Apps**, built with Voici: [what is in front of the camera?](https://decitre.github.io/lmlite/apps/voici/render/camera-objects.html) and [say it in English, hear it in French](https://decitre.github.io/lmlite/apps/voici/render/speak-french.html).
+
 ## Documentation
 
 The [documentation site][docs-url] has the tutorials (the notebooks), [guides](https://github.com/decitre/lmlite/blob/main/docs/guides/index.md) for one task at a time, a [reference](https://github.com/decitre/lmlite/blob/main/docs/reference/index.md) with the API generated from the docstrings, and [explanations](https://github.com/decitre/lmlite/blob/main/docs/explanation/index.md) of backends and the Python/JavaScript bridge. Setup and tests are in the [development guide](https://github.com/decitre/lmlite/blob/main/docs/DEVELOPMENT.md).
