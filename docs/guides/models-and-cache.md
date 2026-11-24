@@ -17,7 +17,7 @@ llm = await LLM.create(
 )
 ```
 
-To check where a model would load from without loading it, `await LLM.hosted_base("org/name")` returns the hosted base URL serving that model (for example `"https://my-site.com/files/models/"`), or `None` when it is not hosted. It accepts `hosted_models_url=` and starts the lmLite bridge if needed.
+To check where a model would load from without loading it, `await hosted_base("org/name")` returns the hosted base URL serving that model (for example `"https://my-site.com/files/models/"`), or `None` when it is not hosted. It accepts `hosted_models_url=` and starts the lmLite bridge if needed.
 
 On a site built with `scripts/lite-build.sh`, Transformers.js and its WebAssembly runtime load from the site, so hosted models work where jsDelivr and huggingface.co are blocked. Elsewhere, Transformers.js loads from jsDelivr.
 
@@ -26,9 +26,9 @@ On a site built with `scripts/lite-build.sh`, Transformers.js and its WebAssembl
 Inspect a model before loading it:
 
 ```python
-from lmlite import LLM
+from lmlite import LLM, model_info
 
-info = await LLM.model_info("HuggingFaceTB/SmolLM2-360M-Instruct", backend="wasm", dtype="q4")
+info = await model_info("HuggingFaceTB/SmolLM2-360M-Instruct", backend="wasm", dtype="q4")
 print(info.cache_status, info.download_bytes)
 for f in info.files:
     print(f["name"], f["size"], f["cached"])
@@ -40,7 +40,7 @@ llm = await LLM.create(
 )
 ```
 
-`LLM.model_info(model, task=None, backend="wasm", dtype=None)` returns a `ModelInfo` built from the Transformers.js `ModelRegistry`. Pass the `task` you will load (`"text-generation"`, `"feature-extraction"` for embeddings, `"text-classification"`, or a `SUPPORTED_TASKS` entry). Without a task, the model's Hub pipeline tag is used. That needs the network, and a model without a tag reports `task=None` with `error` set. To get only the tag, use `await LLM.model_task(model)`: a single Hub request (5-second timeout) that returns e.g. `"text-generation"`, or `None` offline or for untagged models. `ModelInfo` contains:
+`model_info(model, task=None, backend="wasm", dtype=None)` returns a `ModelInfo` built from the Transformers.js `ModelRegistry`. Pass the `task` you will load (`"text-generation"`, `"feature-extraction"` for embeddings, `"text-classification"`, or a `SUPPORTED_TASKS` entry). Without a task, the model's Hub pipeline tag is used. That needs the network, and a model without a tag reports `task=None` with `error` set. To get only the tag, use `await model_task(model)`: a single Hub request (5-second timeout) that returns e.g. `"text-generation"`, or `None` offline or for untagged models. `ModelInfo` contains:
 
 - `model_id`, `revision`, `task`, `backend` and `dtype`. Without a dtype, the first of `q8`, `int8` or `fp32` published for the model is reported, matching what `LLM.create()` tries; `feature-extraction` keeps the Transformers.js default and reports `None`.
 - `files`: the files the pipeline will fetch, each with `name`, `size` in bytes (or `None`) and `cached`.

@@ -66,9 +66,9 @@ llm = await LLM.create(classification_model="toxic-bert")
 labels = await llm.classify("example text", top_k=2)
 ```
 
-## Task pipelines (for `LLM.pipeline(task, model=...)`)
+## Task pipelines (for `pipeline(task, model=...)`)
 
-Transformers.js only runs models with ONNX weights and a browser-supported architecture. Models in the `Xenova` and `onnx-community` namespaces usually work, but a model's task and architecture decide, not its namespace: an unsupported architecture fails at load with `Unsupported model type`. `LLM.model_task(model)` returns the Hub's task for a model, and `LLM.model_info(model, task=...)` lists its files and download size before you load it.
+Transformers.js only runs models with ONNX weights and a browser-supported architecture. Models in the `Xenova` and `onnx-community` namespaces usually work, but a model's task and architecture decide, not its namespace: an unsupported architecture fails at load with `Unsupported model type`. `model_task(model)` returns the Hub's task for a model, and `model_info(model, task=...)` lists its files and download size before you load it.
 
 Each task below was run with the model in the table, in a real browser, by the opt-in tests named in the last column (see [DEVELOPMENT.md](DEVELOPMENT.md)). "Tested" means that and nothing more: other models of the same task are likely to work but have not been tried here. Licences are the ones the Hub lists for the Xenova repository or its base model, as of November 2026; read the model card before shipping.
 
@@ -104,7 +104,7 @@ Each task below was run with the model in the table, in a real browser, by the o
 - **Kokoro** (`onnx-community/Kokoro-82M-v1.0-ONNX`, Apache-2.0) is not supported by the pipeline: "Unsupported model type style_text_to_speech_2". It needs the separate `kokoro-js` package, which lmlite does not wrap.
 - **MusicGen** and other sound generation (`text-to-audio` with music models) were not tried. The Xenova MusicGen models are CC-BY-NC-4.0.
 - **Other image-output models**: `briaai/RMBG-1.4` (background removal) has a licence of `other` on the Hub, `Xenova/segformer-b0-finetuned-ade-512-512` derives from NVIDIA's segformer, also `other`, and `Xenova/dpt-hybrid-midas` is 533 MB: none was tried. Mask generation (SAM) is a different task and is not supported.
-- **Native backend**: no pipeline task runs there. `LLM.pipeline()` raises `NotImplementedError`.
+- **Native backend**: no pipeline task runs there. `pipeline()` raises `NotImplementedError`.
 
 ## Bare ONNX models (for `OnnxModel.load(...)`)
 
@@ -121,7 +121,7 @@ To host a bare model with a site, put it at `files/models/<namespace>/<model>/mo
 
 ## Text to image: a recipe, not a pipeline task
 
-Transformers.js 4.3.2 has no text-to-image task, so `LLM.pipeline()` cannot offer one. [`ch15_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch15_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `LLM.tokenizer`, three ONNX models on WebGPU, and the scheduler in NumPy.
+Transformers.js 4.3.2 has no text-to-image task, so `pipeline()` cannot offer one. [`ch15_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch15_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `LLM.tokenizer`, three ONNX models on WebGPU, and the scheduler in NumPy.
 
 | Model | Licence | Files |
 |-------|---------|-------|
@@ -147,7 +147,7 @@ Apple M-series Mac with 18 GB, Chromium on the Metal GPU (`shader-f16`, 4 GB buf
 
 ### Decision
 
-**Keep it as a documented recipe. Do not add a `text-to-image` task to `LLM.pipeline()`, and do not drop it.** It works well where the hardware allows it, but a task would promise what lmlite cannot check:
+**Keep it as a documented recipe. Do not add a `text-to-image` task to `pipeline()`, and do not drop it.** It works well where the hardware allows it, but a task would promise what lmlite cannot check:
 
 - It needs a hardware GPU with float16 shaders and 1.7 GB buffers, and about 7 GB of browser memory: a recent laptop, not most phones, tablets or machines without such a GPU. The same notebook would fail on WebAssembly and on a software adapter.
 - The 2.4 GB download repeats on every kernel unless the browser stores it; a 1.7 GB file did not fit the Cache API in the test profile.
@@ -292,7 +292,7 @@ If automatic site discovery is unavailable, pass the absolute models URL as `hos
 
 ## Notes
 
-- Tasks and licences: the tested models and their licences are in the task pipeline tables. A model that is not listed may still work, and `LLM.model_info()` shows its files before you download them. A non-commercial licence (for example MMS-TTS) limits what you can ship, whatever lmlite supports.
+- Tasks and licences: the tested models and their licences are in the task pipeline tables. A model that is not listed may still work, and `model_info()` shows its files before you download them. A non-commercial licence (for example MMS-TTS) limits what you can ship, whatever lmlite supports.
 - Model support depends on Transformers.js v4 runtime support, available ONNX files, selected backend (`backend` for generation/classification, `embedding_backend` for embeddings), and dtype availability in the model repo.
 - For generation and classification, the default dtype fallback order is `["q8", "int8", "fp32"]`. Pass `dtype` to select one, or `dtype_fallbacks` to control retry order; a nonempty `dtype_fallbacks` list takes precedence over `dtype`.
 - Embeddings use Transformers.js's default dtype unless `embedding_dtype` is set. An embedding pin is independent of the generation/classification dtype settings and never falls back to another dtype.
