@@ -128,7 +128,7 @@ async def model_zip_candidates(model_name: str) -> list[str]:
 
 @dataclass
 class ModelInfo:
-    """Best-effort, pre-load metadata returned by ``LLM.model_info()``.
+    """Best-effort, pre-load metadata returned by ``model_info()``.
 
     ``cache_status`` is ``"cached"``, ``"partial"``, ``"not_cached"`` or ``"unknown"`` and
     only reflects the Transformers.js Cache API. ``download_bytes`` is the summed file

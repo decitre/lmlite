@@ -7,7 +7,7 @@ from ._bridge import _js_function, _native, _to_python_deep
 
 
 class Tokenizer:
-    """A tokenize-only handle created with ``LLM.tokenizer()``; ``encode()`` and ``decode()`` are synchronous."""
+    """A tokenize-only handle created with ``tokenizer()``; ``encode()`` and ``decode()`` are synchronous."""
 
     def __init__(self, js_tokenizer, source):
         self._js = js_tokenizer
@@ -19,7 +19,7 @@ class Tokenizer:
 
     def _handle(self):
         if self._js is None:
-            raise RuntimeError(f"Tokenizer for {self.source!r} is closed; load it again with LLM.tokenizer().")
+            raise RuntimeError(f"Tokenizer for {self.source!r} is closed; load it again with tokenizer().")
         return self._js
 
     def encode(self, text, *, add_special_tokens=False):

@@ -179,7 +179,7 @@ class NativeLLM:
                 progress_callback(model, status, "", 0, 0)
 
         if self.config.get("task") or self.config.get("task_model"):
-            raise NotImplementedError("The native backend does not support LLM.pipeline() tasks.")
+            raise NotImplementedError("The native backend does not support pipeline() tasks.")
         report("", "initializing")
         models_path = self.config.get("local_models_path")
         dtypes = self._dtypes() or DEFAULT_DTYPES

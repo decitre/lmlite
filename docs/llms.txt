@@ -24,6 +24,7 @@ Notes for using the API:
 
 - [Parameters](https://raw.githubusercontent.com/decitre/lmlite/main/docs/reference/parameters.md): `LLM.create()`, `Embedder.create()`, `Classifier.create()`, backends and dtypes
 - [Pipeline tasks](https://raw.githubusercontent.com/decitre/lmlite/main/docs/reference/pipeline-tasks.md): each task's arguments and result format
+- [API reference](https://decitre.github.io/lmlite/reference/api.html): every public function and class, with signatures, generated from the docstrings
 - [Models](https://raw.githubusercontent.com/decitre/lmlite/main/docs/MODELS.md): the tested model for each task, licences, known failures, hosting models
 
 ## Explanation

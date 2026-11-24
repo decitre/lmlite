@@ -28,7 +28,7 @@ SPEECH_TASKS = ("text-to-speech", "text-to-audio")
 AUDIO_INPUT_TASKS = ("automatic-speech-recognition", "audio-classification")
 
 
-# Transformers.js tasks available through LLM.pipeline(); keep in sync with lmlite.js.
+# Transformers.js tasks available through pipeline(); keep in sync with lmlite.js.
 SUPPORTED_TASKS = (
     "zero-shot-classification",
     *AUDIO_INPUT_TASKS,
@@ -256,7 +256,7 @@ class Speech:
 
 
 class Pipeline:
-    """A loaded Transformers.js task pipeline, created with ``LLM.pipeline()``."""
+    """A loaded Transformers.js task pipeline, created with ``pipeline()``."""
 
     def __init__(self, llm, task, model):
         self.llm = llm

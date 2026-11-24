@@ -7,6 +7,7 @@ Exact facts: parameters, options, result formats and the tested models.
 
 parameters.md
 pipeline-tasks.md
+api.md
 ../MODELS.md
 ../GLOSSARY.md
 ```

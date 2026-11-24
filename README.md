@@ -122,7 +122,7 @@ AI-assisted contributions are welcome, provided contributors understand, review,
 
 - **[Getting Started](https://github.com/decitre/lmlite/blob/main/docs/DEVELOPMENT.md)** - Installation, development setup, and testing
 - **[Guides](https://github.com/decitre/lmlite/blob/main/docs/guides/index.md)** - One task at a time: generate and chat, embeddings, pipelines, ONNX models, tokenizers, models and cache
-- **[Reference](https://github.com/decitre/lmlite/blob/main/docs/reference/index.md)** - `LLM`, `Embedder` and `Classifier` parameters, pipeline task table and tested models
+- **[Reference](https://github.com/decitre/lmlite/blob/main/docs/reference/index.md)** - `LLM`, `Embedder` and `Classifier` parameters, pipeline task table, tested models and the API reference generated from the docstrings
 - **[Explanation](https://github.com/decitre/lmlite/blob/main/docs/explanation/index.md)** - Backends, the Python/JavaScript bridge and the runtime scope
 - **[Model Guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md)** - Recommended models and dtype selection
 - **[Runtime & Integration](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md)** - Platform support, xeus-python or Pyodide, and integration boundaries

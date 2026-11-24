@@ -20,11 +20,14 @@ def test_every_linked_page_exists():
 
 def test_every_guide_and_reference_page_is_listed():
     text = (ROOT / "docs/llms.txt").read_text()
+    # api.md holds only autodoc directives, so llms.txt links the page the build generates from it.
+    skipped = {"index.md", "api.md"}
     pages = {
         path.relative_to(ROOT).as_posix()
         for folder in ("guides", "reference", "explanation")
         for path in (ROOT / "docs" / folder).glob("*.md")
-        if path.name != "index.md"
+        if path.name not in skipped
     }
 
     assert sorted(page for page in pages if f"/{page})" not in text) == []
+    assert "](https://decitre.github.io/lmlite/reference/api.html)" in text
