@@ -13,7 +13,7 @@ import json
 import os
 import re
 
-from .llm import _bytes_of, _js_function, _native, _to_js, _to_python_deep
+from ._bridge import _bytes_of, _js_function, _native, _to_js, _to_python_deep
 
 # onnxruntime tensor type -> NumPy dtype name, as onnxruntime-web reports it.
 _NATIVE_DTYPES = {

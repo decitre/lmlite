@@ -234,7 +234,7 @@ class TestBrowser:
         module = types.ModuleType("js")
         module.lmLite = types.SimpleNamespace(loadOnnxModel=AsyncMock(return_value=handle))
         monkeypatch.setitem(sys.modules, "js", module)
-        monkeypatch.setattr("lmlite.llm.ensure_runtime", MagicMock())
+        monkeypatch.setattr("lmlite._bridge.ensure_runtime", MagicMock())
         return module, handle
 
     async def test_url_and_bytes_reach_the_browser_and_results_come_back_as_numpy(self, js):

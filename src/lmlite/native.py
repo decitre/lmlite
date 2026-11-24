@@ -17,7 +17,7 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer as HFTokenizer
 
-from .llm import resolve_model_id, split_model_name_and_revision
+from .models import resolve_model_id, split_model_name_and_revision
 from .model_assets import DTYPE_SUFFIXES
 
 # lmlite.js DEFAULT_DTYPES, tried in order for generation and classification models.
@@ -84,7 +84,7 @@ class NativeTokenizer:
         text = self._tok.decode(list(ids), skip_special_tokens=skip_special_tokens)
         return _clean_up_tokenization(text) if self.config.get("clean_up_tokenization_spaces", True) else text
 
-    # JSON strings match the JS handle that lmlite.llm.Tokenizer wraps.
+    # JSON strings match the JS handle that lmlite.tokenizer.Tokenizer wraps.
     def encode(self, text, add_special_tokens=False):
         return json.dumps(self.ids(text, add_special_tokens))
 

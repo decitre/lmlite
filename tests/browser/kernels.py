@@ -55,7 +55,7 @@ def run_in_pyodide(source_server, code, packages=("tqdm",), requests=None, args=
                   const pyodide = await loadPyodide();
                   await pyodide.loadPackage(packages);
                   pyodide.FS.mkdirTree('/lib/lmlite/bridge');
-                  for (const name of ['__init__.py', 'llm.py', 'lmlite.js', 'onnx_model.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
+                  for (const name of ['__init__.py', '_bridge.py', '_session.py', 'llm.py', 'lmlite.js', 'models.py', 'onnx_model.py', 'pipeline.py', 'tokenizer.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
                     pyodide.FS.writeFile(`/lib/lmlite/${name}`, await (await fetch(`${server}/src/lmlite/${name}`)).text());
                   }
                   pyodide.runPython("import sys; sys.path.insert(0, '/lib')");

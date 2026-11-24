@@ -79,7 +79,7 @@ def test_a_recording_is_input_for_speech_recognition():
     import struct
     import wave
 
-    from lmlite.llm import _audio_input
+    from lmlite.pipeline import _audio_input
 
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav:
