@@ -5,8 +5,8 @@
 </p>
 
 [![Tests][ci-badge]][ci-url]
-[![codecov-python][codecov-python-badge]][codecov-url]
-[![codecov-js][codecov-js-badge]][codecov-url]
+[![python][python-label-badge]][codecov-url][![codecov-python][codecov-python-badge]][codecov-url]
+[![javascript][js-label-badge]][codecov-url][![codecov-js][codecov-js-badge]][codecov-url]
 [![Transformers.js][transformers-badge]][transformers-url]
 [![Docs][docs-badge]][docs-url]
 [![Try xeus-python][xeus-badge]][xeus-url]
@@ -204,8 +204,10 @@ Thanks to the developers and maintainers of these projects and the broader Jupyt
 ---
 
 [ci-badge]: https://github.com/decitre/lmlite/actions/workflows/test.yml/badge.svg
-[codecov-python-badge]: https://img.shields.io/codecov/c/github/decitre/lmlite/main?flag=python&label=python&logo=codecov
-[codecov-js-badge]: https://img.shields.io/codecov/c/github/decitre/lmlite/main?flag=javascript&label=javascript&logo=codecov
+[python-label-badge]: https://img.shields.io/badge/python-555555
+[codecov-python-badge]: https://codecov.io/gh/decitre/lmlite/branch/main/graph/badge.svg?flag=python
+[js-label-badge]: https://img.shields.io/badge/javascript-555555
+[codecov-js-badge]: https://codecov.io/gh/decitre/lmlite/branch/main/graph/badge.svg?flag=javascript
 [ci-url]: https://github.com/decitre/lmlite/actions/workflows/test.yml
 [codecov-url]: https://codecov.io/gh/decitre/lmlite
 [docs-badge]: https://img.shields.io/badge/docs-GitHub%20Pages-blue
