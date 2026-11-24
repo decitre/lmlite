@@ -128,11 +128,22 @@ async def model_zip_candidates(model_name: str) -> list[str]:
 
 @dataclass
 class ModelInfo:
-    """Best-effort, pre-load metadata returned by ``model_info()``.
+    """What a model needs before it loads, returned by ``model_info()``. The values are best effort.
 
-    ``cache_status`` is ``"cached"``, ``"partial"``, ``"not_cached"`` or ``"unknown"`` and
-    only reflects the Transformers.js Cache API. ``download_bytes`` is the summed file
-    size, or ``None`` when any size is unknown; it is not a runtime memory estimate.
+    Attributes:
+        model_id: The resolved model ID, such as ``"Xenova/gpt2"``.
+        revision: The revision the files come from.
+        task: The task the model will load as, from the ``task`` argument or the model's Hub pipeline tag.
+        backend: ``"wasm"`` or ``"webgpu"``.
+        dtype: The dtype the files are for. When none was asked for, the first of ``q8``, ``int8`` or ``fp32``
+            that the model publishes; ``None`` for embeddings, which keep the Transformers.js default.
+        cache_status: ``"cached"``, ``"partial"``, ``"not_cached"`` or ``"unknown"``. It only reflects the
+            Transformers.js Cache API, not hosted files or ZIPs in ``local_models_path``.
+        download_bytes: The summed file sizes, or ``None`` when any size is unknown. It is the download size,
+            not an estimate of the memory the model needs.
+        files: The files the pipeline will fetch, each a dict with ``name``, ``size`` (bytes, or ``None``) and
+            ``cached``.
+        error: Why the information is incomplete, or ``None``.
     """
 
     model_id: str
@@ -147,47 +158,86 @@ class ModelInfo:
 
 
 async def clear_cache(model=None):
-    """Clear browser caches/databases used by Transformers.js model downloads.
+    """Clear the browser caches that hold downloaded models.
 
-    With no ``model``, deletes all caches and returns
-    ``{"deleted_caches": [...], "deleted_databases": [...]}``. With a model name,
-    deletes only that model's cached files (all revisions) and returns
-    ``{"model_id": ..., "deleted_files": [urls]}``.
+    Args:
+        model: A model ID or name. Without it, every cache is cleared.
+
+    Returns:
+        With no ``model``: ``{"deleted_caches": [...], "deleted_databases": [...]}``. With one:
+        ``{"model_id": ..., "deleted_files": [urls]}``, covering all of its revisions.
     """
     result = await _js_function("clearModelCache")(model)
     return _to_python_deep(result)
 
 
 async def cached_models():
-    """List models in the Transformers.js browser cache as dicts, or None if the Cache API is unavailable.
+    """List the models in the Transformers.js browser cache.
 
-    Each dict has ``model_id``, ``revision``, ``model_type`` (from the cached config.json), ``task`` (the Hub
-    pipeline tag, None offline), ``files``, ``file_sizes`` (name to size, None if unknown) and ``size``.
-    Hosted model files and /drive/models ZIPs are not included.
+    Hosted model files and ZIPs in ``/drive/models`` are not included.
+
+    Returns:
+        A list of dicts, or ``None`` when the Cache API is unavailable. Each dict has ``model_id``, ``revision``,
+        ``model_type`` (from the cached ``config.json``), ``task`` (the Hub pipeline tag, ``None`` offline),
+        ``files``, ``file_sizes`` (file name to size, ``None`` if unknown) and ``size``.
     """
     return _to_python_deep(await _js_function("getCachedModels")())
 
 
 async def model_info(model, task=None, backend="wasm", dtype=None):
-    """Inspect a model's files, download size and cache status without loading it.
+    """Inspect a model's files, download size and cache status without loading or downloading it.
 
-    Without ``task``, the model's Hub pipeline tag is used (``info.task``); it needs the network.
+    File sizes come from the cache or from a one-byte range request to the Hub.
+
+    Args:
+        model: A model ID or name.
+        task: The task you will load it as, such as ``"text-generation"``, ``"feature-extraction"``,
+            ``"text-classification"`` or one of ``SUPPORTED_TASKS``. Without it the model's Hub pipeline tag is
+            used, which needs the network.
+        backend: ``"wasm"`` or ``"webgpu"``.
+        dtype: The dtype to inspect. Without it, the first of ``q8``, ``int8`` or ``fp32`` that the model publishes.
+
+    Returns:
+        A ``ModelInfo``.
+
+    Example:
+        .. code-block:: python
+
+            info = await model_info("HuggingFaceTB/SmolLM2-360M-Instruct", dtype="q4")
+            info.cache_status, info.download_bytes
     """
     get_model_info = _js_function("getModelInfo")
     return ModelInfo(**_to_python_deep(await get_model_info(model, task, backend, dtype)))
 
 
 async def model_task(model):
-    """Return the model's Hub pipeline tag (e.g. ``"text-generation"``), or None offline or if untagged."""
+    """The task a model is tagged with on the Hugging Face Hub.
+
+    Args:
+        model: A model ID or name.
+
+    Returns:
+        The pipeline tag, such as ``"text-generation"``, or ``None`` when offline or when the model has no tag.
+        It makes one Hub request with a 5-second timeout.
+    """
     return _to_python_deep(await _js_function("getModelTask")(model))
 
 
 async def hosted_base(model_id, *, hosted_models_url=None):
-    """Return the hosted models base URL serving ``model_id``, or None if it is not hosted.
+    """Where a model would load from: the base URL of the hosted models that serve it, if any.
 
-    Uses the same discovery as ``LLM.create()``: the site's ``files/models/manifest.json``, or
-    ``hosted_models_url`` when given. Revisions other than ``@main`` are never hosted. Raises
-    when an explicit ``hosted_models_url`` manifest is missing or invalid.
+    It uses the discovery of ``LLM.create()``: the site's ``files/models/manifest.json``, or ``hosted_models_url``.
+    Revisions other than ``@main`` are never hosted.
+
+    Args:
+        model_id: A model ID or name.
+        hosted_models_url: An explicit URL of a models directory that has a ``manifest.json``.
+
+    Returns:
+        The base URL, such as ``"https://my-site.com/files/models/"``, or ``None`` when the model is not hosted.
+
+    Raises:
+        RuntimeError: ``hosted_models_url`` was given and its manifest is missing or invalid.
     """
     base = await _js_function("getHostedModelBase")(model_id, hosted_models_url)
     return str(base) if base else None

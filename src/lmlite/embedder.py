@@ -37,17 +37,38 @@ async def _similarity_search(session, query, docs, k=None):
 
 
 class Embedder(Session):
-    """Sentence embeddings: the model loaded by ``Embedder.create(model)``."""
+    """Sentence embeddings and similarity search.
+
+    Load it with ``await Embedder.create(model)``. The vectors come from attention-mask-weighted mean pooling followed
+    by L2 normalisation, so a dot product of two vectors is their cosine similarity.
+
+    Example:
+        .. code-block:: python
+
+            embedder = await Embedder.create("all-MiniLM-L6-v2", backend="wasm", dtype="q8")
+            vector = await embedder.embed("Hello world")
+            await embedder.similarity_search("Where does JupyterLite run?", docs, k=2)
+            await embedder.dispose()
+    """
 
     @classmethod
     async def create(cls, model, *, backend=None, dtype=None, progress_callback=None, **options):
         """Load an embedding model.
 
-        ``backend`` is ``"wasm"`` or ``"webgpu"``, or ``"native"`` for the onnxruntime backend; ``None`` leaves the device
-        to Transformers.js. ``dtype``
-        pins the weights (for example ``"q8"``) with no fallback to another dtype, so the vectors are
-        reproducible; ``None`` keeps the Transformers.js default. ``options`` are the loading options of
-        ``LLM.create()``: ``hosted_models_url``, ``auto_detect_local`` and ``local_models_path``.
+        Args:
+            model: A Hugging Face model ID such as ``"Xenova/all-MiniLM-L6-v2"``, or a short name, which gets the default
+                ``Xenova/`` namespace.
+            backend: ``"wasm"`` or ``"webgpu"``, or ``"native"`` for the onnxruntime backend outside a browser. ``None``
+                (the default) leaves the device to Transformers.js. A backend that does not suit the model fails; there is
+                no retry on another one.
+            dtype: Pins the weights, for example ``"q8"``, so the vectors are reproducible. There is no fallback to
+                another dtype. ``None`` (the default) keeps the Transformers.js default.
+            progress_callback: Called with a dict per loading event, as for ``LLM.create()``.
+            **options: The other loading options of ``LLM.create()``: ``hosted_models_url``, ``auto_detect_local`` and
+                ``local_models_path``.
+
+        Returns:
+            The loaded ``Embedder``; call ``dispose()`` when you are done.
         """
         native = backend == "native"  # the onnxruntime backend runs the whole session, not just a device
         return await super().create(
@@ -60,18 +81,27 @@ class Embedder(Session):
         )
 
     async def embed(self, text: str):
-        """A flat sentence vector: attention-mask-weighted mean pooling, then L2 normalisation."""
+        """The sentence vector of a text.
+
+        Args:
+            text: The text to embed.
+
+        Returns:
+            A flat list of floats, normalised to unit length. Its length is the model's dimension, 384 for MiniLM.
+        """
         return await _embed(self, text)
 
     async def similarity_search(self, query, docs, k=None):
-        """Search for the most similar documents to a query.
+        """Rank documents by their cosine similarity to a query.
+
+        The query and every document are embedded on each call, in memory; nothing is stored between calls.
 
         Args:
-            query: The query text
-            docs: List of documents to search
-            k: Number of top results to return (default: all)
+            query: The query text.
+            docs: The documents to search, a list of strings.
+            k: How many results to return. By default, all of them.
 
         Returns:
-            List of (doc, similarity_score) tuples, sorted by similarity descending
+            A list of ``(doc, score)`` tuples, the most similar first.
         """
         return await _similarity_search(self, query, docs, k)

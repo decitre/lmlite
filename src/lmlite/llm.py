@@ -22,21 +22,49 @@ def _check_alternatives(alternatives):
 
 
 class LLM(Session):
-    """Generation: the large language model loaded by ``LLM.create(generator_model=...)``."""
+    """A large language model for text generation, chat and streaming.
+
+    Load it with ``await LLM.create(generator_model=...)``. For embeddings use ``Embedder``, for classification
+    ``Classifier``, and for everything else ``pipeline()``.
+
+    Example:
+        .. code-block:: python
+
+            llm = await LLM.create(generator_model="HuggingFaceTB/SmolLM2-360M-Instruct", backend="wasm", dtype="q4")
+            await llm.chat([{"role": "user", "content": "Explain embeddings in simple terms."}])
+            async for chunk in llm.chat_stream([{"role": "user", "content": "Hello"}]):
+                print(chunk, end="")
+            await llm.dispose()
+    """
 
     # --- core API ---
 
     async def generate(self, prompt: str):
-        """Generate text, including the prompt unless created with return_full_text=False."""
+        """Generate text from a prompt.
+
+        Args:
+            prompt: The text to continue.
+
+        Returns:
+            The prompt followed by the generated text, or only the generated text when the model was loaded with
+            ``return_full_text=False``. If ``cancel()`` stopped it, the text so far.
+        """
         return await self.js.generate(prompt)
 
     async def chat(self, messages):
-        """Return an assistant response using the loaded tokenizer's chat template.
+        """Answer a conversation, using the chat template of the loaded model's tokenizer.
 
-        Messages require string ``role`` and ``content`` fields. Models without
-        a chat template use generic role labels, not instruction tuning.
-        The response excludes the prompt regardless of ``return_full_text``.
-        Template errors (including unsupported roles) propagate without fallback.
+        Args:
+            messages: A list of ``{"role": ..., "content": ...}`` dicts with string values, such as ``"system"``,
+                ``"user"`` and ``"assistant"``. A model without a chat template gets generic role labels, which does
+                not make a completion model follow instructions.
+
+        Returns:
+            The assistant's reply, never the prompt, whatever ``return_full_text`` is. If ``cancel()`` stopped it, the
+            text so far.
+
+        Raises:
+            Exception: A template error, such as a role the template does not support. There is no fallback format.
         """
         import json
 
@@ -45,28 +73,55 @@ class LLM(Session):
         return await self.js.chat(json.dumps(messages, allow_nan=False))
 
     def chat_stream(self, messages):
-        """Async iterator over ``chat()`` response text chunks as they are generated.
+        """Stream the answer to a conversation as it is generated.
 
-        ``"".join(chunks).strip()`` is the ``chat()`` answer. Generation starts on the
-        first iteration; leaving the loop early (``break``, an exception or an interrupt)
-        cancels it. One generation runs per instance at a time.
+        Generation starts on the first iteration. Leaving the loop early (``break``, an exception or a kernel
+        interrupt) cancels it. One generation runs per instance at a time.
+
+        Args:
+            messages: As for ``chat()``.
+
+        Yields:
+            Text chunks, usually a word with its whitespace. ``"".join(chunks).strip()`` is the ``chat()`` answer.
+
+        Example:
+            .. code-block:: python
+
+                async for chunk in llm.chat_stream([{"role": "user", "content": "Explain embeddings simply."}]):
+                    print(chunk, end="", flush=True)
         """
         import json
 
         return self._stream("chatStream", json.dumps(messages, allow_nan=False))
 
     def generate_stream(self, prompt: str):
-        """Async iterator over newly generated text chunks, never including the prompt."""
+        """Stream newly generated text for a prompt.
+
+        Args:
+            prompt: The text to continue.
+
+        Yields:
+            Text chunks, never including the prompt, whatever ``return_full_text`` is. Cancellation and concurrency are
+            as for ``chat_stream()``.
+        """
         return self._stream("generateStream", prompt)
 
     def chat_tokens(self, messages, alternatives=1):
-        """Async iterator over ``chat()`` response tokens with their probabilities.
+        """Stream the answer to a conversation one token at a time, with the probabilities.
 
-        Yields ``{"text", "prob", "alternatives": [{"text", "prob"}, ...]}`` per token, where
-        ``alternatives`` are the ``alternatives`` most probable other tokens at that step.
-        Probabilities are those the token picker used (after repetition penalty, and temperature
-        when sampling). Joined ``text`` values equal joined ``chat_stream()`` chunks. Cancellation
-        and concurrency behave as in ``chat_stream()``.
+        Cancellation and concurrency are as for ``chat_stream()``.
+
+        Args:
+            messages: As for ``chat()``.
+            alternatives: How many other likely tokens to report at each step (default 1; 0 for none).
+
+        Yields:
+            One dict per token: ``{"text": str, "prob": float, "alternatives": [{"text": str, "prob": float}, ...]}``.
+            The probabilities are those the token picker used, after the repetition penalty and, when sampling, the
+            temperature. The joined ``text`` values equal the joined ``chat_stream()`` chunks.
+
+        Raises:
+            ValueError: ``alternatives`` is not a nonnegative integer.
         """
         import json
 
@@ -74,7 +129,15 @@ class LLM(Session):
         return self._stream("chatTokens", json.dumps(messages, allow_nan=False), alternatives, parse=json.loads)
 
     def generate_tokens(self, prompt: str, alternatives=1):
-        """Like ``chat_tokens()`` for a plain prompt; never includes the prompt."""
+        """Like ``chat_tokens()`` for a plain prompt. The prompt is never included.
+
+        Args:
+            prompt: The text to continue.
+            alternatives: How many other likely tokens to report at each step (default 1; 0 for none).
+
+        Yields:
+            Dicts as for ``chat_tokens()``.
+        """
         import json
 
         _check_alternatives(alternatives)
@@ -94,20 +157,47 @@ class LLM(Session):
                 self.js.cancel()
 
     async def cancel(self):
-        """Stop the running generation after its current token; return False if none was running.
+        """Stop the running generation after its current token.
 
-        Streams end early without error and ``generate()``/``chat()`` return the partial text.
+        A stream ends early without an error, and ``generate()`` and ``chat()`` return the text so far. The instance stays
+        usable.
+
+        Returns:
+            ``False`` if nothing was running.
         """
         return bool(_to_python_deep(await self.js.cancel()))
 
-    # --- deprecated: embeddings and classification are not about language models ---
+    # --- loading ---
 
     @classmethod
     async def create(cls, progress_callback=None, **overrides):
-        """Load the generator model: ``LLM.create(generator_model=...)``. See ``Session.create``.
+        """Load a generator model.
 
-        ``embedding_model`` and ``classification_model`` still load, with a ``DeprecationWarning``: use
-        ``Embedder.create()`` and ``Classifier.create()``. They will be removed in 0.15.
+        Progress is shown in the notebook cell, with status messages while the model is prepared, loaded and warmed
+        up. The cell stays busy until that finishes.
+
+        Args:
+            generator_model: A Hugging Face model ID such as ``"HuggingFaceTB/SmolLM2-360M-Instruct"``, or a short name,
+                which gets the default ``Xenova/`` namespace.
+            backend: ``"wasm"`` (the default) or ``"webgpu"``; ``"native"`` runs onnxruntime outside a browser
+                (``pip install 'lmlite[native]'``).
+            dtype: The weights to load, such as ``"q4"`` or ``"fp32"``. By default the first of ``q8``, ``int8`` and
+                ``fp32`` that exists. On WebGPU ``"q4"`` is the fastest; see the model guide.
+            dtype_fallbacks: Dtypes to try in order; takes precedence over ``dtype``.
+            max_new_tokens: How many tokens to generate at most (default 50).
+            return_full_text: ``True`` (the default) makes ``generate()`` return the prompt followed by the
+                continuation; ``False`` returns only the continuation.
+            temperature: Sampling temperature (default 0.7).
+            top_k: Sampling considers this many most likely tokens (default 50).
+            do_sample: ``True`` (the default) samples; ``False`` picks the most probable token each time.
+            hosted_models_url: An explicit URL of a models directory that has a ``manifest.json``.
+            auto_detect_local: Look for hosted model files and ZIPs automatically (default ``True``).
+            local_models_path: The directory of ZIP archives to import (default ``"/drive/models"``).
+            progress_callback: Called with a dict per loading event (``model``, ``status``, ``file``, ``loaded``,
+                ``total``); the last event has the status ``"ready"`` or ``"error"``.
+
+        Returns:
+            The loaded ``LLM``; call ``dispose()`` when you are done.
         """
         legacy = [name for name in ("embedding_model", "classification_model") if overrides.get(name)]
         if legacy:
@@ -116,18 +206,17 @@ class LLM(Session):
             )
         return await super().create(progress_callback, **overrides)
 
+    # --- deprecated: embeddings and classification are not about language models; removed in 0.15 ---
+
     async def embed(self, text: str):
-        """Deprecated: use ``Embedder.embed``."""
         _deprecated("LLM.embed()", "Embedder.create(...).embed()")
         return await _embed(self, text)
 
     async def classify(self, text: str, top_k=None):
-        """Deprecated: use ``Classifier.classify``."""
         _deprecated("LLM.classify()", "Classifier.create(...).classify()")
         return await _classify(self, text, top_k)
 
     async def similarity_search(self, query, docs, k=None):
-        """Deprecated: use ``Embedder.similarity_search``."""
         _deprecated("LLM.similarity_search()", "Embedder.create(...).similarity_search()")
         return await _similarity_search(self, query, docs, k)
 
@@ -135,27 +224,22 @@ class LLM(Session):
 
     @classmethod
     async def model_info(cls, model, task=None, backend="wasm", dtype=None):
-        """See ``lmlite.model_info``."""
         return await model_info(model, task, backend, dtype)
 
     @classmethod
     async def model_task(cls, model):
-        """See ``lmlite.model_task``."""
         return await model_task(model)
 
     @classmethod
     async def pipeline(cls, task, model, **options):
-        """See ``lmlite.pipeline``."""
         return await pipeline(task, model, **options)
 
     @classmethod
     async def tokenizer(cls, model=None, *, tokenizer_json=None, tokenizer_config=None, hosted_models_url=None):
-        """See ``lmlite.tokenizer``."""
         return await tokenizer(
             model, tokenizer_json=tokenizer_json, tokenizer_config=tokenizer_config, hosted_models_url=hosted_models_url
         )
 
     @classmethod
     async def hosted_base(cls, model_id, *, hosted_models_url=None):
-        """See ``lmlite.hosted_base``."""
         return await hosted_base(model_id, hosted_models_url=hosted_models_url)

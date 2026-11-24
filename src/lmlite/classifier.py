@@ -16,7 +16,18 @@ async def _classify(session, text, top_k=None):
 
 
 class Classifier(Session):
-    """Text classification: the model loaded by ``Classifier.create(model)``."""
+    """Text classification.
+
+    Load it with ``await Classifier.create(model)``. The labels are the model's own: a sentiment model such as
+    ``distilbert-base-uncased-finetuned-sst-2-english`` has POSITIVE and NEGATIVE and no neutral class.
+
+    Example:
+        .. code-block:: python
+
+            classifier = await Classifier.create("distilbert-base-uncased-finetuned-sst-2-english")
+            await classifier.classify("I love using lmlite in JupyterLite!", top_k=2)
+            await classifier.dispose()
+    """
 
     @classmethod
     async def create(
@@ -24,9 +35,19 @@ class Classifier(Session):
     ):
         """Load a text classification model.
 
-        ``backend`` is ``"wasm"`` or ``"webgpu"``. ``dtype`` and ``dtype_fallbacks`` work as in ``LLM.create()``.
-        ``options`` are its other loading options: ``hosted_models_url``, ``auto_detect_local`` and
-        ``local_models_path``.
+        Args:
+            model: A Hugging Face model ID, or a short name, which gets the default ``Xenova/`` namespace.
+            backend: ``"wasm"`` (the default) or ``"webgpu"``, or ``"native"`` for the onnxruntime backend outside a
+                browser.
+            dtype: The weights to load, such as ``"fp32"``. By default the first of ``q8``, ``int8`` and ``fp32`` that
+                exists.
+            dtype_fallbacks: Dtypes to try in order; takes precedence over ``dtype``.
+            progress_callback: Called with a dict per loading event, as for ``LLM.create()``.
+            **options: The other loading options of ``LLM.create()``: ``hosted_models_url``, ``auto_detect_local`` and
+                ``local_models_path``.
+
+        Returns:
+            The loaded ``Classifier``; call ``dispose()`` when you are done.
         """
         return await super().create(
             progress_callback,
@@ -38,5 +59,13 @@ class Classifier(Session):
         )
 
     async def classify(self, text: str, top_k=None):
-        """The labels and scores of ``text``, best first; ``top_k`` limits how many."""
+        """Classify a text.
+
+        Args:
+            text: The text to classify.
+            top_k: How many labels to return. By default, only the best one.
+
+        Returns:
+            A list of ``{"label": str, "score": float}`` dicts, the best first.
+        """
         return await _classify(self, text, top_k)

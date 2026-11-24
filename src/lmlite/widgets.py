@@ -82,6 +82,14 @@ class CacheManager:
             self.task = asyncio.create_task(self.refresh(action))
 
     async def refresh(self, action=None):
+        """Read the browser cache and update the list.
+
+        Call ``await manager.refresh()`` once after displaying ``manager.view``. Load and Delete call it themselves, with the
+        action to run first. A failure is shown in the widget's status line, not raised.
+
+        Args:
+            action: An optional coroutine function that is awaited before the cache is read.
+        """
         try:
             if action:
                 await action()

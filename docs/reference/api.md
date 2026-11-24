@@ -54,8 +54,6 @@ Generated from the docstrings. For how to use these, see the [guides](../guides/
    :members:
 
 .. autoclass:: lmlite.ModelInfo
-   :members:
-   :undoc-members:
 
 .. autodata:: lmlite.SUPPORTED_TASKS
    :no-value:

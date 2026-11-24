@@ -213,15 +213,21 @@ class Session:
         return cls(instance, models=models)
 
     async def dispose(self):
-        """Release loaded inference resources without deleting cached model files.
+        """Release the loaded models and their inference sessions, including GPU resources, without deleting cached model
+        files.
 
-        Await active operations before disposal. Repeated calls are safe;
-        failed pipeline cleanups raise and can be retried.
+        Await any running call first. Calling it again is safe; if a release fails it raises, and the call can be retried.
+        After a successful dispose the object rejects further inference calls; create a new one to load from the cache
+        again. Memory is reclaimed when the browser decides, which may be later.
         """
         await self.js.dispose()
 
     async def export_models(self):
-        """Export all configured models as zip files to /drive/models."""
+        """Save the configured models from the browser cache as zip files in ``/drive/models``.
+
+        The files are named ``model-<namespace>-<model>@<revision>.zip`` and can be downloaded from JupyterLite. They can be
+        imported again through the ``local_models_path`` option of the ``create()`` methods.
+        """
         import os
         import zipfile
 

@@ -198,10 +198,21 @@ def _unpack_images(result, as_array=False):
 
 
 class Speech:
-    """Synthesised speech: mono float32 ``samples`` at ``sampling_rate`` Hz.
+    """Synthesised speech, returned by the text-to-speech pipelines.
 
-    ``samples`` is a NumPy array when NumPy is installed, else an ``array.array("f")``. Evaluating a ``Speech``
-    in a notebook cell shows an audio player; ``to_wav()`` returns a WAV file's bytes.
+    Evaluating a ``Speech`` in a notebook cell shows an audio player.
+
+    Attributes:
+        samples: Mono float32 samples: a NumPy array when NumPy is installed, else an ``array.array("f")``.
+        sampling_rate: Samples per second.
+
+    Example:
+        .. code-block:: python
+
+            tts = await pipeline("text-to-speech", model="Xenova/mms-tts-eng")
+            speech = await tts("Hello from the browser.")
+            speech.duration, speech.sampling_rate
+            open("hello.wav", "wb").write(speech.to_wav())
     """
 
     def __init__(self, samples, sampling_rate):
@@ -231,7 +242,11 @@ class Speech:
         return f"Speech(duration={self.duration:.2f}s, sampling_rate={self.sampling_rate})"
 
     def to_wav(self):
-        """The speech as a 16-bit PCM mono WAV file."""
+        """The speech as a WAV file.
+
+        Returns:
+            The bytes of a 16-bit PCM mono WAV file at ``sampling_rate``.
+        """
         import array
         import io
         import sys
@@ -256,7 +271,14 @@ class Speech:
 
 
 class Pipeline:
-    """A loaded Transformers.js task pipeline, created with ``pipeline()``."""
+    """A loaded Transformers.js task, created with ``pipeline()``.
+
+    Call it to run the task on one input (``await pipe(input, **options)``), or use ``map()`` for many.
+
+    Attributes:
+        task: The task name, such as ``"object-detection"``.
+        model: The model ID or name that was loaded.
+    """
 
     def __init__(self, llm, task, model):
         self.llm = llm
@@ -267,7 +289,26 @@ class Pipeline:
         return f"Pipeline(task={self.task!r}, model={self.model!r})"
 
     async def __call__(self, inputs, **kwargs):
-        """Run the task. Keyword arguments are forwarded as Transformers.js task options."""
+        """Run the task on one input, or on a list of inputs for the tasks that take a list.
+
+        Args:
+            inputs: What the task takes. Text tasks (``zero-shot-classification``, ``translation``): a string or a
+                list of strings. Audio tasks (``automatic-speech-recognition``, ``audio-classification``): an HTTP(S)
+                URL, a path to a PCM WAV file, WAV bytes, or mono samples at 16 kHz. Image tasks: encoded image
+                bytes, an HTTP(S) URL, a file path, a NumPy array of shape ``(H, W, 3)`` or ``(H, W, 4)``, a PIL image,
+                or a list of these. Text to speech: one string.
+            **kwargs: Task options, forwarded to Transformers.js. They must be JSON-serializable, for example
+                ``candidate_labels``, ``top_k``, ``threshold`` or ``max_new_tokens``. The image-output tasks also take
+                ``as_array=True``, which returns NumPy pixels instead of PNG bytes.
+
+        Returns:
+            The task's result as plain Python objects: dicts and lists, ``Speech`` for text to speech, PNG bytes (or
+            arrays) for the image-output tasks.
+
+        Raises:
+            TypeError: A list was given to text to speech, which takes one string (use ``map()``).
+            ValueError: The input cannot be read, for example bytes that are not an image or a WAV file that is not PCM.
+        """
         import json
 
         if self.task in AUDIO_INPUT_TASKS:
@@ -306,12 +347,22 @@ class Pipeline:
     async def map(self, inputs, batch_size=8, progress_callback=None, on_error="raise", **kwargs):
         """Run the task over many inputs, with the loop in JavaScript so a notebook makes one call.
 
-        ``batch_size`` inputs go to each Transformers.js call (1 runs them one by one).
-        ``progress_callback(done, total)`` is called after each batch. ``on_error`` is ``"raise"`` (the first
-        error is raised), ``"skip"`` (failed inputs are left out of the results) or ``"return"`` (an exception
-        object takes the place of a failed input's result). Keyword arguments are task options, as in a
-        normal call. Results are in input order, as many as ran: ``await pipe.cancel()`` stops after the
-        current batch and ``map()`` returns what it has.
+        Args:
+            inputs: Any iterable of inputs, each in the form the task takes on its own call.
+            batch_size: How many inputs go to each Transformers.js call; ``1`` runs them one by one. The audio,
+                image-output and text-to-speech tasks always run one input per call.
+            progress_callback: Called as ``progress_callback(done, total)`` after each batch.
+            on_error: ``"raise"`` raises the first error; ``"skip"`` leaves failed inputs out of the results (so the
+                results can be shorter than the inputs); ``"return"`` puts an exception object where a failed input's
+                result would be. A failed batch is retried input by input.
+            **kwargs: Task options, as for a normal call.
+
+        Returns:
+            The results in input order. If ``cancel()`` stopped the run, the results of the inputs that ran.
+
+        Raises:
+            ValueError: ``batch_size`` is not a positive integer, or ``on_error`` is not one of the three values.
+            RuntimeError: Another ``map()`` is already running on this pipeline.
         """
         import json
 
@@ -366,30 +417,59 @@ class Pipeline:
         return output
 
     async def cancel(self):
-        """Stop a running ``map()`` after its current batch; return False if nothing was running."""
+        """Stop a running ``map()`` after its current batch.
+
+        Returns:
+            ``False`` if nothing was running. The pipeline stays usable.
+        """
         return await self.llm.cancel()
 
     async def dispose(self):
-        """Release the loaded pipeline without deleting cached model files."""
+        """Release the loaded model without deleting its cached files.
+
+        Await any running call first. Calling it again is safe.
+        """
         await self.llm.dispose()
 
     async def export_models(self):
-        """Export the pipeline model as a zip file to /drive/models."""
+        """Save the model from the browser cache as a zip file in ``/drive/models``, ready to download from JupyterLite."""
         await self.llm.export_models()
 
 
 async def pipeline(task, model, **options):
-    """Load a Transformers.js task pipeline.
+    """Load a Transformers.js task and return a callable ``Pipeline``.
 
-    Supported tasks are listed in ``SUPPORTED_TASKS``. Loading options such as
-    ``backend``, ``dtype``, ``dtype_fallbacks``, ``hosted_models_url`` and
-    ``local_models_path`` behave as in ``LLM.create()``.
+    ``pipeline()`` is the way to run everything except text generation, embeddings and text classification (see
+    ``LLM``, ``Embedder`` and ``Classifier``). The supported tasks are listed in ``SUPPORTED_TASKS``; the pipeline task
+    table in the reference says what each one takes and returns.
+
+    Args:
+        task: One of ``SUPPORTED_TASKS``, for example ``"zero-shot-classification"``, ``"translation"``,
+            ``"automatic-speech-recognition"``, ``"object-detection"`` or ``"text-to-speech"``.
+        model: A Hugging Face model ID such as ``"Xenova/detr-resnet-50"``, or a short name, which gets the default
+            ``Xenova/`` namespace, or a model hosted with the site.
+        **options: Loading options, as for ``LLM.create()``: ``backend`` (``"wasm"``, the default, or ``"webgpu"``),
+            ``dtype``, ``dtype_fallbacks``, ``hosted_models_url``, ``auto_detect_local``, ``local_models_path`` and
+            ``progress_callback``.
+
+    Returns:
+        The loaded ``Pipeline``. Call it with the task's input, and ``dispose()`` it when you are done.
+
+    Raises:
+        ValueError: ``task`` is not supported, or ``model`` is empty.
+        TypeError: ``options`` contains a model option such as ``generator_model``; this function loads one task.
+
+    Example:
+        .. code-block:: python
+
+            classifier = await pipeline("zero-shot-classification", model="mobilebert-uncased-mnli")
+            await classifier("This notebook runs in a browser", candidate_labels=["technology", "sports"])
+            await classifier.dispose()
     """
     if task not in SUPPORTED_TASKS:
         raise ValueError(
             f"Unsupported task {task!r}. Supported pipeline tasks are: {', '.join(SUPPORTED_TASKS)}. "
-            "Use LLM.create() with generate()/chat(), embed() or classify() for text generation, "
-            "embeddings and text classification."
+            "Use LLM for text generation, Embedder for embeddings and Classifier for text classification."
         )
     if not model:
         raise ValueError(f"Task {task!r} requires a model.")

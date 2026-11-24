@@ -81,9 +81,23 @@ export default {
 
 
 class AudioRecorder(anywidget.AnyWidget):
-    """A Record/Stop button. ``audio`` holds the last recording: a 16 kHz mono 16-bit WAV file's bytes, which a
-    speech recognition pipeline takes as input. Recording needs a page on HTTPS (or localhost) and the user's
-    permission for the microphone; the browser asks the first time.
+    """A Record and Stop button that records the microphone of a laptop or tablet, in a notebook.
+
+    Install it with ``pip install 'lmlite[audio]'``. The kernel runs in a Web Worker, which cannot open the
+    microphone, so the widget records on the page and hands the kernel the recording. The page must be on HTTPS (or
+    localhost), and the browser asks for permission the first time.
+
+    Tick **Raw input** to turn off the browser's echo cancellation, noise suppression and gain control, which can
+    silence a recording on some devices. ``info`` describes the last recording: ``seconds``, ``peak`` (0 to 1; near 0
+    means silence), ``channels``, ``sampleRate``, ``mimeType``, and ``raw`` and ``gain`` for a raw recording.
+
+    Example:
+        .. code-block:: python
+
+            recorder = AudioRecorder()
+            recorder                      # tap Record, speak, tap Stop
+            wav = await recorder.wait()   # 16 kHz mono 16-bit WAV bytes
+            text = (await transcriber(wav))["text"]
     """
 
     _esm = _ESM
@@ -102,7 +116,12 @@ class AudioRecorder(anywidget.AnyWidget):
 
     @property
     def audio(self):
-        """The last recording as WAV bytes, or ``b""`` if there is none."""
+        """The last recording.
+
+        Returns:
+            The bytes of a 16 kHz mono 16-bit WAV file, or ``b""`` if there is none. Speech recognition and audio
+            classification pipelines take it as input.
+        """
         return base64.b64decode(self.recording)
 
     def _received(self, change):
@@ -113,7 +132,11 @@ class AudioRecorder(anywidget.AnyWidget):
                     waiter.set_result(self.audio)
 
     async def wait(self):
-        """The last recording, waiting for one if there is none yet."""
+        """The last recording, waiting for one if there is none yet.
+
+        Returns:
+            The WAV bytes, as ``audio``.
+        """
         if self.audio:
             return self.audio
         waiter = asyncio.get_running_loop().create_future()
@@ -121,6 +144,6 @@ class AudioRecorder(anywidget.AnyWidget):
         return await waiter
 
     def clear(self):
-        """Forget the recording, so ``wait()`` waits for a new one."""
+        """Forget the recording, so that ``wait()`` waits for a new one."""
         self.recording = ""
         self.info = {}
