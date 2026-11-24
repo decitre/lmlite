@@ -84,7 +84,7 @@ def test_widget_loads_the_runtime_on_the_page_and_sends_the_recording(source_ser
           const url = URL.createObjectURL(new Blob([esm], {type: 'text/javascript'}));
           const widget = (await import(url)).default;
           const sent = [];
-          const model = {get: (name) => runtime, set: (name, value) => sent.push([name, value]), save_changes: () => sent.push(['saved'])};
+          const model = {get: (name) => ({runtime, raw: false, controls: true})[name], set: (name, value) => sent.push([name, value]), save_changes: () => sent.push(['saved'])};
           const el = document.createElement('div');
           document.body.append(el);
           try {
@@ -274,7 +274,8 @@ def test_widget_says_what_to_do_about_a_silent_recording(source_server, tmp_path
     assert first["info"]["peak"] < 0.005 and first["hasRecording"]  # still delivered, with the description
     assert second["status"].startswith("Recorded ") and "silent" not in second["status"]
     assert second["info"]["raw"] is True and second["info"]["peak"] > 0.3
-    assert result["order"][:2] == ["info", "recording"]  # the description arrives before the recording
+    updates = [name for name in result["order"] if name != "active"]  # active follows the state, not the data
+    assert updates[:2] == ["info", "recording"]  # the description arrives before the recording
 
 
 def test_widget_does_not_suggest_raw_input_when_it_was_ticked(source_server, tmp_path):

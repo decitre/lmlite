@@ -10,10 +10,15 @@ ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd -P)
 WORKSPACE="$ROOT_DIR/workspace"
 XEUS_WORKSPACE="$WORKSPACE/content-xeus"
 PYODIDE_WORKSPACE="$WORKSPACE/content-pyodide"
+VOICI_WORKSPACE="$WORKSPACE/content-voici"
 PUBLIC_DIR="$WORKSPACE/public"
 PYODIDE_PUBLIC_DIR="$PUBLIC_DIR/pyodide"
 XEUS_PUBLIC_DIR="$PUBLIC_DIR/xeus"
+VOICI_PUBLIC_DIR="$PUBLIC_DIR/apps"
 NOTEBOOKS_DIR="$ROOT_DIR/notebooks"
+APPS_DIR="$ROOT_DIR/apps"
+# The sites to build, for a faster build while working on one: LITE_SITES="voici" bash scripts/lite-build.sh
+LITE_SITES="${LITE_SITES:-xeus voici pyodide}"
 TAR_CMD=$(command -v gtar || echo "tar")
 PYTHON_CMD=$(command -v python3 || command -v python || echo "python3")
 RED='\033[0;31m'
@@ -66,7 +71,7 @@ fi
 
 printf "${YELLOW}Build workspace${NC}\n"
 rm -rf "$WORKSPACE"
-mkdir -p "$WORKSPACE/content-xeus" "$WORKSPACE/content-pyodide"
+mkdir -p "$WORKSPACE/content-xeus" "$WORKSPACE/content-pyodide" "$WORKSPACE/content-voici"
 
 HOSTED_MODELS_DIR="$WORKSPACE/hosted-models"
 if [ "$BUNDLE_MODELS" = "1" ]; then
@@ -166,6 +171,42 @@ process_for_xeus() {
     popd
 }
 
+# The apps: Voici dashboards (voici/render/<name>.html) run by a xeus-python kernel, as a site of their own, because
+# voici-core holds jupyterlite-core at 0.7 and the Lab sites use 0.8 (jl-forge's docs/VOICI.md). They share the xeus
+# environment of the Lab site, which jl-forge keeps in its cache.
+process_for_voici() {
+    printf "${YELLOW}Create venv-voici${NC}\n"
+    pushd "$WORKSPACE"
+    mkdir -p "$VOICI_WORKSPACE"
+    $PYTHON_CMD -m venv venv-voici
+    source venv-voici/bin/activate
+
+    printf "${YELLOW}Install jupyter/xeus/voici packages:${NC}\n"
+    $pip_cmd install "jl-forge[xeus]$JL_FORGE_VERSION" jupyter_server jupyterlab_server jupyterlite-core libarchive-c voici-core
+
+    cp "$APPS_DIR"/*.ipynb "$VOICI_WORKSPACE"
+
+    printf "${YELLOW}Create xeus-python environment${NC}\n"
+    local xeus_cache="$JL_FORGE_CACHE/xeus-$(date +%Y-%m)"
+    find "$JL_FORGE_CACHE" -mindepth 1 -maxdepth 1 -name 'xeus*' ! -path "$xeus_cache" -exec rm -rf {} +
+    VOICI_PREFIX=$(jl-forge xeus-env --cache-dir "$xeus_cache" --pyproject "$ROOT_DIR/pyproject.toml" \
+        --extras images audio camera)
+
+    # Listing --apps replaces the defaults: only Voici is built here.
+    jupyter lite build \
+        --apps voici \
+        --contents "$VOICI_WORKSPACE" \
+        --output-dir "$VOICI_PUBLIC_DIR" \
+        --XeusAddon.prefix="$VOICI_PREFIX" \
+        --XeusAddon.empack_config="$(jl-forge xeus-pack-config --out "$WORKSPACE/empack-voici.yml")" \
+        --XeusAddon.mount_jupyterlite_content=True \
+        --XeusAddon.mounts="$(jl-forge xeus-mount "$ROOT_DIR/src/lmlite" --prefix "$VOICI_PREFIX")"
+    add_site_assets "$VOICI_PUBLIC_DIR"
+
+    deactivate
+    popd
+}
+
 process_for_pyodide() {
     printf "${YELLOW}Create venv-pyodide${NC}\n"
     pushd "$WORKSPACE"
@@ -225,7 +266,8 @@ process_for_pyodide() {
     popd
 }
 
-process_for_xeus
-process_for_pyodide
+for site in $LITE_SITES; do
+    "process_for_$site"
+done
 
 printf "${YELLOW}Done${NC}\n"

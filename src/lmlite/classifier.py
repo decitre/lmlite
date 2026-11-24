@@ -44,7 +44,7 @@ class Classifier(Session):
             dtype_fallbacks: Dtypes to try in order; takes precedence over ``dtype``.
             progress_callback: Called with a dict per loading event, as for ``LLM.create()``.
             **options: The other loading options of ``LLM.create()``: ``hosted_models_url``, ``auto_detect_local`` and
-                ``local_models_path``.
+                ``local_models_path`` and ``quiet`` (no progress bar and no loading messages).
 
         Returns:
             The loaded ``Classifier``; call ``dispose()`` when you are done.

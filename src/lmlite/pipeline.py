@@ -449,8 +449,8 @@ async def pipeline(task, model, **options):
         model: A Hugging Face model ID such as ``"Xenova/detr-resnet-50"``, or a short name, which gets the default
             ``Xenova/`` namespace, or a model hosted with the site.
         **options: Loading options, as for ``LLM.create()``: ``backend`` (``"wasm"``, the default, or ``"webgpu"``),
-            ``dtype``, ``dtype_fallbacks``, ``hosted_models_url``, ``auto_detect_local``, ``local_models_path`` and
-            ``progress_callback``.
+            ``dtype``, ``dtype_fallbacks``, ``hosted_models_url``, ``auto_detect_local``, ``local_models_path``,
+            ``progress_callback`` and ``quiet``.
 
     Returns:
         The loaded ``Pipeline``. Call it with the task's input, and ``dispose()`` it when you are done.

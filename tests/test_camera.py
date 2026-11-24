@@ -56,3 +56,18 @@ async def test_every_waiter_gets_the_photo():
 
     reply(camera, JPEG)
     assert await first == JPEG and await second == JPEG
+
+
+def test_app_mode_traits_and_the_messages_the_methods_send():
+    from unittest.mock import MagicMock
+
+    camera = CameraCapture()
+    assert (camera.controls, camera.autostart, camera.show_photo, camera.running) == (True, False, True, False)
+    app = CameraCapture(controls=False, autostart=True, show_photo=False)
+    assert (app.controls, app.autostart, app.show_photo) == (False, True, False)
+
+    app.send = MagicMock()
+    app.start()
+    app.take()
+    app.stop()
+    assert [call.args[0] for call in app.send.call_args_list] == [{"do": "start"}, {"do": "take"}, {"do": "stop"}]

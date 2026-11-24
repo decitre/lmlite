@@ -16,6 +16,7 @@ Notes for using the API:
 - [Generate text and chat](https://raw.githubusercontent.com/decitre/lmlite/main/docs/guides/generate-and-chat.md): `LLM`, chat, streaming, token probabilities
 - [Embeddings, classification and similarity search](https://raw.githubusercontent.com/decitre/lmlite/main/docs/guides/embeddings-and-search.md): `Embedder` and `Classifier`
 - [Run a bare ONNX model](https://raw.githubusercontent.com/decitre/lmlite/main/docs/guides/onnx-models.md): `OnnxModel`, NumPy in and out
+- [Build an app](https://raw.githubusercontent.com/decitre/lmlite/main/docs/guides/apps.md): the two Voici apps, how they are built, and how to write one
 - [Load only a tokenizer](https://raw.githubusercontent.com/decitre/lmlite/main/docs/guides/tokenizers.md): `tokenizer()`
 - [Models, cache and loading progress](https://raw.githubusercontent.com/decitre/lmlite/main/docs/guides/models-and-cache.md): hosted models, `model_info()`, the cache, ZIP export, `dispose()`
 - [Run natively for tuning](https://raw.githubusercontent.com/decitre/lmlite/main/docs/guides/native-backend.md): the headless onnxruntime backend

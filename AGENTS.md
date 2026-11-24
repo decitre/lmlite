@@ -6,7 +6,7 @@ lmLite is browser machine learning from Python: Transformers.js pipelines, bare 
 
 - `src/lmlite/lmlite.js`: the JavaScript runtime (`BrowserRuntime`, exposed as `globalThis.lmLite`). The Python side calls it through the bridge.
 - `src/lmlite/`: `llm.py` (`LLM`, generation only), `embedder.py`, `classifier.py`, `pipeline.py` (tasks, `Pipeline`, `Speech`), `models.py` (names, cache, `ModelInfo`), `tokenizer.py`, `onnx_model.py`, `audio.py` and `camera.py` (widgets), `widgets.py` (cache manager), `native.py` (onnxruntime backend), and the private `_session.py` and `_bridge.py`. Everything public is exported from `lmlite/__init__.py`.
-- `notebooks/chNN_*.ipynb`: the tutorials, numbered. `docs/`: Diátaxis (guides, reference, explanation), built with Sphinx. `tests/`: unit tests; `tests/browser/`: opt-in real-browser tests.
+- `notebooks/chNN_*.ipynb`: the tutorials, numbered. `apps/*.ipynb`: the Voici apps, built into their own site by `scripts/lite-build.sh` (`LITE_SITES=voici` builds only them) and tested by `voici-smoke`, not by the notebook tests. `docs/`: Diátaxis (guides, reference, explanation), built with Sphinx. `tests/`: unit tests; `tests/browser/`: opt-in real-browser tests.
 
 ## Commands (pixi)
 

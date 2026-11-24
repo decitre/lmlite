@@ -195,6 +195,7 @@ class LLM(Session):
             local_models_path: The directory of ZIP archives to import (default ``"/drive/models"``).
             progress_callback: Called with a dict per loading event (``model``, ``status``, ``file``, ``loaded``,
                 ``total``); the last event has the status ``"ready"`` or ``"error"``.
+            quiet: Show no progress bar and no loading messages (default ``False``), for an app that has its own.
 
         Returns:
             The loaded ``LLM``; call ``dispose()`` when you are done.

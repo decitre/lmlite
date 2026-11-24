@@ -47,19 +47,22 @@ export default {
       start.textContent = "Start camera";
       take.disabled = true;
       facing.disabled = false;
+      model.set("running", false);
+      model.save_changes();
     };
 
     video.onplaying = () => {
       take.disabled = false;
       status.textContent = "";
+      model.set("running", true);
+      model.save_changes();
     };
     video.onclick = () => video.play().catch((error) => {
       status.textContent = String(error?.message ?? error);
     });
 
-    start.onclick = async () => {
+    const startCamera = async () => {
       if (stream) {
-        stop();
         return;
       }
       start.disabled = true;
@@ -83,8 +86,13 @@ export default {
         start.disabled = false;
       }
     };
+    start.onclick = () => (stream ? stop() : startCamera());
 
-    take.onclick = async () => {
+    const takePhoto = async () => {
+      if (!stream || !video.videoWidth) {
+        status.textContent = "The camera is not running yet.";
+        return;
+      }
       const scale = Math.min(1, LONGEST_SIDE / Math.max(video.videoWidth, video.videoHeight));
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(video.videoWidth * scale);
@@ -97,12 +105,32 @@ export default {
         text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       }
       photo.src = URL.createObjectURL(blob);
-      photo.style.display = "";
+      photo.style.display = model.get("show_photo") === false ? "none" : "";
       model.set("info", { width: canvas.width, height: canvas.height, bytes: bytes.length });  // before the photo, which wakes up whoever waits for it
       model.set("photo", btoa(text));
       model.save_changes();
       status.textContent = `Photo ${canvas.width} x ${canvas.height}`;
     };
+    take.onclick = takePhoto;
+    model.on?.("change:photo", () => {
+      if (!model.get("photo")) {  // clear(): back to the live picture
+        photo.style.display = "none";
+        status.textContent = stream ? "" : status.textContent;
+      }
+    });
+
+    if (model.get("controls") === false) {
+      // An app drives the camera with its own buttons (start(), take(), stop()): the status line stays.
+      start.style.display = take.style.display = facing.style.display = "none";
+    }
+    model.on?.("msg:custom", (message) => {
+      if (message.do === "start") startCamera();
+      if (message.do === "take") takePhoto();
+      if (message.do === "stop") stop();
+    });
+    if (model.get("autostart") === true) {
+      startCamera();
+    }
 
     return stop;  // release the camera when the output is removed
   },
@@ -118,6 +146,10 @@ class CameraCapture(anywidget.AnyWidget):
     asks for permission the first time. "Rear camera" is a preference: a device with one camera uses it. ``info``
     holds the last photo's ``width``, ``height`` and ``bytes``.
 
+    To build an app, turn the buttons off and drive the camera from your own: ``CameraCapture(controls=False,
+    autostart=True, show_photo=False)`` shows just the live picture and starts it, ``take()`` takes the photo, and
+    ``image`` or ``wait()`` returns it.
+
     Example:
         .. code-block:: python
 
@@ -131,6 +163,15 @@ class CameraCapture(anywidget.AnyWidget):
     # The JPEG as base64 text: in xeus-python, a binary trait set by the browser never reaches the kernel, while
     # a string does.
     photo = traitlets.Unicode("").tag(sync=True)
+    # Show the Start, Take photo and Stop buttons and the camera choice (the default). An app turns them off and
+    # calls start(), take() and stop().
+    controls = traitlets.Bool(True).tag(sync=True)
+    # Start the camera as soon as the widget is shown.
+    autostart = traitlets.Bool(False).tag(sync=True)
+    # Show the photo under the preview (the default). An app that shows its own result turns it off.
+    show_photo = traitlets.Bool(True).tag(sync=True)
+    # True while the camera picture plays: an app with its own buttons follows it.
+    running = traitlets.Bool(False).tag(sync=True)
     # What the browser took: width, height (pixels) and bytes.
     info = traitlets.Dict().tag(sync=True)
 
@@ -167,6 +208,18 @@ class CameraCapture(anywidget.AnyWidget):
         waiter = asyncio.get_running_loop().create_future()
         self._waiters.append(waiter)
         return await waiter
+
+    def start(self):
+        """Start the camera, as the Start camera button does. Needs a page that shows the widget."""
+        self.send({"do": "start"})
+
+    def take(self):
+        """Take a photo, as the Take photo button does: it arrives in ``image``, and ``wait()`` returns it."""
+        self.send({"do": "take"})
+
+    def stop(self):
+        """Stop the camera and release it, as the Stop camera button does."""
+        self.send({"do": "stop"})
 
     def clear(self):
         """Forget the photo, so that ``wait()`` waits for a new one."""

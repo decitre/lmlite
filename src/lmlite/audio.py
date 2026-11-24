@@ -38,38 +38,69 @@ export default {
     status.style.marginLeft = "0.75em";
     button.textContent = "Record";
     el.append(button, rawLabel, status);
-    button.onclick = async () => {
+    raw.checked = model.get("raw") === true;
+    raw.onchange = () => {
+      model.set("raw", raw.checked);
+      model.save_changes();
+    };
+    model.on?.("change:raw", () => {
+      raw.checked = model.get("raw") === true;
+    });
+    if (model.get("controls") === false) {
+      // An app drives the recording with its own buttons (record(), stop()): the status line stays.
+      button.style.display = rawLabel.style.display = "none";
+    }
+
+    const begin = async () => {
+      await recorder.start({ raw: raw.checked });
+      raw.disabled = true;
+      status.textContent = "Recording...";
+      button.textContent = "Stop";
+      model.set("active", true);
+      model.save_changes();
+    };
+    const finish = async () => {
+      status.textContent = "Processing...";
+      const wav = await recorder.stop();
+      let text = "";
+      for (let i = 0; i < wav.length; i += 0x8000) {
+        text += String.fromCharCode(...wav.subarray(i, i + 0x8000));
+      }
+      raw.disabled = false;
+      const { seconds, peak, channels, sampleRate, mimeType } = recorder.info;
+      model.set("info", recorder.info);  // before the recording, which wakes up whoever waits for it
+      model.set("active", false);
+      model.set("recording", btoa(text));
+      model.save_changes();
+      status.textContent = peak < 0.005
+        ? `Recorded ${seconds.toFixed(1)} s, but it is silent. Check the microphone's input level in the system settings (it may be at 0), that the right input is selected, and that the browser may use the microphone. ${raw.checked ? "" : "If those are fine, tick Raw input and record again. "}(${channels} channel(s), ${sampleRate} Hz, ${mimeType})`
+        : `Recorded ${seconds.toFixed(1)} s`;
+      button.textContent = "Record again";
+    };
+    const run = async (action) => {
       button.disabled = true;
       try {
-        if (recorder.recording) {
-          status.textContent = "Processing...";
-          const wav = await recorder.stop();
-          let text = "";
-          for (let i = 0; i < wav.length; i += 0x8000) {
-            text += String.fromCharCode(...wav.subarray(i, i + 0x8000));
-          }
-          raw.disabled = false;
-          const { seconds, peak, channels, sampleRate, mimeType } = recorder.info;
-          model.set("info", recorder.info);  // before the recording, which wakes up whoever waits for it
-          model.set("recording", btoa(text));
-          model.save_changes();
-          status.textContent = peak < 0.005
-            ? `Recorded ${seconds.toFixed(1)} s, but it is silent. Check the microphone's input level in the system settings (it may be at 0), that the right input is selected, and that the browser may use the microphone. ${raw.checked ? "" : "If those are fine, tick Raw input and record again. "}(${channels} channel(s), ${sampleRate} Hz, ${mimeType})`
-            : `Recorded ${seconds.toFixed(1)} s`;
-          button.textContent = "Record again";
-        } else {
-          await recorder.start({ raw: raw.checked });
-          raw.disabled = true;
-          status.textContent = "Recording...";
-          button.textContent = "Stop";
-        }
+        await action();
       } catch (error) {
         raw.disabled = false;
         status.textContent = String(error?.message ?? error);
+        model.set("active", recorder.recording);
+        model.save_changes();
       } finally {
         button.disabled = false;
       }
     };
+    button.onclick = () => run(recorder.recording ? finish : begin);
+    model.on?.("change:recording", () => {
+      if (!model.get("recording") && !recorder.recording) {  // clear(): ready to record again
+        status.textContent = "";
+        button.textContent = "Record";
+      }
+    });
+    model.on?.("msg:custom", (message) => {
+      if (message.do === "record" && !recorder.recording) run(begin);
+      if (message.do === "stop" && recorder.recording) run(finish);
+    });
     return () => {
       if (recorder.recording) {
         recorder.stop().catch(() => {});  // release the microphone when the output is removed
@@ -105,6 +136,12 @@ class AudioRecorder(anywidget.AnyWidget):
     # The WAV as base64 text: in xeus-python, a binary trait set by the browser never reaches the kernel, while
     # a string does.
     recording = traitlets.Unicode("").tag(sync=True)
+    # Show the Record button and the Raw input box (the default). An app turns them off and calls record() and stop().
+    controls = traitlets.Bool(True).tag(sync=True)
+    # Turn off the browser's echo cancellation, noise suppression and gain control: the Raw input box.
+    raw = traitlets.Bool(False).tag(sync=True)
+    # True while the microphone is recording: an app with its own buttons follows it.
+    active = traitlets.Bool(False).tag(sync=True)
     # How the browser recorded it: seconds, peak (0 to 1; near 0 means silence), channels, sampleRate, mimeType,
     # raw (the "Raw input" box was ticked) and gain (the factor applied to a raw recording).
     info = traitlets.Dict().tag(sync=True)
@@ -142,6 +179,14 @@ class AudioRecorder(anywidget.AnyWidget):
         waiter = asyncio.get_running_loop().create_future()
         self._waiters.append(waiter)
         return await waiter
+
+    def record(self):
+        """Start recording, as the Record button does. Needs a page that shows the widget; ``stop()`` ends it."""
+        self.send({"do": "record"})
+
+    def stop(self):
+        """Stop recording, as the Stop button does: the recording arrives in ``audio``, and ``wait()`` returns it."""
+        self.send({"do": "stop"})
 
     def clear(self):
         """Forget the recording, so that ``wait()`` waits for a new one."""

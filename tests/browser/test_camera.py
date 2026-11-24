@@ -21,7 +21,7 @@ WIDGET = """async ({esm, runtimeUrl, detect}) => {
   const url = URL.createObjectURL(new Blob([esm], {type: 'text/javascript'}));
   const widget = (await import(url)).default;
   const sent = {};
-  const model = {set: (name, value) => { sent[name] = value; }, save_changes: () => { sent.saved = true; }};
+  const model = {get: () => undefined, set: (name, value) => { sent[name] = value; }, save_changes: () => { sent.saved = true; }};
   const el = document.createElement('div');
   document.body.append(el);
   try {
@@ -116,7 +116,7 @@ TAP_TO_START = """async ({esm}) => {
   const url = URL.createObjectURL(new Blob([esm], {type: 'text/javascript'}));
   const widget = (await import(url)).default;
   const sent = {};
-  const model = {set: (name, value) => { sent[name] = value; }, save_changes: () => {}};
+  const model = {get: () => undefined, set: (name, value) => { sent[name] = value; }, save_changes: () => {}};
   const el = document.createElement('div');
   document.body.append(el);
   widget.render({model, el});
@@ -165,3 +165,53 @@ def test_a_refused_preview_starts_when_the_picture_is_tapped(tmp_path):
     }
     assert result["after"] == {"status": "", "take": False, "paused": False}
     assert result["head"] == [0xFF, 0xD8, 0xFF]
+
+
+# App mode: no buttons, the camera starts by itself, and Python takes the photo with a message (camera.take()).
+APP_MODE = """async ({esm}) => {
+  const url = URL.createObjectURL(new Blob([esm], {type: 'text/javascript'}));
+  const widget = (await import(url)).default;
+  const sent = {};
+  const values = {controls: false, autostart: true, show_photo: false};
+  const handlers = {};
+  const model = {get: (name) => values[name], on: (name, handler) => { handlers[name] = handler; },
+                 set: (name, value) => { sent[name] = value; }, save_changes: () => {}};
+  const el = document.createElement('div');
+  document.body.append(el);
+  widget.render({model, el});
+  const [controls, video, photo] = el.children;
+  const [start, take, facing, status] = controls.children;
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  for (let i = 0; i < 100 && (video.paused || !video.videoWidth); i++) await wait(100);
+  const hidden = [start, take, facing].map((control) => control.style.display);
+  const running = {paused: video.paused, shown: video.style.display, width: video.videoWidth > 0};
+  handlers['msg:custom']({do: 'take'});  // camera.take() in Python
+  for (let i = 0; i < 100 && !sent.photo; i++) await wait(100);
+  const head = [...Uint8Array.from(atob(sent.photo), (char) => char.charCodeAt(0)).subarray(0, 3)];
+  const late = await (async () => { handlers['msg:custom']({do: 'stop'}); await wait(200); return video.srcObject === null; })();
+  return {hidden, running, head, still: photo.style.display, stopped: late};
+}"""
+
+
+def test_app_mode_starts_by_itself_hides_the_buttons_and_takes_a_photo_on_a_message(tmp_path):
+    from lmlite.camera import CameraCapture
+
+    cats = tmp_path / "cats.mjpeg"
+    cats.write_bytes(urllib.request.urlopen(CATS_URL).read())
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(args=[*FAKE_CAMERA, f"--use-file-for-fake-video-capture={cats}"])
+        try:
+            context = browser.new_context()
+            context.grant_permissions(["camera"])
+            page = context.new_page()
+            page.set_default_timeout(60000)
+            page.route(PAGE_URL, lambda route: route.fulfill(body="<html></html>", content_type="text/html"))
+            page.goto(PAGE_URL)
+            result = page.evaluate(APP_MODE, {"esm": CameraCapture._esm})
+        finally:
+            browser.close()
+
+    assert result["hidden"] == ["none", "none", "none"]
+    assert result["running"] == {"paused": False, "shown": "", "width": True}
+    assert result["head"] == [0xFF, 0xD8, 0xFF] and result["still"] == "none"  # a JPEG, and no still under the preview
+    assert result["stopped"] is True
