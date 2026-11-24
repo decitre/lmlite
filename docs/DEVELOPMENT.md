@@ -172,6 +172,8 @@ The opt-in `camera-smoke` task takes a photo with the camera widget's JavaScript
 
 The opt-in `audio-classification-smoke` task runs `audio-classification` with the instrument model (override with `LMLITE_TEST_AUDIO_CLASSIFICATION_MODEL`) in Pyodide and, with `pixi run -e xeus-site audio-classification-smoke`, in xeus-python: WAV bytes, a list of samples and `map()`, on a synthetic tone, checking the result format and not the instrument. `lab-smoke` records twice in the microphone notebook, the second time for the instrument cell.
 
+The opt-in `embedder-smoke` task runs `Embedder` (MiniLM: the vector's size and norm, `similarity_search()`), `Classifier` (a sentiment model) and the deprecated `LLM.create(embedding_model=...)` and `llm.embed()` in Pyodide and, with `pixi run -e xeus-site embedder-smoke`, in xeus-python, checking the `DeprecationWarning`s and that the deprecated path gives the same vector.
+
 The opt-in `speech-smoke` task runs text to speech with `Xenova/mms-tts-eng` (override with `LMLITE_TEST_SPEECH_MODEL`): the samples crossing the bridge as one buffer in Chromium, `model_info()` for the task, and the `Speech` object in Pyodide (without NumPy) and, with `pixi run -e xeus-site speech-smoke`, in xeus-python (with NumPy). It also downloads the model's files once into a temporary hosted tree, served with CORS headers by a local server, and loads the pipeline from it in Chromium, Pyodide and xeus-python, checking that no request goes to huggingface.co.
 
 The opt-in `map-smoke` task checks `Pipeline.map()` with real models: batches against single calls, progress, `on_error` and cancelling in Chromium, and the bridge's progress callback in Pyodide and (with `pixi run -e xeus-site map-smoke`) in xeus-python.

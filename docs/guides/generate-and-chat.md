@@ -12,10 +12,7 @@ from lmlite import LLM
 # Create LLM instance (downloads model on first run)
 # You can pass either a full model ID ("Xenova/gpt2") or a short name ("gpt2").
 # Short names default to the Xenova namespace.
-llm = await LLM.create(
-    generator_model="gpt2",
-    embedding_model="all-MiniLM-L6-v2",
-)
+llm = await LLM.create(generator_model="gpt2")
 ```
 
 ## Text Generation

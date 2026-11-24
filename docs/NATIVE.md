@@ -20,7 +20,7 @@ Native is also:
 
 - **Scriptable:** runs in pytest, CI, notebooks, and next to numpy, scikit-learn or pandas, with no browser kernel.
 - **Repeatable:** sweeping thresholds over thousands of labelled pairs takes seconds instead of minutes.
-- **The same API:** `LLM.create(...)`, `embed()`, `classify()` and greedy `generate()` behave as in the browser, so tuning code moves to a notebook as is.
+- **The same API:** `Embedder.create(...)` and `embed()`, `Classifier.create(...)` and `classify()`, and `LLM.create(...)` with greedy `generate()` behave as in the browser, so tuning code moves to a notebook as is.
 
 ## What transfers exactly, and what does not
 
@@ -117,25 +117,25 @@ hf download Xenova/multilingual-e5-small --local-dir models/Xenova/multilingual-
 
 ```python
 import numpy as np
-from lmlite import LLM
+from lmlite import Embedder
 
-llm = await LLM.create(
+embedder = await Embedder.create(
+    "Xenova/multilingual-e5-small",
     backend="native",
-    embedding_model="Xenova/multilingual-e5-small",
-    embedding_dtype="fp16",  # the dtype you will ship
+    dtype="fp16",  # the dtype you will ship
     local_models_path="models",
 )
 
 anchors = {"transport": ["query: train station", "query: airport terminal"], "health": ["query: a pharmacy"]}
 labelled = [("query: coach station for long distance buses", "transport"), ("query: where can I buy medicine", "health")]
 
-anchor_vectors = {label: np.array([await llm.embed(t) for t in texts]) for label, texts in anchors.items()}
+anchor_vectors = {label: np.array([await embedder.embed(t) for t in texts]) for label, texts in anchors.items()}
 def best(vector):
     scores = {label: float((vectors @ vector).max()) for label, vectors in anchor_vectors.items()}
     return max(scores, key=scores.get), scores
 
 for text, expected in labelled:
-    label, scores = best(np.array(await llm.embed(text)))
+    label, scores = best(np.array(await embedder.embed(text)))
     print(text, label == expected, scores)
 ```
 
@@ -160,10 +160,10 @@ If any of your decisions sits closer to the threshold than the drift for your dt
 Use the same model id and dtype in the notebook, and host the same files with the site (see [Hosted Models Discovery](guides/models-and-cache.md#hosted-models-discovery)):
 
 ```python
-llm = await LLM.create(embedding_model="Xenova/multilingual-e5-small", embedding_dtype="fp16")
+embedder = await Embedder.create("Xenova/multilingual-e5-small", dtype="fp16")
 ```
 
-Set `embedding_dtype` explicitly. Without it, the browser picks the Transformers.js default (q8 on wasm), which is not what you tuned.
+Set `dtype` explicitly. Without it, the browser picks the Transformers.js default (q8 on wasm), which is not what you tuned.
 
 ## Parity test data
 
