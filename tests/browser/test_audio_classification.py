@@ -28,7 +28,7 @@ LABELS = {
 
 KERNEL_CODE = r"""
 import io, json, math, struct, wave
-from lmlite import LLM
+from lmlite import pipeline
 
 rate = 16000
 samples = [sum(math.sin(2 * math.pi * 220 * k * t / rate) / k for k in (1, 2, 3)) / 2 for t in range(2 * rate)]
@@ -39,7 +39,7 @@ with wave.open(buffer, "wb") as wav:
     wav.setframerate(rate)
     wav.writeframes(b"".join(struct.pack("<h", int(s * 20000)) for s in samples))
 
-pipe = await LLM.pipeline("audio-classification", model="__MODEL__", backend="wasm")
+pipe = await pipeline("audio-classification", model="__MODEL__", backend="wasm")
 from_wav = await pipe(buffer.getvalue(), top_k=3)
 from_samples = await pipe(samples[:rate], top_k=2)
 many = await pipe.map([buffer.getvalue(), samples[:rate]], top_k=1)

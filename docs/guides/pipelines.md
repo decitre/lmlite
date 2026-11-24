@@ -1,34 +1,36 @@
 # Run task pipelines
 
-`LLM.pipeline(task, model=...)` loads a Transformers.js task and returns an awaitable callable. It is the way to run everything except text generation, embeddings and text classification, which keep the `LLM.create()` methods, and the newer features (images in and out, speech, `map()`) are built on it. Supported tasks are listed in `lmlite.SUPPORTED_TASKS`: `"zero-shot-classification"`, `"automatic-speech-recognition"`, `"audio-classification"`, `"translation"` and the vision tasks `"image-classification"`, `"zero-shot-image-classification"`, `"image-feature-extraction"` and `"object-detection"`, the image-output tasks `"background-removal"`, `"depth-estimation"`, `"image-segmentation"` and `"image-to-image"`, and `"text-to-speech"` (also spelled `"text-to-audio"`). Other task names raise a `ValueError` that lists the supported tasks; generation, embeddings and text classification keep their dedicated methods.
+`pipeline(task, model=...)` (also available as `LLM.pipeline(...)`) loads a Transformers.js task and returns an awaitable callable. It is the way to run everything except text generation, embeddings and text classification, which keep the `LLM.create()` methods, and the newer features (images in and out, speech, `map()`) are built on it. Supported tasks are listed in `lmlite.SUPPORTED_TASKS`: `"zero-shot-classification"`, `"automatic-speech-recognition"`, `"audio-classification"`, `"translation"` and the vision tasks `"image-classification"`, `"zero-shot-image-classification"`, `"image-feature-extraction"` and `"object-detection"`, the image-output tasks `"background-removal"`, `"depth-estimation"`, `"image-segmentation"` and `"image-to-image"`, and `"text-to-speech"` (also spelled `"text-to-audio"`). Other task names raise a `ValueError` that lists the supported tasks; generation, embeddings and text classification keep their dedicated methods.
 
 ```python
-classifier = await LLM.pipeline("zero-shot-classification", model="mobilebert-uncased-mnli")
+from lmlite import pipeline
+
+classifier = await pipeline("zero-shot-classification", model="mobilebert-uncased-mnli")
 result = await classifier("This notebook runs in a browser", candidate_labels=["technology", "sports"])
 # {'sequence': 'This notebook runs in a browser', 'labels': ['technology', 'sports'], 'scores': [0.93, 0.07]}
 
-translator = await LLM.pipeline("translation", model="opus-mt-en-fr")
+translator = await pipeline("translation", model="opus-mt-en-fr")
 await translator("Hello, how are you?", max_new_tokens=64)
 # {'translation_text': 'Bonjour, comment allez-vous ?'}
 await translator(["Hello!", "Goodbye!"])
 # [{'translation_text': 'Bonjour !'}, {'translation_text': 'Au revoir !'}]
 
-transcriber = await LLM.pipeline("automatic-speech-recognition", model="whisper-tiny.en")
+transcriber = await pipeline("automatic-speech-recognition", model="whisper-tiny.en")
 await transcriber("https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav")
 # {'text': ' And so my fellow Americans ask not what your country can do for you...'}
 
-clip = await LLM.pipeline("zero-shot-image-classification", model="clip-vit-base-patch32")
+clip = await pipeline("zero-shot-image-classification", model="clip-vit-base-patch32")
 await clip(jpeg_bytes, candidate_labels=["a photo of a person's face", "a photo of food"])
 # [{'label': 'a photo of food', 'score': 0.97}, {'label': "a photo of a person's face", 'score': 0.03}]
 
-detector = await LLM.pipeline("object-detection", model="detr-resnet-50")
+detector = await pipeline("object-detection", model="detr-resnet-50")
 await detector(jpeg_bytes, threshold=0.5)
 # [{'label': 'cat', 'score': 0.99, 'box': {'xmin': 11, 'ymin': 54, 'xmax': 316, 'ymax': 472}}, ...]
 
 await classifier.dispose()
 ```
 
-The models each task was tested with, their licences and the ones known not to work are in [MODELS.md](../MODELS.md#task-pipelines-for-llmpipelinetask-model).
+The models each task was tested with, their licences and the ones known not to work are in [MODELS.md](../MODELS.md#task-pipelines-for-pipelinetask-model).
 
 Loading options are the same as for `LLM.create()`: `backend`, `dtype`, `dtype_fallbacks`, `hosted_models_url`, `auto_detect_local` and `local_models_path`. Model names, hosted files, browser caching, progress display and `export_models()` work the same way too. Load failures name the task, model and backend.
 
@@ -36,7 +38,7 @@ Image tasks accept encoded image bytes (JPEG, PNG, WebP, GIF or BMP), an HTTP(S)
 
 The four image-output tasks return images as PNG bytes, which `IPython.display.Image(data=png)` shows and `open(..., "wb")` saves; pass `as_array=True` for a `uint8` NumPy array of shape (height, width, channels) instead (it needs NumPy). Each image crosses the Python/JavaScript bridge as one buffer, and the PNG is encoded in the browser with `OffscreenCanvas`, so Pillow is not needed. The raw depth values (`predicted_depth`) are a float32 NumPy array, or nested lists when NumPy is not installed. Results can be large: for the 612 x 408 test photo the cut-out is 381 KB, the raw depth values 1 MB and the 2x upscale 2.5 MB, so use `map()` and not one huge batch for many photos. `map()` runs these tasks one photo per call.
 
-Text to speech returns a `Speech`: `samples` (a NumPy `float32` array when NumPy is installed, else an `array.array("f")`), `sampling_rate`, `duration` and `to_wav()` (16-bit PCM mono WAV bytes). Evaluating a `Speech` in a notebook cell shows an audio player. The samples cross the Python/JavaScript bridge as one buffer. A call takes one text and raises `TypeError` for a list; use `map()` for several, which returns one `Speech` per text. Only models that Transformers.js runs through its text-to-speech pipeline work: `Xenova/mms-tts-eng` is tested (CC-BY-NC-4.0, non-commercial use only). In Transformers.js 4.3.2, `Xenova/speecht5_tts` fails with "Missing the following inputs: speaker_embeddings, encoder_hidden_states, output_sequence" (with `fp32` and `q8`, with embeddings as a URL or a `Float32Array`), and Kokoro is not supported by the pipeline ("Unsupported model type style_text_to_speech_2"). The speech model can be hosted with a site like any other: a models directory with a `manifest.json` that lists `Xenova/mms-tts-eng` and the model's files (see [MODELS.md](../MODELS.md#notes-on-the-tested-models)) makes `LLM.pipeline("text-to-speech", model="Xenova/mms-tts-eng", hosted_models_url=...)` load without contacting the Hub. Sound generation such as MusicGen is not covered.
+Text to speech returns a `Speech`: `samples` (a NumPy `float32` array when NumPy is installed, else an `array.array("f")`), `sampling_rate`, `duration` and `to_wav()` (16-bit PCM mono WAV bytes). Evaluating a `Speech` in a notebook cell shows an audio player. The samples cross the Python/JavaScript bridge as one buffer. A call takes one text and raises `TypeError` for a list; use `map()` for several, which returns one `Speech` per text. Only models that Transformers.js runs through its text-to-speech pipeline work: `Xenova/mms-tts-eng` is tested (CC-BY-NC-4.0, non-commercial use only). In Transformers.js 4.3.2, `Xenova/speecht5_tts` fails with "Missing the following inputs: speaker_embeddings, encoder_hidden_states, output_sequence" (with `fp32` and `q8`, with embeddings as a URL or a `Float32Array`), and Kokoro is not supported by the pipeline ("Unsupported model type style_text_to_speech_2"). The speech model can be hosted with a site like any other: a models directory with a `manifest.json` that lists `Xenova/mms-tts-eng` and the model's files (see [MODELS.md](../MODELS.md#notes-on-the-tested-models)) makes `pipeline("text-to-speech", model="Xenova/mms-tts-eng", hosted_models_url=...)` load without contacting the Hub. Sound generation such as MusicGen is not covered.
 
 Speech recognition and audio classification accept an HTTP(S) URL, a path to a PCM WAV file (e.g. a file uploaded to the JupyterLite file browser), WAV bytes, or a sequence of mono float samples at 16 kHz. WAV files are decoded in Python, mixed down to mono and linearly resampled to 16 kHz. Notebook kernels run in a Web Worker without `AudioContext`, so URLs are fetched and decoded the same way and must point to WAV files. Compressed formats (MP3, OGG, M4A) are not decoded in the kernel: convert them to WAV first. URL fetches must be allowed by CORS. Whisper processes 30-second windows, so pass `chunk_length_s=30` for longer recordings.
 

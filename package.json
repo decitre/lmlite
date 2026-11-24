@@ -1,7 +1,7 @@
 {
   "name": "lmlite",
   "version": "0.3.0",
-  "description": "Run language models, embeddings, vision, speech and ONNX models in the browser from Python, in JupyterLite",
+  "description": "Run language models, embeddings, vision, speech and ONNX models in the browser from Python, with devices such as the microphone and camera (JupyterLite)",
   "type": "module",
   "scripts": {
     "test:js": "vitest",

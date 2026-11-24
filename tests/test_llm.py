@@ -6,7 +6,7 @@ import json
 import tempfile
 import types
 import zipfile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -2319,3 +2319,40 @@ class TestHostedBase:
         js.lmLite.getHostedModelBase.return_value = None
         assert await LLM.hosted_base("org/m") is None
         js.lmLite.getHostedModelBase.assert_awaited_once_with("org/m", None)
+
+
+class TestTopLevelFunctions:
+    """``lmlite.pipeline`` and the other functions that are not about language models are the ``LLM`` class methods."""
+
+    @pytest.mark.parametrize("name", ["pipeline", "tokenizer", "model_info", "model_task", "hosted_base"])
+    def test_signature_matches_the_class_method(self, name):
+        import inspect
+
+        import lmlite
+
+        assert name in lmlite.__all__
+        assert inspect.signature(getattr(lmlite, name)) == inspect.signature(getattr(lmlite.LLM, name))
+
+    @pytest.mark.parametrize(
+        ("name", "args", "kwargs", "expected"),
+        [
+            ("pipeline", ("translation", "m"), {"backend": "wasm"}, (("translation", "m"), {"backend": "wasm"})),
+            (
+                "tokenizer",
+                ("m",),
+                {"hosted_models_url": "u"},
+                (("m",), {"tokenizer_json": None, "tokenizer_config": None, "hosted_models_url": "u"}),
+            ),
+            ("model_info", ("m", "text-generation"), {"dtype": "q4"}, (("m", "text-generation", "wasm", "q4"), {})),
+            ("model_task", ("m",), {}, (("m",), {})),
+            ("hosted_base", ("m",), {"hosted_models_url": "u"}, (("m",), {"hosted_models_url": "u"})),
+        ],
+    )
+    async def test_calls_the_class_method(self, monkeypatch, name, args, kwargs, expected):
+        import lmlite
+
+        method = AsyncMock(return_value="result")
+        monkeypatch.setattr(lmlite.LLM, name, method)
+
+        assert await getattr(lmlite, name)(*args, **kwargs) == "result"
+        assert method.await_args == call(*expected[0], **expected[1])

@@ -22,7 +22,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lmlite"
-description = "Run language models, embeddings, vision, speech and ONNX models in the browser from Python, in JupyterLite"
+description = "Run language models, embeddings, vision, speech and ONNX models in the browser from Python, with devices such as the microphone and camera (JupyterLite)"
 readme = "README.md"
 authors = [ {name = "Emmanuel Decitre", email = "590094+decitre@users.noreply.github.com"} ]
 license = "Apache-2.0"
