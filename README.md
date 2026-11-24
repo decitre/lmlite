@@ -55,6 +55,10 @@ docs = ["JupyterLite runs in the browser.", "Python is widely used for ML."]
 results = await embedder.similarity_search("Where does JupyterLite run?", docs)
 print(results)
 
+# Text classification
+classifier = await Classifier.create("distilbert-base-uncased-finetuned-sst-2-english")
+print(await classifier.classify("I love lmLite!", top_k=2))
+
 # Any Transformers.js task is an awaitable callable: here, the objects in a photo
 detector = await pipeline("object-detection", model="detr-resnet-50")
 detections = await detector("https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/cats.jpg", threshold=0.6)
@@ -63,7 +67,7 @@ print(detections)  # [{'label': 'cat', 'score': 1.0, 'box': {'xmin': ..., ...}},
 
 ## Features
 
-- **Browser-native**: Run LLMs entirely in the browser, no server required
+- **Browser-native**: Run models entirely in the browser, no server required
 - **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection), image-output tasks (background removal, depth estimation, image segmentation, image-to-image), audio classification, text to speech via `pipeline(task, model=...)`, over many inputs with `pipe.map()` (batches, progress, cancel)
 - **Instruction-tuned models**: Chat and instruction-following with browser-compatible models such as SmolLM2-360M-Instruct.
 - **Composable workflows**: Build simple RAG pipelines and conversational interfaces with memory using Python.
@@ -73,26 +77,26 @@ print(detections)  # [{'label': 'cat', 'score': 1.0, 'box': {'xmin': ..., ...}},
 - **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
 - **Embeddings & classification**: Sentence vectors and text classification
 - **Bare ONNX models**: `OnnxModel` runs a single `.onnx` file with NumPy in and NumPy out, with caching, hosted files, a sha256 check, float16 and `map()`
-- **Notebook widgets**: `AudioRecorder` records the microphone in a notebook (`pip install 'lmlite[audio]'`); `pip install 'lmlite[images]'` adds NumPy and Pillow for the image notebooks
+- **Notebook widgets**: `AudioRecorder` records the microphone and `CameraCapture` takes a photo, in a notebook (`pip install 'lmlite[audio]'`, `pip install 'lmlite[camera]'`); `pip install 'lmlite[images]'` adds NumPy and Pillow for the image notebooks
 - **Model caching**: Browser-cached downloads, portable ZIP export/import, and cache inspection before loading (`model_info()`, `cached_models()`, per-model `clear_cache()`) with Python progress callbacks
 - **Pythonic API**: Clean, async Python interface
 - **Headless native backend**: `pip install 'lmlite[native]'` runs the same ONNX files with onnxruntime outside the browser for fast tuning loops, checked for parity against the browser
 
 ## What is lmLite?
 
-lmLite is a lightweight Python-to-JavaScript bridge for **local LLM inference in the browser**, designed for JupyterLite notebooks. It provides:
+lmLite is a lightweight bridge from Python to **machine learning in the browser**: Transformers.js pipelines, bare ONNX models and browser devices such as the microphone and camera, for notebooks in JupyterLite. It provides:
 
 - `pipeline()`: Transformers.js tasks as awaitable Python callables, for vision, speech, images out, translation and zero-shot classification, over many inputs with `map()`; the newer features are built on it
 - `LLM.create()`: text generation, chat with streaming and token probabilities, for large language models
 - `Embedder.create()` and `Classifier.create()`: sentence embeddings with similarity search, and text classification
 - Model loading, caching, and portable ZIP workflows
-- Independent backend/dtype controls for embeddings and generation
+- Backend and dtype controls for each model
 
-**Inference is powered by [Transformers.js](https://github.com/huggingface/transformers.js) and ONNX Runtime**. lmLite is not a new model engine or native Python inference backend. Its similarity search is an in-memory cosine ranking helper, not a vector database.
+**Inference is powered by [Transformers.js](https://github.com/huggingface/transformers.js) and ONNX Runtime**. lmLite is not a new model engine, and its optional native backend is for tuning, not a production inference service. Its similarity search is an in-memory cosine ranking helper, not a vector database.
 
 **Best suited for:** Teaching, interactive experiments, and browser-local prototypes where avoiding remote inference services matters.
 
-> **Note:** Installing the Python package on desktop does **not** enable desktop inference. `LLM.create()` requires a supported browser-based Python environment (xeus-python or the JupyterLite Pyodide kernel) with JavaScript interoperability. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
+> **Note:** Installing the Python package on desktop does **not** run models in a browser. `pipeline()`, `OnnxModel`, `LLM`, `Embedder`, `Classifier` and the widgets need a browser kernel (xeus-python or the JupyterLite Pyodide kernel) with JavaScript interoperability. `pip install 'lmlite[native]'` adds a headless onnxruntime backend for `Embedder`, `Classifier`, greedy `LLM.generate()`, `OnnxModel` and `tokenizer()`. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
 
 
 ## Feedback and Contributions
@@ -181,7 +185,7 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 ```bibtex
 @software{lmlite2026,
   author = {Decitre, Emmanuel},
-  title = {lmLite: Browser-native LLM orchestration in JupyterLite},
+  title = {lmLite: Browser machine learning from Python},
   year = {2026},
   url = {https://github.com/decitre/lmlite}
 }

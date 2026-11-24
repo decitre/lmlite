@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use lmLite in your work, please cite it using this metadata."
 type: software
-title: "lmLite: Browser-native LLM orchestration in JupyterLite"
+title: "lmLite: Browser machine learning from Python"
 authors:
   - family-names: Decitre
     given-names: Emmanuel

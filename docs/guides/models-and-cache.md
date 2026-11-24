@@ -83,9 +83,9 @@ For preparing a hosted site, prefer the individual-file download workflow above.
 await llm.dispose()
 ```
 
-This releases loaded generation, embedding, and classification pipelines without deleting cached model files. Use it between model trials to release inference sessions and GPU resources. Await all active loading/inference/export operations first; concurrent use and disposal of the same instance are not supported.
+Every `LLM`, `Embedder`, `Classifier` and `Pipeline` has its own `dispose()`, which releases its loaded models without deleting cached model files. Use it between model trials to release inference sessions and GPU resources. Await all active loading/inference/export operations first; concurrent use and disposal of the same instance are not supported.
 
-Repeated disposal is safe. Cleanup is attempted for every loaded pipeline; failures raise an error, and failed pipelines remain available for a disposal retry. Successfully disposed pipelines reject subsequent inference calls. Create a new instance with `LLM.create(...)` to load models again from cache. Actual memory reclamation timing depends on the browser and runtime; disposal does not guarantee an immediate drop in reported memory.
+Repeated disposal is safe. Cleanup is attempted for every loaded pipeline; failures raise an error, and failed pipelines remain available for a disposal retry. Successfully disposed pipelines reject subsequent inference calls. Create a new instance (`LLM.create(...)`, `Embedder.create(...)` and so on) to load models again from cache. Actual memory reclamation timing depends on the browser and runtime; disposal does not guarantee an immediate drop in reported memory.
 
 ## Clear Browser Model Cache
 
