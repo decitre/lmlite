@@ -116,7 +116,7 @@ Please share suggestions, bug reports, and use cases through [GitHub Issues](htt
 
 Parts of this project were developed with the assistance of generative AI tools. The maintainer is responsible for the architecture, review, testing, and published code.
 
-AI-assisted contributions are welcome, provided contributors understand, review, and test their changes and take responsibility for their submissions.
+AI-assisted contributions are welcome, provided contributors understand, review, and test their changes and take responsibility for their submissions. [AGENTS.md](https://github.com/decitre/lmlite/blob/main/AGENTS.md) is a short guide to the layout, the commands and the usual mistakes, for people and for coding agents.
 
 ## Documentation
 
