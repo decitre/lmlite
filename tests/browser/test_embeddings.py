@@ -43,7 +43,7 @@ def test_local_embeddings_are_pooled_normalized_and_use_requested_weights(source
         try:
             page = browser.new_page()
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             requests = []
             responses = []
             failed_requests = []
@@ -85,7 +85,7 @@ def test_local_embeddings_are_pooled_normalized_and_use_requested_weights(source
                   }
                   globalThis.embeddingSmoke = {done: false};
                   (async () => {
-                    const llm = globalThis.lmLite.createLLM({
+                    const llm = globalThis.lmLite.createRuntime({
                       embedding_model: modelId,
                       embedding_backend: backend,
                       embedding_dtype: dtype,

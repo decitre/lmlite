@@ -69,10 +69,10 @@ def test_task_pipeline_runs_in_browser(source_server, task, backend):
             page.goto(source_server, wait_until="domcontentloaded")
             if backend == "webgpu" and not page.evaluate("async () => Boolean(await navigator.gpu?.requestAdapter())"):
                 pytest.skip("WebGPU adapter unavailable in this browser")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             result = page.evaluate(
                 """async ({task, model, backend, inputs, options}) => {
-                  const llm = globalThis.lmLite.createLLM({task, task_model: model, backend});
+                  const llm = globalThis.lmLite.createRuntime({task, task_model: model, backend});
                   try {
                     await llm.init();
                     const output = await llm.runTask(inputs, JSON.stringify(options));
@@ -123,7 +123,7 @@ def test_asr_url_runs_in_worker(source_server):
                     self.onmessage = async ({data}) => {
                       try {
                         await import(data.src);
-                        const llm = globalThis.lmLite.createLLM({task: 'automatic-speech-recognition', task_model: data.model, backend: 'wasm'});
+                        const llm = globalThis.lmLite.createRuntime({task: 'automatic-speech-recognition', task_model: data.model, backend: 'wasm'});
                         await llm.init();
                         const output = await llm.runTask(data.url, '{}');
                         await llm.dispose();
@@ -143,7 +143,7 @@ def test_asr_url_runs_in_worker(source_server):
                     worker.terminate();
                   }
                 }""",
-                {"src": f"{source_server}/src/lmlite/llm.js", "model": model, "url": AUDIO_URL},
+                {"src": f"{source_server}/src/lmlite/lmlite.js", "model": model, "url": AUDIO_URL},
             )
         finally:
             browser.close()
@@ -168,7 +168,7 @@ def test_image_bytes_and_url_run_in_worker(source_server):
                     self.onmessage = async ({data}) => {
                       try {
                         await import(data.src);
-                        const llm = globalThis.lmLite.createLLM({task: 'image-classification', task_model: data.model, backend: 'wasm'});
+                        const llm = globalThis.lmLite.createRuntime({task: 'image-classification', task_model: data.model, backend: 'wasm'});
                         await llm.init();
                         const bytes = new Uint8Array(await (await fetch(data.url)).arrayBuffer());
                         const fromBytes = await llm.runTask(bytes, '{"top_k": 1}');
@@ -191,7 +191,7 @@ def test_image_bytes_and_url_run_in_worker(source_server):
                     worker.terminate();
                   }
                 }""",
-                {"src": f"{source_server}/src/lmlite/llm.js", "model": model, "url": TIGER_URL},
+                {"src": f"{source_server}/src/lmlite/lmlite.js", "model": model, "url": TIGER_URL},
             )
         finally:
             browser.close()
@@ -213,7 +213,7 @@ def test_model_info_reports_vision_tasks(source_server, task):
             page = browser.new_page()
             page.set_default_timeout(MODEL_TIMEOUT)
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
             info = page.evaluate(
                 """async ({task, model}) => {
                   await new Promise(resolve => setTimeout(resolve, 0));

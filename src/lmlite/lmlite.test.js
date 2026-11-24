@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import './llm.js';
+import './lmlite.js';
 
 vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2', () => {
   class PreTrainedTokenizer {
@@ -55,8 +55,8 @@ vi.mock('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.2.3/dist/ort.webgpu.min.
 });
 
 const {
-  BrowserLLM,
-  createLLM,
+  BrowserRuntime,
+  createRuntime,
   cosineSimilarity,
   cosineSimilarityBatch,
   isModelCached,
@@ -201,10 +201,17 @@ describe('Hosted model discovery', () => {
   });
 });
 
-describe('BrowserLLM Constructor', () => {
+describe('the names before the runtime was renamed', () => {
+  it('still point at the runtime', () => {
+    expect(globalThis.lmLite.createLLM).toBe(globalThis.lmLite.createRuntime);
+    expect(globalThis.lmLite.BrowserLLM).toBe(globalThis.lmLite.BrowserRuntime);
+  });
+});
+
+describe('BrowserRuntime Constructor', () => {
   it('should initialize with minimal config', () => {
     const config = { generator_model: 'gpt2' };
-    const llm = new BrowserLLM(config);
+    const llm = new BrowserRuntime(config);
 
     expect(llm.generatorModel).toBe('gpt2');
     expect(llm.embeddingModel).toBeUndefined();
@@ -215,7 +222,7 @@ describe('BrowserLLM Constructor', () => {
     const config = {
       classification_model: 'distilbert-base-uncased-finetuned-sst-2-english'
     };
-    const llm = new BrowserLLM(config);
+    const llm = new BrowserRuntime(config);
 
     expect(llm.classificationModel).toBe('distilbert-base-uncased-finetuned-sst-2-english');
     expect(llm.generatorModel).toBeUndefined();
@@ -223,14 +230,14 @@ describe('BrowserLLM Constructor', () => {
 
   it('should normalize backend to lowercase', () => {
     const config = { backend: 'WEBGPU', generator_model: 'gpt2' };
-    const llm = new BrowserLLM(config);
+    const llm = new BrowserRuntime(config);
 
     expect(llm.backend).toBe('webgpu');
   });
 
   it('should set default values for generation parameters', () => {
     const config = { generator_model: 'gpt2' };
-    const llm = new BrowserLLM(config);
+    const llm = new BrowserRuntime(config);
 
     expect(llm.max_new_tokens).toBe(50);
     expect(llm.temperature).toBe(0.7);
@@ -244,7 +251,7 @@ describe('BrowserLLM Constructor', () => {
       dtype: 'fp32',
       dtype_fallbacks: ['fp32', 'int8'],
     };
-    const llm = new BrowserLLM(config);
+    const llm = new BrowserRuntime(config);
 
     expect(llm.dtype).toBe('fp32');
     expect(llm.dtypeFallbacks).toEqual(['fp32', 'int8']);
@@ -257,7 +264,7 @@ describe('BrowserLLM Constructor', () => {
       temperature: 0.5,
       top_k: 30
     };
-    const llm = new BrowserLLM(config);
+    const llm = new BrowserRuntime(config);
 
     expect(llm.max_new_tokens).toBe(100);
     expect(llm.temperature).toBe(0.5);
@@ -265,9 +272,9 @@ describe('BrowserLLM Constructor', () => {
   });
 });
 
-describe('BrowserLLM dtype handling', () => {
+describe('BrowserRuntime dtype handling', () => {
   it('should honor explicit dtype override', async () => {
-    const llm = new BrowserLLM({ generator_model: 'gpt2', dtype: 'fp32' });
+    const llm = new BrowserRuntime({ generator_model: 'gpt2', dtype: 'fp32' });
     const pipelineFn = vi.fn(async () => 'pipeline');
 
     await llm._loadPipelineWithDtypeFallback(
@@ -287,7 +294,7 @@ describe('BrowserLLM dtype handling', () => {
   });
 
   it('should use configured dtype fallback order', async () => {
-    const llm = new BrowserLLM({
+    const llm = new BrowserRuntime({
       generator_model: 'gpt2',
       dtype_fallbacks: ['int8', 'fp32'],
     });
@@ -319,14 +326,14 @@ describe('BrowserLLM dtype handling', () => {
   });
 });
 
-describe('BrowserLLM initialization progress', () => {
+describe('BrowserRuntime initialization progress', () => {
   it('uses individual hosted files for selected models and preserves remote fallback for others', async () => {
     const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async (_task, _model, options) => {
       options.progress_callback({ status: 'progress', file: 'model.onnx', loaded: 1, total: 2 });
       return vi.fn(async () => []);
     });
-    const llm = new BrowserLLM({
+    const llm = new BrowserRuntime({
       generator_model: 'gpt2',
       embedding_model: 'org/embedding',
       hosted_model_base: 'https://example.test/demo/models/',
@@ -343,7 +350,7 @@ describe('BrowserLLM initialization progress', () => {
       expect.objectContaining({ local_files_only: true, dtype: 'fp32' }));
     expect(pipeline.mock.calls[1][2].local_files_only).toBeUndefined();
 
-    await new BrowserLLM({}).init();
+    await new BrowserRuntime({}).init();
     expect(env.allowLocalModels).toBe(false);
   });
 
@@ -352,7 +359,7 @@ describe('BrowserLLM initialization progress', () => {
     pipeline.mockImplementation(async () => vi.fn(async () => []));
     const original = vi.fn(async () => new Response('{}'));
     env.fetch = original;
-    await new BrowserLLM({
+    await new BrowserRuntime({
       generator_model: 'gpt2',
       hosted_model_base: 'https://example.test/demo/models/',
       hosted_models: ['Xenova/gpt2'],
@@ -378,7 +385,7 @@ describe('BrowserLLM initialization progress', () => {
       return generator;
     });
     const callback = vi.fn();
-    const llm = new BrowserLLM({ generator_model: 'gpt2' });
+    const llm = new BrowserRuntime({ generator_model: 'gpt2' });
 
     await llm.init(callback);
 
@@ -398,7 +405,7 @@ describe('BrowserLLM initialization progress', () => {
     const model = { forward };
     const generator = Object.assign(vi.fn(async () => []), { model });
     pipeline.mockImplementation(async () => generator);
-    const llm = new BrowserLLM({ generator_model: 'gpt2' });
+    const llm = new BrowserRuntime({ generator_model: 'gpt2' });
     await llm.init();
 
     setTimeout(() => events.push('macrotask'), 0);
@@ -419,7 +426,7 @@ describe('BrowserLLM initialization progress', () => {
       });
       const callback = vi.fn();
 
-      await new BrowserLLM({ [modelKey]: 'test-model' }).init(callback);
+      await new BrowserRuntime({ [modelKey]: 'test-model' }).init(callback);
 
       expect(callback).toHaveBeenCalledWith('Xenova/test-model', 'progress', 'model.onnx', 5, 10);
     }
@@ -432,11 +439,11 @@ describe('BrowserLLM initialization progress', () => {
       return vi.fn(async () => []);
     });
 
-    await expect(new BrowserLLM({ generator_model: 'gpt2' }).init()).resolves.toBeUndefined();
+    await expect(new BrowserRuntime({ generator_model: 'gpt2' }).init()).resolves.toBeUndefined();
   });
 });
 
-describe('BrowserLLM embedding dtype pinning', () => {
+describe('BrowserRuntime embedding dtype pinning', () => {
   it.each([
     ['wasm', 'webgpu', null],
     ['WEBGPU', 'wasm', 'q8'],
@@ -444,7 +451,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockImplementation(async () => vi.fn(async () => []));
     pipeline.mockClear();
-    const llm = new BrowserLLM({
+    const llm = new BrowserRuntime({
       generator_model: 'gpt2',
       embedding_model: 'org/embedding',
       classification_model: 'org/classifier',
@@ -474,7 +481,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockClear();
 
-    await expect(new BrowserLLM({ embedding_model: 'org/embedding', embedding_backend }).init())
+    await expect(new BrowserRuntime({ embedding_model: 'org/embedding', embedding_backend }).init())
       .rejects.toThrow('Invalid embedding_backend');
     expect(pipeline).not.toHaveBeenCalled();
   });
@@ -484,7 +491,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     pipeline.mockRejectedValue(new Error('WebGPU unavailable'));
     pipeline.mockClear();
 
-    await expect(new BrowserLLM({
+    await expect(new BrowserRuntime({
       embedding_model: 'org/embedding', embedding_backend: 'webgpu',
     }).init()).rejects.toThrow("Failed to load embedding model 'org/embedding': WebGPU unavailable");
     expect(pipeline).toHaveBeenCalledTimes(1);
@@ -496,7 +503,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
       const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
       pipeline.mockReset();
       mock(pipeline);
-      return new BrowserLLM(options).init().then(() => null, (error) => error.message);
+      return new BrowserRuntime(options).init().then(() => null, (error) => error.message);
     };
 
     it('says a WASM out-of-memory error is memory, and keeps the runtime message', async () => {
@@ -541,7 +548,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     pipeline.mockRejectedValue(new Error('Could not locate file model_quantized.onnx'));
     pipeline.mockClear();
 
-    await expect(new BrowserLLM({
+    await expect(new BrowserRuntime({
       embedding_model: 'org/embedding',
       embedding_dtype: 'q8',
       dtype_fallbacks: ['fp32'],
@@ -560,7 +567,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     pipeline.mockImplementation(async () => vi.fn(async () => ({ data: [0] })));
     pipeline.mockClear();
 
-    await new BrowserLLM({ embedding_model: 'org/embedding' }).init();
+    await new BrowserRuntime({ embedding_model: 'org/embedding' }).init();
 
     const call = pipeline.mock.calls.find((c) => c[0] === 'feature-extraction');
     expect(call).toBeDefined();
@@ -573,7 +580,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     pipeline.mockImplementation(async () => embedder);
     pipeline.mockClear();
 
-    await new BrowserLLM({ embedding_model: 'org/embedding', embedding_dtype: 'q8' }).init();
+    await new BrowserRuntime({ embedding_model: 'org/embedding', embedding_dtype: 'q8' }).init();
 
     const call = pipeline.mock.calls.find((c) => c[0] === 'feature-extraction');
     expect(call).toBeDefined();
@@ -588,7 +595,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     pipeline.mockImplementation(async () => vi.fn(async () => ({ data: [0] })));
     pipeline.mockClear();
 
-    await new BrowserLLM({
+    await new BrowserRuntime({
       embedding_model: 'org/embedding',
       embedding_dtype: 'q8',
       dtype: 'fp32',
@@ -607,7 +614,7 @@ describe('BrowserLLM embedding dtype pinning', () => {
     pipeline.mockImplementation(async () => vi.fn(async () => ({ data: [0] })));
     pipeline.mockClear();
 
-    await new BrowserLLM({
+    await new BrowserRuntime({
       embedding_model: 'org/embedding',
       embedding_dtype: 'q8',
       backend: 'webgpu',
@@ -619,9 +626,9 @@ describe('BrowserLLM embedding dtype pinning', () => {
   });
 });
 
-describe('BrowserLLM.dispose()', () => {
+describe('BrowserRuntime.dispose()', () => {
   it('releases all loaded pipelines and is safe to repeat', async () => {
-    const llm = new BrowserLLM({});
+    const llm = new BrowserRuntime({});
     const pipelines = ['generator', 'embedder', 'classifier'].map(name => {
       const pipeline = { dispose: vi.fn(async () => {}) };
       llm[name] = pipeline;
@@ -641,7 +648,7 @@ describe('BrowserLLM.dispose()', () => {
   });
 
   it('attempts every cleanup and retains failed pipelines for retry', async () => {
-    const llm = new BrowserLLM({});
+    const llm = new BrowserRuntime({});
     const generator = { dispose: vi.fn().mockRejectedValueOnce(new Error('session release failed'))
       .mockResolvedValueOnce(undefined) };
     const embedder = { dispose: vi.fn(async () => {}) };
@@ -666,7 +673,7 @@ describe('BrowserLLM.dispose()', () => {
     const deleteCache = vi.fn();
     vi.stubGlobal('caches', { delete: deleteCache });
     try {
-      await new BrowserLLM({}).dispose();
+      await new BrowserRuntime({}).dispose();
       expect(deleteCache).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
@@ -674,12 +681,12 @@ describe('BrowserLLM.dispose()', () => {
   });
 });
 
-describe('BrowserLLM.classify()', () => {
+describe('BrowserRuntime.classify()', () => {
   let llm;
 
   beforeEach(() => {
     const config = { classification_model: 'distilbert' };
-    llm = new BrowserLLM(config);
+    llm = new BrowserRuntime(config);
   });
 
   it('should throw error if classifier not initialized', async () => {
@@ -710,13 +717,13 @@ describe('BrowserLLM.classify()', () => {
   });
 });
 
-describe('BrowserLLM task pipelines', () => {
+describe('BrowserRuntime task pipelines', () => {
   it('loads a supported task with the shared backend, dtype and hosted options', async () => {
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     const taskPipeline = vi.fn();
     pipeline.mockReset();
     pipeline.mockResolvedValue(taskPipeline);
-    const llm = new BrowserLLM({
+    const llm = new BrowserRuntime({
       task: 'translation',
       task_model: 'opus-mt-en-fr',
       backend: 'webgpu',
@@ -736,9 +743,9 @@ describe('BrowserLLM task pipelines', () => {
   it('rejects unsupported tasks and missing models before loading', async () => {
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockReset();
-    await expect(new BrowserLLM({ task: 'image-to-text', task_model: 'm' }).init())
+    await expect(new BrowserRuntime({ task: 'image-to-text', task_model: 'm' }).init())
       .rejects.toThrow("Unsupported task 'image-to-text'. Supported pipeline tasks are: zero-shot-classification");
-    await expect(new BrowserLLM({ task: 'translation' }).init()).rejects.toThrow("requires a model");
+    await expect(new BrowserRuntime({ task: 'translation' }).init()).rejects.toThrow("requires a model");
     expect(pipeline).not.toHaveBeenCalled();
   });
 
@@ -746,12 +753,12 @@ describe('BrowserLLM task pipelines', () => {
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockReset();
     pipeline.mockRejectedValue(new Error('Unsupported model type: foo'));
-    await expect(new BrowserLLM({ task: 'translation', task_model: 'org/foo' }).init())
+    await expect(new BrowserRuntime({ task: 'translation', task_model: 'org/foo' }).init())
       .rejects.toThrow("Failed to load translation model 'org/foo': Unsupported model type: foo");
   });
 
   it('passes candidate_labels positionally for zero-shot classification', async () => {
-    const llm = new BrowserLLM({ task: 'zero-shot-classification' });
+    const llm = new BrowserRuntime({ task: 'zero-shot-classification' });
     const output = { sequence: 'text', labels: ['technology', 'sports'], scores: [0.9, 0.1] };
     llm.taskPipeline = vi.fn(async () => output);
 
@@ -763,7 +770,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('passes candidate_labels positionally for zero-shot image classification', async () => {
-    const llm = new BrowserLLM({ task: 'zero-shot-image-classification' });
+    const llm = new BrowserRuntime({ task: 'zero-shot-image-classification' });
     llm.taskPipeline = vi.fn(async () => [{ label: 'food', score: 1 }]);
 
     await llm.runTask('https://example.test/a.jpg', JSON.stringify({ candidate_labels: ['food', 'face'] }));
@@ -773,7 +780,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('decodes encoded bytes, raw pixels and batches into RawImage inputs', async () => {
-    const llm = new BrowserLLM({ task: 'object-detection' });
+    const llm = new BrowserRuntime({ task: 'object-detection' });
     llm.taskPipeline = vi.fn(async () => []);
     const bytes = new Uint8Array([1, 2, 3]);
 
@@ -791,7 +798,7 @@ describe('BrowserLLM task pipelines', () => {
   it('reports undecodable image bytes', async () => {
     const { RawImage } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     RawImage.fromBlob.mockRejectedValueOnce(new Error('bad data'));
-    const llm = new BrowserLLM({ task: 'image-classification' });
+    const llm = new BrowserRuntime({ task: 'image-classification' });
     llm.taskPipeline = vi.fn();
 
     await expect(llm.runTask(new Uint8Array([0]))).rejects.toThrow('The image could not be decoded: bad data');
@@ -799,7 +806,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('returns one plain vector per image for image feature extraction', async () => {
-    const llm = new BrowserLLM({ task: 'image-feature-extraction' });
+    const llm = new BrowserRuntime({ task: 'image-feature-extraction' });
     // [images, tokens, dim] without pooling: keep the first token; [images, dim] when pooled.
     llm.taskPipeline = vi.fn(async (inputs, options) => ({
       tolist: () => {
@@ -814,7 +821,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('unwraps a single translation and keeps batched results', async () => {
-    const llm = new BrowserLLM({ task: 'translation' });
+    const llm = new BrowserRuntime({ task: 'translation' });
     llm.taskPipeline = vi.fn(async (inputs) => [inputs].flat().map(text => ({ translation_text: `fr:${text}` })));
 
     expect(await llm.runTask('Hello', '{"max_new_tokens": 8}')).toEqual({ translation_text: 'fr:Hello' });
@@ -823,7 +830,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('converts raw audio samples to Float32Array and keeps URLs', async () => {
-    const llm = new BrowserLLM({ task: 'automatic-speech-recognition' });
+    const llm = new BrowserRuntime({ task: 'automatic-speech-recognition' });
     llm.taskPipeline = vi.fn(async () => ({ text: 'hello' }));
 
     await llm.runTask([0, 0.5, -0.5], '{"return_timestamps": true}');
@@ -839,7 +846,7 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('gives audio classification the same audio input as speech recognition, one clip per call', async () => {
-    const llm = new BrowserLLM({ task: 'audio-classification' });
+    const llm = new BrowserRuntime({ task: 'audio-classification' });
     llm.taskPipeline = vi.fn(async (clip) => [{ label: 'Violin', score: clip.length / 10 }]);
 
     expect(await llm.runTask([0, 0.5, -0.5], '{"top_k": 3}')).toEqual([{ label: 'Violin', score: 0.3 }]);
@@ -865,7 +872,7 @@ describe('BrowserLLM task pipelines', () => {
     pcm.forEach((value, i) => view.setInt16(44 + i * 2, value, true));
     const fetch = vi.fn(async () => new Response(buffer));
     vi.stubGlobal('fetch', fetch);
-    const llm = new BrowserLLM({ task: 'automatic-speech-recognition' });
+    const llm = new BrowserRuntime({ task: 'automatic-speech-recognition' });
     llm.taskPipeline = vi.fn(async () => ({ text: 'hello' }));
 
     try {
@@ -883,15 +890,15 @@ describe('BrowserLLM task pipelines', () => {
   });
 
   it('wraps inference errors and rejects calls without a loaded pipeline', async () => {
-    const llm = new BrowserLLM({ task: 'translation' });
+    const llm = new BrowserRuntime({ task: 'translation' });
     await expect(llm.runTask('Hello')).rejects.toThrow('translation pipeline not initialized');
-    await expect(new BrowserLLM({}).runTask('Hello')).rejects.toThrow('No pipeline task configured');
+    await expect(new BrowserRuntime({}).runTask('Hello')).rejects.toThrow('No pipeline task configured');
     llm.taskPipeline = vi.fn(async () => { throw new Error('out of memory'); });
     await expect(llm.runTask('Hello')).rejects.toThrow('translation failed: out of memory');
   });
 
   it('disposes the task pipeline', async () => {
-    const llm = new BrowserLLM({ task: 'translation' });
+    const llm = new BrowserRuntime({ task: 'translation' });
     const taskPipeline = { dispose: vi.fn(async () => {}) };
     llm.taskPipeline = taskPipeline;
     await llm.dispose();
@@ -900,12 +907,12 @@ describe('BrowserLLM task pipelines', () => {
   });
 });
 
-describe('BrowserLLM.generate()', () => {
+describe('BrowserRuntime.generate()', () => {
   let llm;
 
   beforeEach(() => {
     const config = { generator_model: 'gpt2', max_new_tokens: 100 };
-    llm = new BrowserLLM(config);
+    llm = new BrowserRuntime(config);
   });
 
   it('should throw error if generator not initialized', async () => {
@@ -923,7 +930,7 @@ describe('BrowserLLM.generate()', () => {
   });
 
   it('should request only newly generated text when return_full_text is false', async () => {
-    llm = new BrowserLLM({ generator_model: 'gpt2', return_full_text: false });
+    llm = new BrowserRuntime({ generator_model: 'gpt2', return_full_text: false });
     llm.generator = vi.fn(async () => [{ generated_text: 'world' }]);
 
     expect(await llm.generate('Hello')).toBe('world');
@@ -933,9 +940,9 @@ describe('BrowserLLM.generate()', () => {
   });
 });
 
-describe('BrowserLLM.chat()', () => {
+describe('BrowserRuntime.chat()', () => {
   it('parses JSON messages from either Python browser bridge', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat-model' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat-model' });
     const messages = [{ role: 'user', content: 'Bonjour \u00e9\n"quoted" <|im_start|>' }];
     llm.generator = vi.fn(async (input) => [{
       generated_text: [...input, { role: 'assistant', content: 'Answer' }]
@@ -946,14 +953,14 @@ describe('BrowserLLM.chat()', () => {
   });
 
   it.each(['{invalid', 'null', '{}', '[]'])('rejects invalid serialized messages %s', async (input) => {
-    const llm = new BrowserLLM({});
+    const llm = new BrowserRuntime({});
     llm.generator = vi.fn();
     await expect(llm.chat(input)).rejects.toThrow();
     expect(llm.generator).not.toHaveBeenCalled();
   });
 
   it('uses structured chat input when the loaded tokenizer has a template', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat-model', return_full_text: true });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat-model', return_full_text: true });
     const messages = [
       { role: 'SYSTEM', content: 'Be helpful.' },
       { role: 'user', content: 'Hello' },
@@ -975,7 +982,7 @@ describe('BrowserLLM.chat()', () => {
   });
 
   it.each([true, false])('keeps generic formatting without a template, full text=%s', async (return_full_text) => {
-    const llm = new BrowserLLM({ generator_model: 'gpt2', return_full_text });
+    const llm = new BrowserRuntime({ generator_model: 'gpt2', return_full_text });
     llm.generator = vi.fn(async () => [{ generated_text: ' Answer with Assistant: inside. ' }]);
     llm.generator.tokenizer = { chat_template: null };
 
@@ -992,7 +999,7 @@ describe('BrowserLLM.chat()', () => {
   });
 
   it('propagates template errors without retrying generic formatting', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     llm.generator = vi.fn(async () => { throw new Error('Unsupported system role'); });
     llm.generator.tokenizer = { chat_template: 'template' };
     await expect(llm.chat([{ role: 'system', content: 'Hello' }])).rejects.toThrow('Unsupported system role');
@@ -1001,7 +1008,7 @@ describe('BrowserLLM.chat()', () => {
 
   it.each([[], null, [{}], [{ role: '', content: 'x' }], [{ role: 'user', content: 3 }]])(
     'rejects invalid messages %j', async (messages) => {
-      const llm = new BrowserLLM({});
+      const llm = new BrowserRuntime({});
       llm.generator = vi.fn();
       await expect(llm.chat(messages)).rejects.toThrow();
       expect(llm.generator).not.toHaveBeenCalled();
@@ -1009,7 +1016,7 @@ describe('BrowserLLM.chat()', () => {
   );
 
   it('rejects missing pipelines and malformed chat output', async () => {
-    const llm = new BrowserLLM({});
+    const llm = new BrowserRuntime({});
     await expect(llm.chat([{ role: 'user', content: 'Hi' }])).rejects.toThrow('Generator model not initialized');
     llm.generator = vi.fn(async () => [{ generated_text: 'unexpected string' }]);
     llm.generator.tokenizer = { chat_template: 'template' };
@@ -1017,7 +1024,7 @@ describe('BrowserLLM.chat()', () => {
   });
 });
 
-describe('BrowserLLM streaming and cancel()', () => {
+describe('BrowserRuntime streaming and cancel()', () => {
   // Emits one token per macrotask and honours the stopping criteria like model.generate().
   function streamingGenerator(tokens) {
     const generator = vi.fn(async (input, { streamer, stopping_criteria }) => {
@@ -1047,7 +1054,7 @@ describe('BrowserLLM streaming and cancel()', () => {
   const messages = [{ role: 'user', content: 'Hi' }];
 
   it('streams chunks that join to the chat() answer', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     llm.generator = streamingGenerator([' Hello', ' there', '! ']);
     const stream = await llm.chatStream(JSON.stringify(messages));
     const chunks = await readAll(stream);
@@ -1058,14 +1065,14 @@ describe('BrowserLLM streaming and cancel()', () => {
   });
 
   it('streams plain text generation without the prompt', async () => {
-    const llm = new BrowserLLM({ generator_model: 'gpt2', return_full_text: true });
+    const llm = new BrowserRuntime({ generator_model: 'gpt2', return_full_text: true });
     llm.generator = streamingGenerator(['a', 'b']);
     expect(await readAll(await llm.generateStream('prompt'))).toEqual(['a', 'b']);
     expect(llm.generator.mock.calls[0][1].return_full_text).toBe(false);
   });
 
   it('cancel() ends the stream early and leaves the instance reusable', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     llm.generator = streamingGenerator(['a', 'b', 'c', 'd']);
     expect(await llm.cancel()).toBe(false);
     const stream = await llm.chatStream(messages);
@@ -1076,7 +1083,7 @@ describe('BrowserLLM streaming and cancel()', () => {
   });
 
   it('a new generation waits for a cancelled one instead of failing', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     llm.generator = streamingGenerator(['a', 'b', 'c']);
     const first = llm.chat(messages);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1086,7 +1093,7 @@ describe('BrowserLLM streaming and cancel()', () => {
   });
 
   it('cancel() right after starting is not lost while the runtime loads', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     llm.generator = streamingGenerator(['a', 'b', 'c']);
     const first = llm.chat(messages);
     expect(await llm.cancel()).toBe(true);
@@ -1095,7 +1102,7 @@ describe('BrowserLLM streaming and cancel()', () => {
   });
 
   it('rejects concurrent generations and surfaces stream errors from read()', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     llm.generator = streamingGenerator(['a', 'b']);
     const first = llm.chat(messages);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1106,13 +1113,13 @@ describe('BrowserLLM streaming and cancel()', () => {
   });
 
   it('rejects streaming without a generator', async () => {
-    const llm = new BrowserLLM({});
+    const llm = new BrowserRuntime({});
     await expect(llm.generateStream('x')).rejects.toThrow('Generator model not initialized');
     await expect(llm.chatStream(messages)).rejects.toThrow('Generator model not initialized');
   });
 });
 
-describe('BrowserLLM token records', () => {
+describe('BrowserRuntime token records', () => {
   // A vocabulary small enough to check probabilities by hand; 'é' spans two byte tokens.
   const vocab = ['<end>', ' Hello', ' world', '!', '\xC3', '\xA9'];
   const tokenizer = {
@@ -1154,7 +1161,7 @@ describe('BrowserLLM token records', () => {
   const ln = Math.log;
 
   it('reports each token with its probability and the runner-up', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     llm.generator = scriptedGenerator([
       [-Infinity, ln(6), ln(3), ln(1), -Infinity, -Infinity],  // ' Hello' 0.6, runner-up ' world' 0.3
       [ln(1), ln(1), ln(8), -Infinity, -Infinity, -Infinity],  // ' world' 0.8
@@ -1171,7 +1178,7 @@ describe('BrowserLLM token records', () => {
   });
 
   it('honours the number of alternatives and keeps split characters whole', async () => {
-    const llm = new BrowserLLM({ generator_model: 'gpt2' });
+    const llm = new BrowserRuntime({ generator_model: 'gpt2' });
     llm.generator = scriptedGenerator([
       [-Infinity, -Infinity, ln(1), ln(2), ln(4), ln(3)],
       [-Infinity, ln(1), ln(2), ln(3), ln(1), ln(4)],
@@ -1185,7 +1192,7 @@ describe('BrowserLLM token records', () => {
   });
 
   it('can be cancelled like text streams', async () => {
-    const llm = new BrowserLLM({ generator_model: 'org/chat' });
+    const llm = new BrowserRuntime({ generator_model: 'org/chat' });
     const step = [-Infinity, ln(2), ln(1), -Infinity, -Infinity, -Infinity];
     llm.generator = scriptedGenerator([step, step, step, step]);
     const stream = await llm.chatTokens(messages);
@@ -1195,12 +1202,12 @@ describe('BrowserLLM token records', () => {
   });
 });
 
-describe('BrowserLLM.embed()', () => {
+describe('BrowserRuntime.embed()', () => {
   let llm;
 
   beforeEach(() => {
     const config = { embedding_model: 'all-MiniLM-L6-v2' };
-    llm = new BrowserLLM(config);
+    llm = new BrowserRuntime(config);
   });
 
   it('should throw error if embedder not initialized', async () => {
@@ -1247,10 +1254,10 @@ describe('BrowserLLM.embed()', () => {
 });
 
 describe('Helper functions', () => {
-  it('should create BrowserLLM instances', () => {
-    const llm = createLLM({ generator_model: 'gpt2' });
+  it('should create BrowserRuntime instances', () => {
+    const llm = createRuntime({ generator_model: 'gpt2' });
 
-    expect(llm).toBeInstanceOf(BrowserLLM);
+    expect(llm).toBeInstanceOf(BrowserRuntime);
     expect(llm.generatorModel).toBe('gpt2');
   });
 
@@ -1319,7 +1326,7 @@ describe('loadModelToCache()', () => {
   it('should be exposed globally', () => {
     expect(typeof globalThis.lmLite.loadModelToCache).toBe('function');
     expect(globalThis.loadModelToCache).toBeUndefined();  // only the lmLite namespace is global
-    expect(globalThis.createLLM).toBeUndefined();
+    expect(globalThis.createRuntime).toBeUndefined();
   });
 
   it('should write files to the Cache API', async () => {
@@ -1390,7 +1397,7 @@ describe('Hosted model export', () => {
   ])('preserves nested asset paths for %s', async (url) => {
     const cache = { match: vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))) };
     vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
-    const llm = new BrowserLLM({});
+    const llm = new BrowserRuntime({});
 
     const result = await llm._exportViaPython('Xenova/gpt2', 'transformers-cache', [{ url }]);
 
@@ -1851,7 +1858,7 @@ describe('runTasks', () => {
   const upper = (items) => items.map((text) => ({ translation_text: text.toUpperCase() }));
 
   function translator(taskPipeline) {
-    const llm = new BrowserLLM({ task: 'translation' });
+    const llm = new BrowserRuntime({ task: 'translation' });
     llm.taskPipeline = vi.fn(taskPipeline);
     return llm;
   }
@@ -1870,7 +1877,7 @@ describe('runTasks', () => {
   });
 
   it('gives each batch its own copy of the options', async () => {
-    const llm = new BrowserLLM({ task: 'zero-shot-classification' });
+    const llm = new BrowserRuntime({ task: 'zero-shot-classification' });
     llm.taskPipeline = vi.fn(async (items) => items.map((sequence) => ({ sequence })));
 
     await llm.runTasks(['a', 'b'], 1, { candidate_labels: ['x', 'y'] });
@@ -1904,7 +1911,7 @@ describe('runTasks', () => {
   });
 
   it('runs speech recognition one clip per call', async () => {
-    const llm = new BrowserLLM({ task: 'automatic-speech-recognition' });
+    const llm = new BrowserRuntime({ task: 'automatic-speech-recognition' });
     llm.taskPipeline = vi.fn(async (clip) => ({ text: String(clip.length) }));
 
     const { results } = await llm.runTasks([new Float32Array(3), new Float32Array(5)], 8);
@@ -1942,7 +1949,7 @@ describe('runTasks', () => {
 
 describe('speech tasks', () => {
   it.each(['text-to-speech', 'text-to-audio'])('%s returns the sampling rate and the samples as one byte buffer', async (task) => {
-    const llm = new BrowserLLM({ task });
+    const llm = new BrowserRuntime({ task });
     const audio = new Float32Array([0.5, -0.25, 1]);
     llm.taskPipeline = vi.fn(async () => ({ audio, sampling_rate: 16000 }));
 
@@ -1955,7 +1962,7 @@ describe('speech tasks', () => {
   });
 
   it('copies the samples of an audio view into its own buffer', async () => {
-    const llm = new BrowserLLM({ task: 'text-to-speech' });
+    const llm = new BrowserRuntime({ task: 'text-to-speech' });
     const shared = new Float32Array([9, 1, 2, 9]);
     llm.taskPipeline = vi.fn(async () => ({ audio: shared.subarray(1, 3), sampling_rate: 8000 }));
 
@@ -1966,7 +1973,7 @@ describe('speech tasks', () => {
   });
 
   it('runs one text per call in runTasks', async () => {
-    const llm = new BrowserLLM({ task: 'text-to-speech' });
+    const llm = new BrowserRuntime({ task: 'text-to-speech' });
     llm.taskPipeline = vi.fn(async (text) => ({ audio: new Float32Array(text.length), sampling_rate: 16000 }));
 
     const { results } = await llm.runTasks(['One.', 'Three'], 8);
@@ -2135,7 +2142,7 @@ describe('image output tasks', () => {
   const unpack = ([structure, ...buffers]) => ({ structure: JSON.parse(structure), buffers });
 
   function pipe(task, output) {
-    const llm = new BrowserLLM({ task });
+    const llm = new BrowserRuntime({ task });
     llm.taskPipeline = vi.fn(async () => output);
     return llm;
   }

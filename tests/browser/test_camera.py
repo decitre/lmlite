@@ -39,7 +39,7 @@ WIDGET = """async ({esm, runtimeUrl, detect}) => {
                     head: [...bytes.subarray(0, 3)], size: bytes.length, shown: photo.style.display};
     if (detect) {
       await import(runtimeUrl);
-      const llm = globalThis.lmLite.createLLM({task: 'object-detection', task_model: detect, backend: 'wasm'});
+      const llm = globalThis.lmLite.createRuntime({task: 'object-detection', task_model: detect, backend: 'wasm'});
       await llm.init();
       const blobUrl = URL.createObjectURL(new Blob([bytes], {type: 'image/jpeg'}));
       const found = await llm.runTask(blobUrl, JSON.stringify({threshold: 0.7}));
@@ -71,7 +71,7 @@ def run(tmp_path, detect=None):
             page.set_default_timeout(120000)
             page.route(PAGE_URL, lambda route: route.fulfill(body="<html></html>", content_type="text/html"))
             page.goto(PAGE_URL)
-            runtime = files("lmlite").joinpath("llm.js").read_text()
+            runtime = files("lmlite").joinpath("lmlite.js").read_text()
             blob = page.evaluate("(src) => URL.createObjectURL(new Blob([src], {type: 'text/javascript'}))", runtime)
             return page.evaluate(WIDGET, {"esm": CameraCapture._esm, "runtimeUrl": blob, "detect": detect})
         finally:

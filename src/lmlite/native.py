@@ -3,7 +3,7 @@
 
 """Native (CPython) backend: runs the same ONNX files as the browser with onnxruntime.
 
-A dev/test/tuning accelerator mirroring ``llm.js`` (Transformers.js 4.3.2) semantics; the browser
+A dev/test/tuning accelerator mirroring ``lmlite.js`` (Transformers.js 4.3.2) semantics; the browser
 stays the source of truth. Requires ``pip install 'lmlite[native]'``.
 """
 
@@ -20,7 +20,7 @@ from tokenizers import Tokenizer as HFTokenizer
 from .llm import resolve_model_id, split_model_name_and_revision
 from .model_assets import DTYPE_SUFFIXES
 
-# llm.js DEFAULT_DTYPES, tried in order for generation and classification models.
+# lmlite.js DEFAULT_DTYPES, tried in order for generation and classification models.
 DEFAULT_DTYPES = ("q8", "int8", "fp32")
 
 
@@ -161,7 +161,7 @@ class _Model:
 
 
 class NativeLLM:
-    """CPython counterpart of llm.js ``BrowserLLM`` for embed(), classify() and generate()."""
+    """CPython counterpart of lmlite.js ``BrowserRuntime`` for embed(), classify() and generate()."""
 
     def __init__(self, config):
         self.config = config

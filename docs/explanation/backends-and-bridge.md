@@ -14,7 +14,7 @@ Quantized (`q8`/`int8`) embeddings are not bit-identical across backends. These 
 
 ## The bridge
 
-A notebook kernel runs in a Web Worker, so Python reaches the browser's JavaScript runtime (`llm.js`, Transformers.js, onnxruntime-web) through a bridge: `pyodide.ffi` on Pyodide, `pyjs` on xeus-python. Four consequences follow from that.
+A notebook kernel runs in a Web Worker, so Python reaches the browser's JavaScript runtime (`lmlite.js`, Transformers.js, onnxruntime-web) through a bridge: `pyodide.ffi` on Pyodide, `pyjs` on xeus-python. Four consequences follow from that.
 
 - **No page APIs in the kernel.** A worker has no `<canvas>`, no `AudioContext` and cannot open the microphone. Images are encoded to PNG with `OffscreenCanvas`, and the microphone widget records on the page and sends the recording back (as base64 text in xeus-python, where a binary widget trait set by the browser never arrives).
 - **Data crosses as one buffer per value.** Images, audio samples and ONNX tensors go over the bridge as raw buffers, not as nested lists; token ids as a JSON string. A call costs far less than a model run, so lmLite makes one call per input and, for `Pipeline.map()`, loops in JavaScript.

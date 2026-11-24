@@ -72,12 +72,12 @@ def browser_run(source_server, model_base, model_id, config, inputs, body, bundl
         try:
             page = browser.new_page()
             page.goto(source_server, wait_until="domcontentloaded")
-            page.add_script_tag(url=f"{source_server}/src/lmlite/llm.js", type="module")
-            page.wait_for_function("!!globalThis.lmLite?.createLLM")
+            page.add_script_tag(url=f"{source_server}/src/lmlite/lmlite.js", type="module")
+            page.wait_for_function("!!globalThis.lmLite?.createRuntime")
             return page.evaluate(
                 f"""async ({{base, modelId, config, inputs}}) => {{
                   {BUNDLED_FETCH if bundled else ""}
-                  const llm = globalThis.lmLite.createLLM({{...config, hosted_model_base: base, hosted_models: [modelId]}});
+                  const llm = globalThis.lmLite.createRuntime({{...config, hosted_model_base: base, hosted_models: [modelId]}});
                   await llm.init();
                   try {{ {body} }} finally {{ await llm.dispose(); }}
                 }}""",

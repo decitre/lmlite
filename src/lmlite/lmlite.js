@@ -418,7 +418,7 @@ function yieldBeforeEachStep(model) {
   };
 }
 
-class BrowserLLM {
+class BrowserRuntime {
   constructor(config) {
     this.generatorModel = config.generator_model;
     this.embeddingModel = config.embedding_model;
@@ -1801,8 +1801,8 @@ async function loadTokenizer(modelName = null, tokenizerJson = null, tokenizerCo
 
 // --- Factory ---
 
-function createLLM(config) {
-  return new BrowserLLM(config);
+function createRuntime(config) {
+  return new BrowserRuntime(config);
 }
 
 // --- Similarity helpers ---
@@ -1852,8 +1852,11 @@ async function getModelTask(modelName) {
 
 // One namespace keeps the kernel's global scope clean.
 globalThis.lmLite = {
-  BrowserLLM,
-  createLLM,
+  BrowserRuntime,
+  createRuntime,
+  // The names before the runtime covered more than language models; pages that call them keep working.
+  BrowserLLM: BrowserRuntime,
+  createLLM: createRuntime,
   isModelCached,
   loadModelToCache,
   clearModelCache,
