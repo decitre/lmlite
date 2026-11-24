@@ -192,6 +192,13 @@ jobs:
       - name: Build the docs into the page
         run: pixi run --environment docs sphinx-build -W -b html -d "$RUNNER_TEMP/doctrees" docs public
 
+      # The page is built with || true, so a site that lost something would still be deployed: fail here instead.
+      - name: Check that the apps have their widgets
+        run: |
+          test -f public/apps/voici/render/camera-objects.html
+          test -f public/apps/extensions/anywidget/package.json
+          test -d "public/apps/extensions/@jupyter-widgets/jupyterlab-manager"
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:

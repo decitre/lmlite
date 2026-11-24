@@ -192,9 +192,15 @@ process_for_voici() {
     VOICI_PREFIX=$(jl-forge xeus-env --cache-dir "$xeus_cache" --pyproject "$ROOT_DIR/pyproject.toml" \
         --extras images audio camera)
 
-    # Listing --apps replaces the defaults: only Voici is built here.
+    # Listing --apps replaces the defaults: only Voici is built here. It builds from a directory of its own: jupyter
+    # lite keeps its doit database (.jupyterlite.doit.db) in the working directory, and sharing the Lab site's made the
+    # copies of the widget extensions (anywidget, jupyter-widgets) count as up to date and be skipped, which left
+    # the apps without their widgets.
+    mkdir -p "$WORKSPACE/lite-voici"
+    cd "$WORKSPACE/lite-voici"
     jupyter lite build \
         --apps voici \
+        --lite-dir "$WORKSPACE/lite-voici" \
         --contents "$VOICI_WORKSPACE" \
         --output-dir "$VOICI_PUBLIC_DIR" \
         --XeusAddon.prefix="$VOICI_PREFIX" \
