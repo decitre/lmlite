@@ -89,3 +89,17 @@ def test_a_recording_is_input_for_speech_recognition():
         wav.writeframes(struct.pack("<3h", 0, 16384, -16384))
 
     assert _audio_input(buffer.getvalue()) == pytest.approx([0.0, 0.5, -0.5], abs=1e-4)
+
+
+def test_app_mode_traits_and_the_messages_the_methods_send():
+    from unittest.mock import MagicMock
+
+    recorder = AudioRecorder()
+    assert (recorder.controls, recorder.raw, recorder.active) == (True, False, False)
+    app = AudioRecorder(controls=False, raw=True)
+    assert (app.controls, app.raw) == (False, True)
+
+    app.send = MagicMock()
+    app.record()
+    app.stop()
+    assert [call.args[0] for call in app.send.call_args_list] == [{"do": "record"}, {"do": "stop"}]

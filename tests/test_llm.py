@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
+import lmlite._bridge
+
 
 class TestVersion:
     """Test version module."""
@@ -940,7 +942,13 @@ class TestProgressRenderer:
         assert text_tqdm.monitor_interval == 0
         assert notebook.tqdm.monitor_interval == 0
         notebook.tqdm.assert_called_once_with(
-            desc="Preparing models", total=None, unit="B", unit_scale=True, mininterval=0.1, bar_format="{desc}"
+            desc="Preparing models",
+            total=None,
+            unit="B",
+            unit_scale=True,
+            mininterval=0.1,
+            bar_format="{desc}",
+            disable=False,
         )
         assert progress is notebook.tqdm.return_value
         auto.assert_not_called()
@@ -1088,6 +1096,25 @@ class TestLLMLoadingProgress:
         config = js.lmLite.createRuntime.call_args.args[0]
         assert config["embedding_dtype"] == "q8" and config["dtype"] == "fp32"
         assert config["embedding_model"] == "all-MiniLM-L6-v2"
+
+    @pytest.mark.parametrize("quiet", [False, True])
+    async def test_quiet_loading_prints_nothing_and_shows_no_progress_bar(self, loading, tmp_path, capsys, quiet):
+        from unittest.mock import patch
+
+        from lmlite import LLM
+
+        _, _, js, _ = loading
+        js.lmLite.getHostedModelBase = AsyncMock(return_value="https://example.test/models/")
+        with patch("lmlite._session._loading_progress", wraps=lmlite._bridge._loading_progress) as progress:
+            await LLM.create(
+                generator_model="gpt2",
+                hosted_models_url="https://example.test/models/",
+                local_models_path=str(tmp_path),
+                quiet=quiet,
+            )
+
+        assert progress.call_args.kwargs == {"quiet": quiet}
+        assert ("Using hosted files for Xenova/gpt2" in capsys.readouterr().out) is (not quiet)
 
     async def test_llm_create_does_not_warn_for_a_generator(self, loading, recwarn):
         from lmlite import LLM

@@ -65,7 +65,7 @@ class Embedder(Session):
                 another dtype. ``None`` (the default) keeps the Transformers.js default.
             progress_callback: Called with a dict per loading event, as for ``LLM.create()``.
             **options: The other loading options of ``LLM.create()``: ``hosted_models_url``, ``auto_detect_local`` and
-                ``local_models_path``.
+                ``local_models_path`` and ``quiet`` (no progress bar and no loading messages).
 
         Returns:
             The loaded ``Embedder``; call ``dispose()`` when you are done.

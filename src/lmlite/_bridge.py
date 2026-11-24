@@ -6,7 +6,7 @@ import contextlib
 from .bridge.runtime import ensure_runtime
 
 
-def _loading_progress():
+def _loading_progress(quiet=False):
     import sys
 
     from tqdm import tqdm as text_tqdm
@@ -34,7 +34,13 @@ def _loading_progress():
         from tqdm.auto import tqdm as progress_class
 
     return progress_class(
-        desc="Preparing models", total=None, unit="B", unit_scale=True, mininterval=0.1, bar_format="{desc}"
+        desc="Preparing models",
+        total=None,
+        unit="B",
+        unit_scale=True,
+        mininterval=0.1,
+        bar_format="{desc}",
+        disable=quiet,
     )
 
 

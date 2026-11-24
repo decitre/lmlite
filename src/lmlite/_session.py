@@ -43,7 +43,7 @@ class Session:
         Outside a browser kernel, or with ``backend="native"``, the ``lmlite[native]`` onnxruntime backend
         runs the same ONNX files for embed()/classify()/generate(). It reads models from a directory path,
         ``local_models_path/<model id>/``, or the Hugging Face Hub cache."""
-        with _loading_progress() as progress:
+        with _loading_progress(quiet=bool(overrides.get("quiet"))) as progress:
             try:
                 return await cls._create(progress, progress_callback, **overrides)
             except Exception as exc:
@@ -61,6 +61,7 @@ class Session:
         import zipfile
 
         config = {**cls.DEFAULTS, **overrides}
+        say = (lambda *args, **kwargs: None) if config.get("quiet") else print  # quiet: no messages and no progress bar
         native = _native(config.get("backend") == "native")
         createRuntime = None if native else _js_function("createRuntime")
 
@@ -95,7 +96,7 @@ class Session:
                         if base:
                             config["hosted_model_base"] = str(base)
                             config.setdefault("hosted_models", []).append(resolved_model_id.removesuffix("@main"))
-                            print(f"Using hosted files for {resolved_model_id} from {base}")
+                            say(f"Using hosted files for {resolved_model_id} from {base}")
                             continue
                     zip_path = None
                     for zip_filename in await model_zip_candidates(model_to_detect):
@@ -108,15 +109,15 @@ class Session:
                     if is_model_cached is not None:
                         cached_in_browser = bool(await is_model_cached(model_to_detect))
                         if cached_in_browser:
-                            print(f"{resolved_model_id} model found in browser cache")
+                            say(f"{resolved_model_id} model found in browser cache")
 
                     if zip_path:
                         if cached_in_browser:
-                            print(f"Skipping local zip injection from {zip_path}")
+                            say(f"Skipping local zip injection from {zip_path}")
                         else:
                             if load_model_to_cache is None:
                                 raise RuntimeError("JS runtime missing loadModelToCache")
-                            print(f"Found zipped model at {zip_path}, loading into browser cache...")
+                            say(f"Found zipped model at {zip_path}, loading into browser cache...")
                             model_prefix = f"{resolve_model_id(model_to_detect).split('@', 1)[0]}/"
                             progress.set_description(f"Opening local archive for {model_to_detect}")
                             # Flush widget messages before the filesystem fetches the archive.
@@ -161,10 +162,10 @@ class Session:
                                 progress.refresh()
 
                             progress.bar_format = "{desc}"
-                            print(f"Loaded {len(members)} files for {model_to_detect} into browser cache")
+                            say(f"Loaded {len(members)} files for {model_to_detect} into browser cache")
                     elif not cached_in_browser:
                         local_models_path = config["local_models_path"].rstrip("/") + "/"
-                        print(
+                        say(
                             f"No {resolved_model_id} model found in {local_models_path} nor in browser cache, "
                             "will download from 🤗"
                         )

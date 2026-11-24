@@ -19,6 +19,7 @@ llm = await LLM.create(
     hosted_models_url=None,           # Optional explicit HTTP models directory
     local_models_path="/drive/models",  # Portable ZIP import directory
     progress_callback=None,           # Called with a dict per loading event (see below)
+    quiet=False,                      # No progress bar and no loading messages, for an app that has its own
 )
 ```
 
