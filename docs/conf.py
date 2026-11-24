@@ -8,7 +8,7 @@ project = "lmLite"
 author = "Emmanuel Decitre"
 release = version = __version__
 
-extensions = ["myst_parser"]
+extensions = ["myst_parser", "sphinx.ext.autodoc", "sphinx.ext.napoleon"]
 html_theme = "furo"
 html_logo = "logo.svg"
 
@@ -17,6 +17,9 @@ myst_heading_anchors = 3
 
 # USAGE.md only points at the new pages, for links that predate the split; the pages above it are in the toctrees.
 exclude_patterns = ["_build", "USAGE.md", ".DS_Store"]
+
+# The API reference comes from the docstrings: members in the order of the source.
+autodoc_member_order = "bysource"
 
 # llms.txt (an index of these pages for language models) is served at the site root.
 html_extra_path = ["llms.txt"]

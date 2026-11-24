@@ -194,6 +194,7 @@ xeus-onnx-smoke = "pytest tests/browser/test_onnx_model_xeus.py -m browser -v -s
 onnx-notebook-smoke = "pytest tests/browser/test_onnx_notebook.py -m browser -v -s"
 
 [tool.pixi.feature.docs.pypi-dependencies]
+anywidget = "*"  # the widget modules are imported to read their docstrings
 sphinx = "*"
 furo = "*"
 myst-parser = "*"

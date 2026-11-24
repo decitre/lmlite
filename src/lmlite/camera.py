@@ -100,10 +100,20 @@ export default {
 
 
 class CameraCapture(anywidget.AnyWidget):
-    """A Start camera / Take photo widget. ``image`` holds the last photo: a JPEG file's bytes, at most 1024 pixels
-    on the longer side, which an image pipeline takes as input. It needs a page on HTTPS (or localhost) and the
-    user's permission for the camera; the browser asks the first time. "Rear camera" is a preference: a device with
-    one camera uses it.
+    """Start camera, Take photo and Stop camera buttons for the camera of a laptop, tablet or phone, in a notebook.
+
+    Install it with ``pip install 'lmlite[camera]'``. The kernel runs in a Web Worker, which cannot open the camera, so the
+    widget shows it on the page and hands the kernel a photo. The page must be on HTTPS (or localhost), and the browser
+    asks for permission the first time. "Rear camera" is a preference: a device with one camera uses it. ``info``
+    holds the last photo's ``width``, ``height`` and ``bytes``.
+
+    Example:
+        .. code-block:: python
+
+            camera = CameraCapture()
+            camera                        # Start camera, aim, Take photo
+            jpeg = await camera.wait()
+            detections = await detector(jpeg, threshold=0.6)
     """
 
     _esm = _ESM
@@ -120,7 +130,12 @@ class CameraCapture(anywidget.AnyWidget):
 
     @property
     def image(self):
-        """The last photo as JPEG bytes, or ``b""`` if there is none."""
+        """The last photo.
+
+        Returns:
+            The bytes of a JPEG file, at most 1024 pixels on the longer side, or ``b""`` if there is none. Any image
+            pipeline takes it as input.
+        """
         return base64.b64decode(self.photo)
 
     def _received(self, change):
@@ -131,7 +146,11 @@ class CameraCapture(anywidget.AnyWidget):
                     waiter.set_result(self.image)
 
     async def wait(self):
-        """The last photo, waiting for one if there is none yet."""
+        """The last photo, waiting for one if there is none yet.
+
+        Returns:
+            The JPEG bytes, as ``image``.
+        """
         if self.image:
             return self.image
         waiter = asyncio.get_running_loop().create_future()
@@ -139,6 +158,6 @@ class CameraCapture(anywidget.AnyWidget):
         return await waiter
 
     def clear(self):
-        """Forget the photo, so ``wait()`` waits for a new one."""
+        """Forget the photo, so that ``wait()`` waits for a new one."""
         self.photo = ""
         self.info = {}

@@ -105,7 +105,22 @@ class _MapRun:
 
 
 class OnnxModel:
-    """A loaded ``.onnx`` model; create it with ``await OnnxModel.load(...)``."""
+    """A single ``.onnx`` file with no Hugging Face repository around it, run with NumPy in and NumPy out.
+
+    Load it with ``await OnnxModel.load(...)``. You do the pre- and post-processing in NumPy.
+
+    Attributes:
+        inputs: The model's inputs, a list of dicts with ``name``, ``dtype`` and ``shape``; symbolic dimensions stay
+            strings such as ``"batch"``.
+        outputs: The model's outputs, in the same form.
+
+    Example:
+        .. code-block:: python
+
+            model = await OnnxModel.load("models/detector.onnx", backend="wasm", licence="Apache-2.0")
+            outputs = await model.run({"input": blob.astype(np.float32)})
+            await model.dispose()
+    """
 
     def __init__(self, handle, info, licence=None):
         self._handle = handle
@@ -120,14 +135,25 @@ class OnnxModel:
 
     @classmethod
     async def load(cls, source, backend="wasm", licence=None, sha256=None, cache=True, hosted_models_url=None):
-        """Load ``source``: a file path, a URL, the model's bytes, or a hosted model ID.
+        """Load a model.
 
-        ``backend`` is ``"wasm"`` or ``"webgpu"`` in a browser kernel. Outside one, or with ``"native"``, the
-        model runs with onnxruntime. ``licence`` is a free-form string that ``model_info()`` returns.
-        With ``sha256``, the model's bytes must match it. In a browser kernel, URLs are kept in the Cache API
-        (``cache=False`` turns that off), so a later load of the same URL makes no request.
-        A hosted ID such as ``"lmlite/detector"`` is listed in the site's ``manifest.json`` (or the one at
-        ``hosted_models_url``) and loads ``<id>/model.onnx`` from there.
+        Args:
+            source: A file path, a URL, the model's bytes, or a hosted model ID such as ``"lmlite/detector"`` (listed in
+                the site's ``manifest.json``, or the one at ``hosted_models_url``; it loads ``<id>/model.onnx``).
+            backend: ``"wasm"`` (the default) or ``"webgpu"`` in a browser kernel; ``"native"``, or any backend outside
+                a browser, runs onnxruntime (``pip install 'lmlite[native]'``). float16 models on WebGPU need an adapter with
+                ``shader-f16``.
+            licence: A free-form string that ``model_info()`` returns.
+            sha256: A hash the model's bytes must match.
+            cache: In a browser kernel, keep URLs in the Cache API so a later load of the same URL makes no request.
+            hosted_models_url: An explicit URL of a models directory, for hosted IDs.
+
+        Returns:
+            The loaded ``OnnxModel``.
+
+        Raises:
+            ValueError: The bytes do not match ``sha256``.
+            FileNotFoundError: A path does not exist, or a hosted ID is not listed in the manifest.
         """
         native = _native(backend == "native")
         if _is_hosted_name(source) and not os.path.isfile(source):
@@ -148,14 +174,30 @@ class OnnxModel:
         return cls(handle, json.loads(str(handle.describe())), licence)
 
     def model_info(self):
-        """The model's hash, size, backend and execution provider, its inputs and outputs, and the licence."""
+        """What is known about the loaded model.
+
+        Returns:
+            A dict with the model's SHA-256 and size, the backend and execution provider, the cache status, the
+            inputs and outputs, and the ``licence`` passed to ``load()``.
+        """
         return {**self._info, "licence": self._licence}
 
     async def run(self, feeds):
-        """Run the model. ``feeds`` maps input names to NumPy arrays; returns a dict of NumPy arrays.
+        """Run the model once.
 
-        Each call crosses the browser bridge once, with raw buffers. One call per image is the intended use:
-        some detectors return about 1 MB of floats per image.
+        Each call crosses the browser bridge once, with raw buffers: call it once per image rather than with a large
+        batch, since some detectors return about 1 MB of floats per image.
+
+        Args:
+            feeds: A dict from input names to NumPy arrays. The dtypes must be the ones the model declares (no silent
+                casts: use ``astype()``), and the shape must fit; dynamic dimensions accept any size.
+
+        Returns:
+            A dict from output names to NumPy arrays.
+
+        Raises:
+            ValueError: An input is missing or unknown, or has the wrong rank or size on a fixed axis.
+            TypeError: An input has the wrong dtype.
         """
         np = _numpy()
         checked = _check_feeds(feeds, self.inputs)
@@ -170,15 +212,25 @@ class OnnxModel:
         }
 
     async def map(self, feeds, progress_callback=None, on_error="raise"):
-        """Run the model over many inputs, one ``run()`` each, and return the outputs in order.
+        """Run the model over many inputs, one ``run()`` each.
 
-        ``feeds`` is any iterable, or async iterable, of feed dicts: a generator that preprocesses one image at
-        a time keeps the inputs from ever being in memory together. ``progress_callback(done, total)`` is called
-        after each input; ``total`` is ``None`` when ``feeds`` has no length. ``on_error`` is ``"raise"`` (the
-        first error is raised), ``"skip"`` (a failed input is left out of the results) or ``"return"`` (an
-        exception object takes the place of the failed input's outputs): it covers errors from ``run()``, such
-        as a wrong dtype or shape. An error raised by ``feeds`` itself ends the run. ``await model.cancel()``
-        stops after the current input, and ``map()`` returns the outputs so far. The model stays usable.
+        The loop is in Python, one bridge call per input.
+
+        Args:
+            feeds: An iterable, or async iterable, of feed dicts. A generator that preprocesses one image at a time keeps
+                the inputs from being in memory together.
+            progress_callback: Called as ``progress_callback(done, total)`` after each input; ``total`` is ``None`` when
+                ``feeds`` has no length.
+            on_error: ``"raise"`` raises the first error; ``"skip"`` leaves a failed input out of the results; ``"return"``
+                puts an exception object where its outputs would be. It covers errors from ``run()``, such as a wrong
+                dtype or shape. An error raised by ``feeds`` itself ends the run.
+
+        Returns:
+            The outputs in input order. If ``cancel()`` stopped the run, the outputs so far; the model stays usable.
+
+        Raises:
+            ValueError: ``on_error`` is not one of the three values.
+            RuntimeError: Another ``map()`` is already running on this model.
         """
         if on_error not in ("raise", "skip", "return"):
             raise ValueError(f"on_error must be 'raise', 'skip' or 'return', got {on_error!r}")
@@ -212,7 +264,11 @@ class OnnxModel:
             run.finished.set()
 
     async def cancel(self):
-        """Stop a running ``map()`` after its current input; return False if none was running."""
+        """Stop a running ``map()`` after its current input.
+
+        Returns:
+            ``False`` if nothing was running.
+        """
         run = self._map_run
         if run is None:
             return False
