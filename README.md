@@ -208,7 +208,7 @@ Thanks to the developers and maintainers of these projects and the broader Jupyt
 [codecov-js-badge]: https://img.shields.io/codecov/c/github/decitre/lmlite/main?flag=javascript&label=javascript&logo=codecov
 [ci-url]: https://github.com/decitre/lmlite/actions/workflows/test.yml
 [codecov-url]: https://codecov.io/gh/decitre/lmlite
-[docs-badge]: https://img.shields.io/website?url=https%3A%2F%2Fdecitre.github.io%2Flmlite%2F&label=docs&up_message=online&down_message=offline
+[docs-badge]: https://img.shields.io/badge/docs-GitHub%20Pages-blue
 [docs-url]: https://decitre.github.io/lmlite/
 [xeus-url]: https://decitre.github.io/lmlite/xeus/lab/?path=ch01_demo.ipynb
 [pyodide-url]: https://decitre.github.io/lmlite/pyodide/lab/?path=ch01_demo.ipynb
