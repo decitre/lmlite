@@ -14,6 +14,29 @@ Quantized (`q8`/`int8`) embeddings are not bit-identical across backends. These 
 
 ## The bridge
 
+```
+┌──────────────────────────────────────────────┐
+│ Python kernel in the browser (JupyterLite)   │
+│   xeus-python or Pyodide                     │
+│                                              │
+│   from lmlite import pipeline, LLM, ...      │
+│   detector = await pipeline(...)             │
+│   detections = await detector(photo)         │
+└──────────────────┬───────────────────────────┘
+                   │ the bridge: pyjs (xeus-python)
+                   │            or pyodide.ffi (Pyodide)
+┌──────────────────▼───────────────────────────┐
+│ JavaScript in the page: lmlite.js            │
+│   Transformers.js + ONNX Runtime Web         │
+│   ├─ WebAssembly                             │
+│   └─ WebGPU (optional)                       │
+│   and the browser: Cache API, microphone,    │
+│   camera                                     │
+└──────────────────────────────────────────────┘
+```
+
+Outside a browser, `pip install 'lmlite[native]'` replaces the lower half with native onnxruntime.
+
 A notebook kernel runs in a Web Worker, so Python reaches the browser's JavaScript runtime (`lmlite.js`, Transformers.js, onnxruntime-web) through a bridge: `pyodide.ffi` on Pyodide, `pyjs` on xeus-python. Four consequences follow from that.
 
 - **No page APIs in the kernel.** A worker has no `<canvas>`, no `AudioContext` and cannot open the microphone. Images are encoded to PNG with `OffscreenCanvas`, and the microphone widget records on the page and sends the recording back (as base64 text in xeus-python, where a binary widget trait set by the browser never arrives).
