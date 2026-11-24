@@ -19,41 +19,21 @@ Package version: `0.14.0`
 
 **Browser machine learning from Python** — run language models, embeddings, vision, speech and bare ONNX models entirely in your browser, and reach the microphone and camera, from a Python kernel in JupyterLite (or headless, with onnxruntime).
 
+**Try it, nothing to install:** [xeus-python][xeus-url] (recommended) or [Pyodide][pyodide-url]. [Documentation][docs-url] · [All notebooks](https://decitre.github.io/lmlite/tutorials/index.html)
 
-## Quick Start
-
-**Try online** (no installation required):
-- [Launch with xeus-python][xeus-url] (recommended)
-- [Launch with Pyodide][pyodide-url]
-
-**Basic usage:**
+## Quick start
 
 ```python
 from lmlite import LLM, Classifier, Embedder, pipeline
 
-# Instruction-tuned chat with SmolLM2
-llm = await LLM.create(
-    generator_model="HuggingFaceTB/SmolLM2-360M-Instruct",
-    backend="wasm",
-    dtype="q4",
-)
-response = await llm.chat([
-    {"role": "user", "content": "Explain embeddings in simple terms."}
-])
-print(response)
-
-# Text completion with GPT-2
-llm = await LLM.create(generator_model="gpt2")
-text = await llm.generate("Python is a great language because")
-print(text)
+# Chat with a small instruction-tuned model
+llm = await LLM.create(generator_model="HuggingFaceTB/SmolLM2-360M-Instruct", backend="wasm", dtype="q4")
+print(await llm.chat([{"role": "user", "content": "Explain embeddings in simple terms."}]))
 
 # Embeddings and similarity search
 embedder = await Embedder.create("all-MiniLM-L6-v2")
-embedding = await embedder.embed("Hello world")
-
 docs = ["JupyterLite runs in the browser.", "Python is widely used for ML."]
-results = await embedder.similarity_search("Where does JupyterLite run?", docs)
-print(results)
+print(await embedder.similarity_search("Where does JupyterLite run?", docs))
 
 # Text classification
 classifier = await Classifier.create("distilbert-base-uncased-finetuned-sst-2-english")
@@ -61,124 +41,44 @@ print(await classifier.classify("I love lmLite!", top_k=2))
 
 # Any Transformers.js task is an awaitable callable: here, the objects in a photo
 detector = await pipeline("object-detection", model="detr-resnet-50")
-detections = await detector("https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/cats.jpg", threshold=0.6)
-print(detections)  # [{'label': 'cat', 'score': 1.0, 'box': {'xmin': ..., ...}}, ...]
+print(await detector("https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/cats.jpg", threshold=0.6))
 ```
 
-## Features
+## What you get
 
-- **Browser-native**: Run models entirely in the browser, no server required
-- **Task pipelines**: Zero-shot classification, speech recognition, translation and vision tasks (image classification, zero-shot image classification, image features, object detection), image-output tasks (background removal, depth estimation, image segmentation, image-to-image), audio classification, text to speech via `pipeline(task, model=...)`, over many inputs with `pipe.map()` (batches, progress, cancel)
-- **Instruction-tuned models**: Chat and instruction-following with browser-compatible models such as SmolLM2-360M-Instruct.
-- **Composable workflows**: Build simple RAG pipelines and conversational interfaces with memory using Python.
-- **Privacy-first**: All computation happens locally in your browser
-- **Zero setup**: No installation or API keys for hosted demos
-- **Multiple backends**: WebAssembly (WASM) or WebGPU
-- **Multiple models**: GPT-2, DistilGPT-2, TinyLlama, and more via Transformers.js
-- **Embeddings & classification**: Sentence vectors and text classification
-- **Bare ONNX models**: `OnnxModel` runs a single `.onnx` file with NumPy in and NumPy out, with caching, hosted files, a sha256 check, float16 and `map()`
-- **Notebook widgets**: `AudioRecorder` records the microphone and `CameraCapture` takes a photo, in a notebook (`pip install 'lmlite[audio]'`, `pip install 'lmlite[camera]'`); `pip install 'lmlite[images]'` adds NumPy and Pillow for the image notebooks
-- **Model caching**: Browser-cached downloads, portable ZIP export/import, and cache inspection before loading (`model_info()`, `cached_models()`, per-model `clear_cache()`) with Python progress callbacks
-- **Pythonic API**: Clean, async Python interface
-- **Headless native backend**: `pip install 'lmlite[native]'` runs the same ONNX files with onnxruntime outside the browser for fast tuning loops, checked for parity against the browser
+- **`pipeline()`**: Transformers.js tasks as awaitable Python callables (vision, speech, audio, images out, translation, zero-shot classification), with `map()` over many inputs, progress and cancel.
+- **`LLM`, `Embedder`, `Classifier`**: generation and chat with streaming and token probabilities; sentence embeddings with similarity search; text classification.
+- **`OnnxModel`**: any single `.onnx` file, NumPy in and NumPy out, with caching, hosted files and a SHA-256 check.
+- **Notebook widgets**: record the microphone, take a photo with the camera, manage the model cache.
+- **Local and private**: inference runs in your browser, on WebAssembly or WebGPU, with no server and no API key. Downloaded models stay cached and can be exported as ZIP files.
+- **A headless native backend**: `pip install 'lmlite[native]'` runs the same ONNX files with onnxruntime, for fast tuning loops checked against the browser.
 
-## What is lmLite?
+Extras: `images` (NumPy and Pillow), `audio` and `camera` (the widgets), `native`.
 
-lmLite is a lightweight bridge from Python to **machine learning in the browser**: Transformers.js pipelines, bare ONNX models and browser devices such as the microphone and camera, for notebooks in JupyterLite. It provides:
+> **Note:** Installing the package on a desktop does **not** run models in a browser. `pipeline()`, `OnnxModel`, `LLM`, `Embedder`, `Classifier` and the widgets need a browser kernel (xeus-python or the JupyterLite Pyodide kernel) with JavaScript interoperability. The native extra covers `Embedder`, `Classifier`, greedy `LLM.generate()`, `OnnxModel` and `tokenizer()`. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md).
 
-- `pipeline()`: Transformers.js tasks as awaitable Python callables, for vision, speech, images out, translation and zero-shot classification, over many inputs with `map()`; the newer features are built on it
-- `LLM.create()`: text generation, chat with streaming and token probabilities, for large language models
-- `Embedder.create()` and `Classifier.create()`: sentence embeddings with similarity search, and text classification
-- Model loading, caching, and portable ZIP workflows
-- Backend and dtype controls for each model
+## Notebooks
 
-**Inference is powered by [Transformers.js](https://github.com/huggingface/transformers.js) and ONNX Runtime**. lmLite is not a new model engine, and its optional native backend is for tuning, not a production inference service. Its similarity search is an in-memory cosine ranking helper, not a vector database.
+- **[Detect objects with the camera](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch11_camera.ipynb)**: take a photo on a laptop, tablet or phone and find the objects in it.
+- **[Speak to the notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch13_microphone.ipynb)**: record your voice, transcribe it, or name the instrument you play.
+- **[Pipelines that return images](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_image-outputs.ipynb)**: background removal, depth estimation, segmentation and a 2x upscale.
+- **[Text to image](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch15_text-to-image.ipynb)**: SD-Turbo on WebGPU with prompt widgets (a hardware GPU and about 7 GB of memory).
 
-**Best suited for:** Teaching, interactive experiments, and browser-local prototypes where avoiding remote inference services matters.
-
-> **Note:** Installing the Python package on desktop does **not** run models in a browser. `pipeline()`, `OnnxModel`, `LLM`, `Embedder`, `Classifier` and the widgets need a browser kernel (xeus-python or the JupyterLite Pyodide kernel) with JavaScript interoperability. `pip install 'lmlite[native]'` adds a headless onnxruntime backend for `Embedder`, `Classifier`, greedy `LLM.generate()`, `OnnxModel` and `tokenizer()`. See [docs/RUNTIME.md](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md) for details.
-
-
-## Feedback and Contributions
-
-lmLite is an experimental project exploring Python access to browser-native machine learning through Transformers.js.
-
-Feedback is particularly welcome on:
-
-- The usefulness and design of the asynchronous Python API.
-- Additional Transformers.js tasks and capabilities to expose.
-- Model compatibility, performance, and browser runtime limitations.
-- Potential applications beyond JupyterLite.
-
-Please share suggestions, bug reports, and use cases through [GitHub Issues](https://github.com/decitre/lmlite/issues).
-
-### AI-Assisted Development
-
-Parts of this project were developed with the assistance of generative AI tools. The maintainer is responsible for the architecture, review, testing, and published code.
-
-AI-assisted contributions are welcome, provided contributors understand, review, and test their changes and take responsibility for their submissions. [AGENTS.md](https://github.com/decitre/lmlite/blob/main/AGENTS.md) is a short guide to the layout, the commands and the usual mistakes, for people and for coding agents.
+[All the notebooks](https://decitre.github.io/lmlite/tutorials/index.html), from the first demo to a retrieval-augmented chat, are listed in the documentation.
 
 ## Documentation
 
-- **[Getting Started](https://github.com/decitre/lmlite/blob/main/docs/DEVELOPMENT.md)** - Installation, development setup, and testing
-- **[Guides](https://github.com/decitre/lmlite/blob/main/docs/guides/index.md)** - One task at a time: generate and chat, embeddings, pipelines, ONNX models, tokenizers, models and cache
-- **[Reference](https://github.com/decitre/lmlite/blob/main/docs/reference/index.md)** - `LLM`, `Embedder` and `Classifier` parameters, pipeline task table, tested models and the API reference generated from the docstrings
-- **[Explanation](https://github.com/decitre/lmlite/blob/main/docs/explanation/index.md)** - Backends, the Python/JavaScript bridge and the runtime scope
-- **[Model Guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md)** - Recommended models and dtype selection
-- **[Runtime & Integration](https://github.com/decitre/lmlite/blob/main/docs/RUNTIME.md)** - Platform support, xeus-python or Pyodide, and integration boundaries
-- **[Native Tuning](https://github.com/decitre/lmlite/blob/main/docs/NATIVE.md)** - Tune headless with the native backend, then ship to the browser
-- **[Glossary](https://github.com/decitre/lmlite/blob/main/docs/GLOSSARY.md)** - Key concepts and terminology
+The [documentation site][docs-url] has the tutorials (the notebooks), [guides](https://github.com/decitre/lmlite/blob/main/docs/guides/index.md) for one task at a time, a [reference](https://github.com/decitre/lmlite/blob/main/docs/reference/index.md) with the API generated from the docstrings, and [explanations](https://github.com/decitre/lmlite/blob/main/docs/explanation/index.md) of backends and the Python/JavaScript bridge. Setup and tests are in the [development guide](https://github.com/decitre/lmlite/blob/main/docs/DEVELOPMENT.md).
 
-## Interactive Notebooks
+## Contributing
 
-Try lmLite directly in your browser, without installing anything.
+lmLite is experimental. Feedback on the API, on other Transformers.js tasks to expose, and on model compatibility and browser limits is welcome through [GitHub Issues](https://github.com/decitre/lmlite/issues).
 
-- **[Basic demo](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch01_demo.ipynb)** — Text generation, embeddings, classification, and similarity search.
-- **[Task pipelines](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch08_tasks.ipynb)** — Zero-shot classification, translation and speech recognition with `pipeline()`.
-- **[Vision pipelines](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch09_vision.ipynb)** — Image classification, zero-shot image classification, image features and object detection with `pipeline()`.
-- **[Pipelines that return images](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_image-outputs.ipynb)** — Background removal, depth estimation, image segmentation and a 2x upscale with `pipeline()`, shown as PNG images.
-- **[Detect objects with the camera](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch11_camera.ipynb)** — Take a photo with the camera of a laptop, tablet or phone with an `anywidget` and find the objects in it in the browser.
-- **[Text to speech](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch12_speech.ipynb)** — Generate speech with `pipeline("text-to-speech")` and play it in the notebook.
-- **[Speak to the notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch13_microphone.ipynb)** — Record the microphone (laptop or tablet) with an `anywidget` and transcribe it in the browser.
-- **[Bare ONNX models](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch14_onnx-models.ipynb)** — Run a single `.onnx` file (the UltraFace face detector) with `OnnxModel`, NumPy in and NumPy out.
-- **[Text to image: a recipe](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch15_text-to-image.ipynb)** — SD-Turbo in one step on WebGPU with `OnnxModel`, a CLIP tokenizer and a NumPy scheduler, with prompt widgets to generate and save images: a research-licence recipe that needs a hardware GPU, 2.4 GB of download and about 7 GB of memory.
-- **[LLM orchestration](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch16_orchestration.ipynb)** — A simple retrieval-augmented generation (RAG) workflow and interactive multi-turn chat with conversation memory and streamed, stoppable answers, using SmolLM2-360M-Instruct (WASM/q4) and MiniLM embeddings (WASM/q8).
-- **[Streaming chat](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch17_streaming.ipynb)** — Print a chat answer as it is generated, stop early with `break`, and cancel a running generation with `cancel()`, using SmolLM2-135M-Instruct (WASM).
-- **[Token probabilities](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch18_token-scores.ipynb)** — Stream each generated token with its probability, plus the runner-up token at every step, using SmolLM2-135M-Instruct (WASM).
-- **[Tokenizers](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch19_tokenizers.ipynb)** — Load only the tokenizers of GPT-2, multilingual BERT and POTION (no weights), compare how they split text, and count tokens synchronously with `tokenizer()`.
-- **[Proving GPU inference](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch20_webgpu.ipynb)** — Show that WebGPU inference really runs on the GPU: the hardware adapter, model tensors held in GPU memory, and WebGPU vs WASM timing for the same greedy generation, using SmolLM2-135M-Instruct (q4).
-- **[Model info and cache manager](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch99_model-info.ipynb)** — Download size and cache status before loading, loading progress from Python, and a widget to list, load and delete cached models.
-
-These examples run locally in the browser using Transformers.js.
-
-## How It Works
-
-```
-┌─────────────────────────────────────┐
-│   Python (JupyterLite)              │
-│   ├─ xeus-python (recommended)      │
-│   └─ pyodide (alternative)          │
-│                                     │
-│   from lmlite import LLM            │
-│   llm = await LLM.create()          │
-│   text = await llm.generate(...)    │
-└─────────────┬───────────────────────┘
-              │ Bridge (xeus-python: pyjs / Pyodide: pyodide.ffi)
-┌─────────────▼───────────────────────┐
-│   JavaScript (Browser)              │
-│   Transformers.js + ONNX Runtime    │
-│   ├─ WebAssembly (WASM)             │
-│   └─ WebGPU (optional)              │
-└─────────────────────────────────────┘
-```
+Parts of this project were developed with the assistance of generative AI tools. The maintainer is responsible for the architecture, review, testing and published code. AI-assisted contributions are welcome, provided contributors understand, review and test their changes and take responsibility for them. [AGENTS.md](https://github.com/decitre/lmlite/blob/main/AGENTS.md) is a short guide to the layout, the commands and the usual mistakes, for people and for coding agents.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
-
-**Dependencies:** [Transformers.js](https://github.com/huggingface/transformers.js) v4 (Apache 2.0)
-
-**Note:** Individual model licenses may vary. Check model cards on HuggingFace before use.
+Apache License 2.0. See [LICENSE](LICENSE). Models have their own licences, and some tested ones are non-commercial: check the model card before use, and see the [model guide](https://github.com/decitre/lmlite/blob/main/docs/MODELS.md).
 
 ## Citation
 
@@ -193,13 +93,7 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 
 ## Acknowledgements
 
-lmLite builds on several open-source projects:
-
-- [Transformers.js](https://github.com/huggingface/transformers.js) — browser-native model inference.
-- [JupyterLite](https://jupyterlite.readthedocs.io/) — the browser-based Jupyter environment.
-- [xeus-python](https://github.com/jupyter-xeus/xeus-python) and [Pyodide](https://pyodide.org/) — Python execution in the browser.
-
-Thanks to the developers and maintainers of these projects and the broader Jupyter and Hugging Face communities.
+lmLite builds on [Transformers.js](https://github.com/huggingface/transformers.js) and [ONNX Runtime](https://onnxruntime.ai) for inference, on [JupyterLite](https://jupyterlite.readthedocs.io/), [xeus-python](https://github.com/jupyter-xeus/xeus-python) and [Pyodide](https://pyodide.org/) for Python in the browser, and on the models that the Hugging Face community publishes. The full list is on the [credits page](https://decitre.github.io/lmlite/credits.html).
 
 ---
 

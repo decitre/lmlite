@@ -40,5 +40,6 @@ Notes for using the API:
 
 - [Development guide](https://raw.githubusercontent.com/decitre/lmlite/main/docs/DEVELOPMENT.md): setup, tests, building the sites
 - [Native tuning](https://raw.githubusercontent.com/decitre/lmlite/main/docs/NATIVE.md): tuning thresholds headless, measured parity and latency
+- [Credits](https://raw.githubusercontent.com/decitre/lmlite/main/docs/credits.md): the projects and models lmLite builds on
 - [Glossary](https://raw.githubusercontent.com/decitre/lmlite/main/docs/GLOSSARY.md): terms
 - [AGENTS.md](https://raw.githubusercontent.com/decitre/lmlite/main/AGENTS.md): layout, commands and common mistakes for coding agents

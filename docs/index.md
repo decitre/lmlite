@@ -17,4 +17,5 @@ guides/index.md
 reference/index.md
 explanation/index.md
 contributing/index.md
+credits.md
 ```
