@@ -59,7 +59,9 @@ class FakeLLM:
 def manager(monkeypatch):
     FakeLLM.instances.clear()
     FakeLLM.tags.clear()
-    monkeypatch.setattr(widgets, "LLM", FakeLLM)
+    monkeypatch.setattr(widgets, "Session", FakeLLM)
+    monkeypatch.setattr(widgets, "model_task", FakeLLM.model_task)
+    monkeypatch.setattr(widgets, "pipeline", FakeLLM.pipeline)
     monkeypatch.setattr(widgets, "cached_models", AsyncMock(return_value=ENTRIES))
     monkeypatch.setattr(widgets, "clear_cache", AsyncMock())
     return widgets.CacheManager()

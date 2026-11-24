@@ -18,7 +18,7 @@ from playwright.sync_api import sync_playwright
 
 pytest.importorskip("onnxruntime")
 
-from lmlite import LLM  # noqa: E402
+from lmlite import LLM, Embedder  # noqa: E402
 
 pytestmark = pytest.mark.browser
 
@@ -88,8 +88,14 @@ def browser_run(source_server, model_base, model_id, config, inputs, body, bundl
 
 
 async def native_run(model_base, config, method, inputs):
-    llm = await LLM.create(backend="native", local_models_path=str(REPO_ROOT / model_base), **config)
-    return [await getattr(llm, method)(item) for item in inputs]
+    path = str(REPO_ROOT / model_base)
+    if "embedding_model" in config:
+        session = await Embedder.create(
+            config["embedding_model"], backend="native", dtype=config["embedding_dtype"], local_models_path=path
+        )
+    else:
+        session = await LLM.create(backend="native", local_models_path=path, **config)
+    return [await getattr(session, method)(item) for item in inputs]
 
 
 def gate(vectors, labels):

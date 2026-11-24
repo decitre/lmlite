@@ -205,7 +205,20 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         def close(self):
             self.closed = True
 
+    class ExampleEmbedder(ExampleLLM):
+        @classmethod
+        async def create(cls, model, *, backend=None, dtype=None, **options):
+            config = {"embedding_model": model, "embedding_backend": backend, "embedding_dtype": dtype, **options}
+            return cls(config)  # an embedder is loaded next to a generator in the demo and the retrieval notebook
+
+    class ExampleClassifier(ExampleLLM):
+        @classmethod
+        async def create(cls, model, *, backend="wasm", dtype=None, **options):
+            return cls({"classification_model": model, "backend": backend, "dtype": dtype, **options})
+
     monkeypatch.setattr("lmlite.LLM", ExampleLLM)
+    monkeypatch.setattr("lmlite.Embedder", ExampleEmbedder)
+    monkeypatch.setattr("lmlite.Classifier", ExampleClassifier)
     for name in ("pipeline", "tokenizer", "model_info", "model_task", "hosted_base"):
         if hasattr(ExampleLLM, name):
             monkeypatch.setattr(f"lmlite.{name}", getattr(ExampleLLM, name))
@@ -236,8 +249,11 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         ),
         raising=False,
     )
-    # The cache manager widget imports these from lmlite.llm, not from the lmlite package.
-    for name in ("LLM", "cached_models", "clear_cache"):
+    # The cache manager widget imports these from the modules, not from the lmlite package.
+    monkeypatch.setattr("lmlite.widgets.Session", ExampleLLM)
+    monkeypatch.setattr("lmlite.widgets.model_task", ExampleLLM.model_task)
+    monkeypatch.setattr("lmlite.widgets.pipeline", ExampleLLM.pipeline)
+    for name in ("cached_models", "clear_cache"):
         monkeypatch.setattr(f"lmlite.widgets.{name}", getattr(sys.modules["lmlite"], name))
     installer = types.ModuleType("install")
     installer._ = AsyncMock()
@@ -383,10 +399,11 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     assert all(instance.disposed for instance in [*instances, *onnx_models])
     assert all(tokenizer.closed for tokenizer in tokenizers)
     if path.name == "ch01_demo.ipynb":
-        assert len(instances) == 1
+        assert len(instances) == 2
         assert instances[0].config["generator_model"] == "distilgpt2"
-        assert instances[0].config["embedding_model"] == "all-MiniLM-L6-v2"
         assert instances[0].config["backend"] == "wasm"
+        assert instances[1].config["embedding_model"] == "all-MiniLM-L6-v2"
+        assert instances[1].config["embedding_dtype"] == "q8"
     if path.name in {
         "ch01_demo.ipynb",
         "ch16_orchestration.ipynb",

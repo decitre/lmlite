@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 from playwright.sync_api import sync_playwright
 
-from lmlite import LLM
+from lmlite import Embedder
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODELS = [
@@ -93,9 +93,7 @@ def browser_embed(page, origin, model, dtype, texts):
 
 async def native_embed(model, dtype, texts):
     start = time.perf_counter()
-    llm = await LLM.create(
-        backend="native", local_models_path=str(REPO_ROOT / "models"), embedding_model=model, embedding_dtype=dtype
-    )
+    llm = await Embedder.create(model, backend="native", dtype=dtype, local_models_path=str(REPO_ROOT / "models"))
     init_ms = (time.perf_counter() - start) * 1000
     for text in texts[:WARMUP]:
         await llm.embed(text)
