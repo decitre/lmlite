@@ -65,6 +65,13 @@ Extras: `images` (NumPy and Pillow), `audio` and `camera` (the widgets), `native
 
 ## Notebooks
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/decitre/lmlite/main/docs/images/sd-turbo-astronaut.jpg"
+       alt="An astronaut riding a horse on Mars, generated with SD-Turbo from the prompt 'a photo of an astronaut riding a horse on mars'"
+       width="320"><br>
+  <em>Generated in the browser with SD-Turbo by the text-to-image notebook.</em>
+</p>
+
 - **[Detect objects with the camera](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch11_camera.ipynb)**: take a photo on a laptop, tablet or phone and find the objects in it.
 - **[Speak to the notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch13_microphone.ipynb)**: record your voice, transcribe it, or name the instrument you play.
 - **[Pipelines that return images](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_image-outputs.ipynb)**: background removal, depth estimation, segmentation and a 2x upscale.
