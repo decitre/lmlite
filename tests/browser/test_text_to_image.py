@@ -88,6 +88,8 @@ def models_url():
 def notebook_code(models_url, stand_in=""):
     cells = json.loads(NOTEBOOK.read_text())["cells"]
     sources = ["".join(cell["source"]) for cell in cells if cell["cell_type"] == "code"]
+    if stand_in:  # Pyodide has no ipywidgets: leave out the prompt widgets, which the xeus-python test runs
+        sources = [source for source in sources if "ipywidgets" not in source]
     code = "\n\n".join(source + (SECOND if "seed=7" in source else "") for source in sources)
     assert HUB_URL in code
     return f"{stand_in}\n{code.replace(HUB_URL, models_url)}\n{SUMMARY}"

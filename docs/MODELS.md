@@ -115,13 +115,15 @@ To host a bare model with a site, put it at `files/models/<namespace>/<model>/mo
 
 ## Text to image: a recipe, not a pipeline task
 
-Transformers.js 4.3.2 has no text-to-image task, so `pipeline()` cannot offer one. [`ch15_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch15_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `LLM.tokenizer`, three ONNX models on WebGPU, and the scheduler in NumPy.
+Transformers.js 4.3.2 has no text-to-image task, so `pipeline()` cannot offer one. [`ch15_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch15_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `tokenizer()`, three ONNX models on WebGPU, and the scheduler in NumPy.
 
 | Model | Licence | Files |
 |-------|---------|-------|
 | [`schmuell/sd-turbo-ort-web`](https://huggingface.co/schmuell/sd-turbo-ort-web) (SD-Turbo, float16) | **Stability AI Non-Commercial Research Community License**: research and non-commercial use only, no production use, no offering it through a hosted service | `unet/model.onnx` 1,733 MB, `text_encoder/model.onnx` 681 MB, `vae_decoder/model.onnx` 99 MB |
 
 The licence text says that merely distributing the weights for download (as the Hub does) is not a violation, and that offering them through your own hosted service is. Do not bundle them into a site you publish (`jupyterlite -m`); the notebook downloads them from the Hub into the reader's browser. I am not a lawyer: read the licence before you use it.
+
+Two things about the licences, read from the licence texts. The original `stabilityai/sd-turbo` repository now carries the newer Stability AI Community License (July 2024), which also allows commercial use below US $1,000,000 of annual revenue, with registration. The files this notebook downloads are a conversion (`schmuell/sd-turbo-ort-web`), and the `LICENSE` that ships with them is the Non-Commercial Research one (November 2023), which is why the table above names it. Neither licence counts a model's output as a Derivative Work, so the images the model generates are not under the model's terms: the 2024 licence adds that you own them to the extent the law permits, that they must follow Stability's Acceptable Use Policy and the law, and that they may not be used to create or improve a foundation model.
 
 ### Measured
 
