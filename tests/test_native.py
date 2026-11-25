@@ -56,6 +56,7 @@ async def test_tokenizer_matches_reference_ids():
 @pytest.mark.parametrize("dtype", ["fp32", "q8"])
 async def test_embed_is_pooled_normalized_and_uses_requested_weights(monkeypatch, dtype):
     monkeypatch.delitem(sys.modules, "js", raising=False)
+    monkeypatch.setitem(sys.modules, "pyodide.ffi", None)  # headless: no Python-to-JavaScript bridge, as in CPython
     events = []
     llm = await Embedder.create(str(FIXTURES / "tiny-bert"), dtype=dtype, progress_callback=events.append)
     assert llm.js.embedder.path.endswith("model.onnx" if dtype == "fp32" else "model_quantized.onnx")
