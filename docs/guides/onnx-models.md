@@ -24,3 +24,30 @@ await model.dispose()
 - **onnxruntime-web:** its JavaScript is loaded from the site's `vendor/transformers/` when `scripts/lite-build.sh` put it there, else from jsDelivr.
 - **float16:** supported. On WebGPU it also needs an adapter with `shader-f16`: otherwise the run fails with an onnxruntime-web error. WASM has no such requirement. Checked against native onnxruntime on an Apple Metal GPU; headless Chromium gives WebGPU a software adapter without float16 unless you pass the flags that select the GPU.
 - **A large example:** [`ch15_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch15_text-to-image.ipynb) runs three float16 models (a 1.7 GB UNet among them) with `OnnxModel`; the numbers and the limits are in [MODELS.md](../MODELS.md#text-to-image-a-recipe-not-a-pipeline-task).
+
+## A static embedding model: POTION
+
+A static embedding model (Model2Vec, such as `minishlab/potion-base-8M`, MIT) embeds a text as the mean of one vector per token: no transformer, so a text takes about a millisecond. `Embedder` cannot load it, because it runs Transformers.js feature-extraction pipelines, which feed `input_ids` and `attention_mask`; POTION's own ONNX file takes `input_ids` (all the texts' ids in one flat list) and `offsets` (where each text starts) and returns normalised vectors. `tokenizer()` and `OnnxModel` cover it:
+
+```python
+import numpy as np
+from lmlite import OnnxModel, tokenizer
+
+tok = await tokenizer("minishlab/potion-base-8M")
+model = await OnnxModel.load(
+    "https://huggingface.co/minishlab/potion-base-8M/resolve/main/onnx/model.onnx", backend="wasm", licence="MIT"
+)
+
+async def embed(texts):
+    ids = [tok.encode(text) for text in texts]  # no special tokens, as Model2Vec does
+    offsets = np.cumsum([0] + [len(i) for i in ids[:-1]]).astype(np.int64)
+    out = await model.run({"input_ids": np.array([t for i in ids for t in i], dtype=np.int64), "offsets": offsets})
+    return out["embeddings"]  # (len(texts), 256), unit length
+
+vectors = await embed(["Is there music playing?", "Will it rain in Vienna tonight?"])
+```
+
+- **Checked:** in Pyodide on WASM, the vectors equal the ones from reading the `embeddings` table of `model.safetensors` and averaging in NumPy (largest difference 0.0 on 12 texts), a batch of 12 texts takes about 15 ms, and a batch gives the same vectors as one text at a time. The NumPy version matches `model2vec`'s `StaticModel.encode` to 4.5e-8. This was run by hand; no test in the repository runs it.
+- **Size:** `potion-base-8M` is a 30 MB single file (29,528 tokens of 256 numbers), English only. `potion-multilingual-128M` has 128 million weights (about 500,000 tokens), too big to download as it is; its table has to be cut to the tokens you need.
+- **Empty text:** a text with no token ids has no vector to average. Do not pass one.
+- **Compared with a sentence model:** on 12 tool-routing questions it was close to `all-MiniLM-L6-v2` and about 40 times faster per text, with no gain in size (the [router tests](https://github.com/decitre/lmlite/issues/89) have the numbers). Use `Embedder` when you need the better model and can afford about 7 ms a text.
