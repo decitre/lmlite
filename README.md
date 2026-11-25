@@ -15,7 +15,7 @@
 
 # lmLite
 
-Package version: `0.14.1`
+Package version: `0.14.2`
 
 **Browser machine learning from Python** — run language models, embeddings, vision, speech and bare ONNX models entirely in your browser, and reach the microphone and camera, from a Python kernel in JupyterLite (or headless, with onnxruntime).
 
