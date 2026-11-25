@@ -170,7 +170,7 @@ class Session:
                             "will download from 🤗"
                         )
 
-        js_config = _to_js(config)
+        js_config = config if native else _to_js(config)  # the native backend has no JavaScript runtime
 
         current_file = None
 
