@@ -292,3 +292,200 @@ def test_widget_does_not_suggest_raw_input_when_it_was_ticked(source_server, tmp
 
     status = result["first"]["status"]
     assert "is silent" in status and "input level" in status and "Raw input" not in status
+
+
+# request(): Python asks, the widget shows the prompt and records nothing until the user taps, and only that
+# recording answers. Every way it ends releases the microphone.
+REQUESTS = """async ({esm, runtime}) => {
+  const url = URL.createObjectURL(new Blob([esm], {type: 'text/javascript'}));
+  const widget = (await import(url)).default;
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const until = async (done) => { for (let i = 0; i < 100 && !done(); i++) await wait(100); };
+  const streams = [];
+  const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => { const s = await real(constraints); streams.push(s); return s; };
+  const live = () => streams.filter((s) => s.getTracks().some((track) => track.readyState === 'live')).length;
+  const make = async (initial = {}) => {
+    const sent = {};
+    const handlers = {};
+    const values = {runtime, raw: false, controls: true, ...initial};
+    const model = {get: (name) => values[name], on: (name, handler) => { handlers[name] = handler; },
+                   set: (name, value) => { sent[name] = value; }, save_changes: () => {}};
+    const el = document.createElement('div');
+    document.body.append(el);
+    const cleanup = await widget.render({model, el});
+    const [button, , status, bar] = el.children;
+    const [ask, go, dismiss] = bar.children;
+    return {sent, button, go, dismiss, cleanup,
+            // request(): Python sets pending_request, and clears it when the request ends however it ends
+            send: (message) => {
+              values.pending_request = message.do === 'request'
+                ? {id: message.id, prompt: message.prompt, max_seconds: message.max_seconds} : {};
+              handlers['change:pending_request']();
+            },
+            state: () => ({bar: bar.style.display, ask: ask.textContent, go: go.textContent, live: live()})};
+  };
+  const wavSeconds = (text) => (atob(text).length - 44) / 2 / 16000;
+  const out = {};
+
+  let w = await make();  // a tap on Record, a tap on Stop: the recording carries the id of the request
+  w.send({do: 'request', id: 1, prompt: 'Tap Record'});
+  out.asked = {...w.state(), recording: w.sent.recording, active: w.sent.active};
+  w.go.click();
+  await until(() => w.sent.active === true);
+  out.recording = w.state();
+  await wait(800);
+  w.go.click();
+  await until(() => w.sent.answered);
+  out.answered = {id: w.sent.answered, riff: atob(w.sent.recording).slice(0, 4), ...w.state()};
+  await w.cleanup();
+
+  w = await make();  // Cancel before recording
+  w.send({do: 'request', id: 2, prompt: 'Tap Record'});
+  w.dismiss.click();
+  await wait(200);
+  out.cancelledIdle = {id: w.sent.cancelled, recording: w.sent.recording, ...w.state()};
+  await w.cleanup();
+
+  w = await make();  // Cancel while recording: the recording is dropped and the microphone released
+  w.send({do: 'request', id: 3, prompt: 'Tap Record'});
+  w.go.click();
+  await until(() => w.sent.active === true);
+  await wait(400);
+  w.dismiss.click();
+  await until(() => w.sent.cancelled);
+  out.cancelledRecording = {id: w.sent.cancelled, recording: w.sent.recording, answered: w.sent.answered, active: w.sent.active,
+                            ...w.state()};
+  await w.cleanup();
+
+  w = await make();  // max_seconds stops the recording by itself
+  w.send({do: 'request', id: 4, prompt: 'Tap Record', max_seconds: 1});
+  w.go.click();
+  await until(() => w.sent.answered);
+  out.limited = {id: w.sent.answered, seconds: wavSeconds(w.sent.recording), ...w.state()};
+  await w.cleanup();
+
+  w = await make();  // Python gave up while recording (a timeout): dropped, released, nothing reported
+  w.send({do: 'request', id: 5, prompt: 'Tap Record'});
+  w.go.click();
+  await until(() => w.sent.active === true);
+  await wait(300);
+  w.send({do: 'cancel_request', id: 5});
+  await until(() => w.sent.active === false);
+  await wait(200);
+  out.timedOut = {recording: w.sent.recording, answered: w.sent.answered, cancelled: w.sent.cancelled, error: w.sent.error, ...w.state()};
+  await w.cleanup();
+
+  w = await make();  // a recording that started before the request does not answer it
+  w.button.click();
+  await until(() => w.sent.active === true);
+  await wait(300);
+  w.send({do: 'request', id: 6, prompt: 'Tap Record'});
+  await until(() => w.sent.active === false);
+  await wait(200);
+  out.earlier = {recording: w.sent.recording, answered: w.sent.answered, ...w.state()};
+  w.dismiss.click();
+  await wait(100);
+  await w.cleanup();
+
+  w = await make({pending_request: {id: 8, prompt: 'Tap Record'}});  // asked before the widget was shown
+  out.early = w.state();
+  w.go.click();
+  await until(() => w.sent.active === true);
+  await wait(500);
+  w.go.click();
+  await until(() => w.sent.answered);
+  out.earlyAnswered = w.sent.answered;
+  await w.cleanup();
+
+  navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Permission denied', 'NotAllowedError'); };
+  w = await make();  // the browser refuses the microphone: the request fails with the reason
+  w.send({do: 'request', id: 7, prompt: 'Tap Record'});
+  w.go.click();
+  await until(() => w.sent.error);
+  await wait(100);
+  out.denied = {error: w.sent.error, ...w.state()};
+  await w.cleanup();
+  navigator.mediaDevices.getUserMedia = real;
+  out.streams = streams.length;
+  return out;
+}"""
+
+
+def test_a_request_needs_a_tap_and_ends_with_the_microphone_released(source_server):
+    anywidget_module = pytest.importorskip("anywidget")
+    assert anywidget_module
+    from lmlite.audio import AudioRecorder
+
+    widget = AudioRecorder()
+    result = in_page(source_server, REQUESTS, {"esm": widget._esm, "runtime": widget.runtime})
+
+    prompt = "Tap Record"
+    # The prompt is up and nothing records before the tap.
+    assert result["asked"] == {"bar": "", "ask": prompt, "go": "Record", "live": 0, "recording": None, "active": None}
+    assert result["recording"] == {"bar": "", "ask": prompt, "go": "Stop", "live": 1}
+    assert result["answered"] == {"id": 1, "riff": "RIFF", "bar": "none", "ask": prompt, "go": "Record", "live": 0}
+    assert result["cancelledIdle"] == {
+        "id": 2,
+        "recording": None,
+        "bar": "none",
+        "ask": prompt,
+        "go": "Record",
+        "live": 0,
+    }
+    cancelled = result["cancelledRecording"]
+    assert cancelled["id"] == 3 and cancelled["recording"] is None and cancelled["answered"] is None
+    assert cancelled["active"] is False and cancelled["bar"] == "none" and cancelled["live"] == 0
+    assert result["limited"]["id"] == 4 and 0.5 < result["limited"]["seconds"] < 2.5 and result["limited"]["live"] == 0
+    timed_out = result["timedOut"]
+    assert timed_out["recording"] is None and timed_out["answered"] is None and timed_out["cancelled"] is None
+    assert timed_out["error"] is None and timed_out["bar"] == "none" and timed_out["live"] == 0
+    assert result["earlier"]["recording"] is None and result["earlier"]["answered"] is None
+    assert result["earlier"]["live"] == 0
+    assert result["early"] == {"bar": "", "ask": prompt, "go": "Record", "live": 0}  # shown when it renders
+    assert result["earlyAnswered"] == 8
+    assert result["denied"]["error"] == {"id": 7, "name": "NotAllowedError", "message": "Permission denied"}
+    assert result["denied"]["bar"] == "none"
+    assert result["streams"] >= 5  # the microphone was really opened and closed each time
+
+
+# The same request flow through a real xeus-python kernel: a cancel, a timeout and a recording, each as a message
+# from the page to the kernel's awaiting request().
+KERNEL_REQUESTS = r"""
+import json
+from lmlite.audio import AudioRecorder, CaptureCancelled
+
+recorder = AudioRecorder()
+display(recorder)
+try:
+    await recorder.request("First prompt", timeout=120)
+    first = "answered"
+except CaptureCancelled:
+    first = "cancelled"
+try:
+    await recorder.request("Second prompt", timeout=3)
+    second = "answered"
+except TimeoutError:
+    second = "timeout"
+wav = await recorder.request("Third prompt", timeout=120, max_seconds=1)
+print("RESULT" + json.dumps({"first": first, "second": second, "header": wav[:4].decode(),
+                             "rate": int.from_bytes(wav[24:28], "little"), "bytes": len(wav)}))
+"""
+
+
+def test_a_request_is_answered_cancelled_and_timed_out_in_a_real_xeus_kernel(xeus_site):
+    from lab import run_in_repl, tap
+
+    def taps(page):
+        page.get_by_text("First prompt", exact=True).wait_for()
+        tap(page, "First prompt", 2)  # Cancel
+        page.get_by_text("Second prompt", exact=True).wait_for()
+        page.get_by_text("Second prompt", exact=True).wait_for(state="hidden")  # timed out: the prompt goes
+        page.get_by_text("Third prompt", exact=True).wait_for()
+        tap(page, "Third prompt", 1)  # Record: it stops by itself after max_seconds
+
+    result, _ = run_in_repl(xeus_site, KERNEL_REQUESTS, taps, FAKE_MICROPHONE, ["microphone"])
+
+    assert result["first"] == "cancelled" and result["second"] == "timeout"
+    assert result["header"] == "RIFF" and result["rate"] == 16000
+    assert 0.3 * 32000 < result["bytes"] < 3 * 32000  # about a second of 16-bit samples

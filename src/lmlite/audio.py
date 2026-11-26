@@ -14,6 +14,8 @@ from importlib.resources import files
 import anywidget
 import traitlets
 
+from lmlite._request import CaptureCancelled, _Requests  # noqa: F401  (CaptureCancelled: for callers of request())
+
 _ESM = """
 export default {
   async render({ model, el }) {
@@ -38,6 +40,17 @@ export default {
     status.style.marginLeft = "0.75em";
     button.textContent = "Record";
     el.append(button, rawLabel, status);
+    const bar = document.createElement("div");  // a pending request(): what is asked, then Record or Stop, and Cancel
+    bar.style.display = "none";
+    const ask = document.createElement("span");
+    ask.style.marginRight = "0.75em";
+    const go = document.createElement("button");
+    go.textContent = "Record";
+    const dismiss = document.createElement("button");
+    dismiss.textContent = "Cancel";
+    bar.append(ask, go, dismiss);
+    el.append(bar);
+    let pending = null;  // {id, maxSeconds, timer}: the request in progress
     raw.checked = model.get("raw") === true;
     raw.onchange = () => {
       model.set("raw", raw.checked);
@@ -51,15 +64,44 @@ export default {
       button.style.display = rawLabel.style.display = "none";
     }
 
+    let last = 0;  // the newest request this view has ended: a request is shown once
+    const endRequest = () => {
+      clearTimeout(pending?.timer);
+      last = Math.max(last, pending?.id ?? 0);
+      pending = null;
+      bar.style.display = "none";
+      go.textContent = "Record";
+    };
+    const abandon = async () => {
+      if (recorder.recording) {
+        await recorder.stop().catch(() => {});  // releases the microphone; the recording is dropped
+        raw.disabled = false;
+        model.set("active", false);
+        model.save_changes();
+        status.textContent = "";
+        button.textContent = "Record";
+      }
+    };
+
     const begin = async () => {
+      const asked = pending;  // the request this recording is for, if any
       await recorder.start({ raw: raw.checked });
+      if (asked && pending !== asked) {
+        await recorder.stop().catch(() => {});  // the request ended while the permission prompt was open
+        return;
+      }
       raw.disabled = true;
       status.textContent = "Recording...";
-      button.textContent = "Stop";
+      button.textContent = go.textContent = "Stop";
       model.set("active", true);
       model.save_changes();
+      if (pending?.maxSeconds) {
+        pending.timer = setTimeout(() => recorder.recording && run(finish), pending.maxSeconds * 1000);
+      }
     };
     const finish = async () => {
+      const answering = pending?.id;  // the request this recording answers, if one is waiting
+      clearTimeout(pending?.timer);
       status.textContent = "Processing...";
       const wav = await recorder.stop();
       let text = "";
@@ -71,11 +113,18 @@ export default {
       model.set("info", recorder.info);  // before the recording, which wakes up whoever waits for it
       model.set("active", false);
       model.set("recording", btoa(text));
+      const answers = answering !== undefined && pending?.id === answering;  // not cancelled while it was processed
+      if (answers) {
+        model.set("answered", answering);  // after the recording: the request resolves with it
+      }
       model.save_changes();
       status.textContent = peak < 0.005
         ? `Recorded ${seconds.toFixed(1)} s, but it is silent. Check the microphone's input level in the system settings (it may be at 0), that the right input is selected, and that the browser may use the microphone. ${raw.checked ? "" : "If those are fine, tick Raw input and record again. "}(${channels} channel(s), ${sampleRate} Hz, ${mimeType})`
         : `Recorded ${seconds.toFixed(1)} s`;
       button.textContent = "Record again";
+      if (answers) {
+        endRequest();
+      }
     };
     const run = async (action) => {
       button.disabled = true;
@@ -85,12 +134,25 @@ export default {
         raw.disabled = false;
         status.textContent = String(error?.message ?? error);
         model.set("active", recorder.recording);
+        if (pending) {
+          model.set("error", { id: pending.id, name: String(error?.name ?? "Error"), message: String(error?.message ?? error) });
+          endRequest();
+        }
         model.save_changes();
       } finally {
         button.disabled = false;
       }
     };
-    button.onclick = () => run(recorder.recording ? finish : begin);
+    button.onclick = go.onclick = () => run(recorder.recording ? finish : begin);
+    dismiss.onclick = async () => {
+      if (pending) {
+        const { id } = pending;
+        endRequest();
+        await abandon();
+        model.set("cancelled", id);
+        model.save_changes();
+      }
+    };
     model.on?.("change:recording", () => {
       if (!model.get("recording") && !recorder.recording) {  // clear(): ready to record again
         status.textContent = "";
@@ -101,6 +163,23 @@ export default {
       if (message.do === "record" && !recorder.recording) run(begin);
       if (message.do === "stop" && recorder.recording) run(finish);
     });
+    // request(): Python sets pending_request and clears it when the request ends, however it ends.
+    const syncRequest = () => {
+      const wanted = model.get("pending_request") ?? {};
+      if (pending && pending.id !== wanted.id) {
+        endRequest();
+        abandon();
+      }
+      if (!pending && wanted.id > last) {
+        abandon();  // a recording that started before the request must not answer it
+        pending = { id: wanted.id, maxSeconds: wanted.max_seconds ?? null, timer: null };
+        ask.textContent = wanted.prompt;
+        go.textContent = "Record";
+        bar.style.display = "";
+      }
+    };
+    model.on?.("change:pending_request", syncRequest);
+    syncRequest();  // a request made before the widget was shown
     return () => {
       if (recorder.recording) {
         recorder.stop().catch(() => {});  // release the microphone when the output is removed
@@ -111,7 +190,7 @@ export default {
 """
 
 
-class AudioRecorder(anywidget.AnyWidget):
+class AudioRecorder(_Requests, anywidget.AnyWidget):
     """A Record and Stop button that records the microphone of a laptop or tablet, in a notebook.
 
     Install it with ``pip install 'lmlite[audio]'``. The kernel runs in a Web Worker, which cannot open the
@@ -121,6 +200,10 @@ class AudioRecorder(anywidget.AnyWidget):
     Tick **Raw input** to turn off the browser's echo cancellation, noise suppression and gain control, which can
     silence a recording on some devices. ``info`` describes the last recording: ``seconds``, ``peak`` (0 to 1; near 0
     means silence), ``channels``, ``sampleRate``, ``mimeType``, and ``raw`` and ``gain`` for a raw recording.
+
+    To ask the user for a recording from code, such as a tool an assistant calls, ``await recorder.request("Tap Record
+    and say your question", max_seconds=10)``: the widget shows the question with Record and Cancel buttons, and
+    nothing is recorded until the user taps.
 
     Example:
         .. code-block:: python
@@ -179,6 +262,41 @@ class AudioRecorder(anywidget.AnyWidget):
         waiter = asyncio.get_running_loop().create_future()
         self._waiters.append(waiter)
         return await waiter
+
+    def _media(self):
+        return self.audio
+
+    async def request(self, prompt, timeout=None, max_seconds=None):
+        """Ask the user for a new recording and wait for it.
+
+        The widget shows ``prompt`` with a Record button and a Cancel button. It records nothing until the user taps
+        Record, and the user taps Stop (or ``max_seconds`` pass) to end it. Only a recording made for this request
+        resolves it, not one that was already there. A recording under way when the request arrives is dropped. The
+        microphone is released when the request ends, however it ends.
+
+        Args:
+            prompt: What the user is asked to do, shown in the widget.
+            timeout: Seconds to wait, including the permission prompt and the recording, or ``None`` to wait for ever.
+            max_seconds: Stop the recording by itself after this many seconds, or ``None`` to wait for the Stop tap.
+
+        Returns:
+            The WAV bytes, as ``audio``.
+
+        Raises:
+            CaptureCancelled: The user tapped Cancel.
+            TimeoutError: There was no complete recording within ``timeout`` seconds.
+            PermissionError: The browser did not allow the microphone.
+            RuntimeError: The microphone could not start (none found, in use), or a request is already pending.
+
+        Example:
+            .. code-block:: python
+
+                wav = await recorder.request("Tap Record and say your question", timeout=60, max_seconds=10)
+                text = (await transcriber(wav))["text"]
+        """
+        if max_seconds is not None and max_seconds <= 0:
+            raise ValueError("max_seconds must be positive, or None to wait for the Stop tap.")
+        return await self._request(prompt, timeout, **({} if max_seconds is None else {"max_seconds": max_seconds}))
 
     def record(self):
         """Start recording, as the Record button does. Needs a page that shows the widget; ``stop()`` ends it."""
