@@ -549,6 +549,39 @@ describe('BrowserRuntime embedding dtype pinning', () => {
       expect(message).toContain("backend 'webgpu'");
     });
 
+    it('suggests the other backend only after a WebGPU failure', async () => {
+      const message = await failing({ generator_model: 'org/model', backend: 'wasm' }, (pipeline) =>
+        pipeline.mockRejectedValue(new TypeError('Failed to fetch')));
+
+      expect(message).toContain('A file could not be fetched');
+      expect(message).not.toContain('fails only with backend');
+    });
+
+    it('says a fetch that fails during the warm-up is a fetch too', async () => {
+      const message = await failing({ generator_model: 'gpt2', backend: 'webgpu' }, (pipeline) =>
+        pipeline.mockResolvedValue(Object.assign(vi.fn().mockRejectedValue(new TypeError('Load failed')), { model: {} })));
+
+      expect(message).toContain("Failed to warm up text-generation model 'gpt2': Load failed");
+      expect(message).toContain('A file could not be fetched');
+      expect(message).not.toContain('could not generate one token');
+    });
+
+    it('treats a message that is both out of memory and a fetch failure as memory', async () => {
+      const message = await failing({ generator_model: 'org/model' }, (pipeline) =>
+        pipeline.mockRejectedValue(new Error('Failed to fetch: out of memory')));
+
+      expect(message).toContain('ran out of memory');
+      expect(message).not.toContain('A file could not be fetched');
+    });
+
+    it('gives a task model a fetch failure message too', async () => {
+      const message = await failing({ task: 'translation', task_model: 'org/foo', backend: 'webgpu' }, (pipeline) =>
+        pipeline.mockRejectedValue(new TypeError('Load failed')));
+
+      expect(message).toContain("Failed to load translation model 'org/foo': Load failed");
+      expect(message).toContain('A file could not be fetched');
+    });
+
     it('gives a task model the same message', async () => {
       const message = await failing({ task: 'translation', task_model: 'org/foo' }, (pipeline) =>
         pipeline.mockRejectedValue(new Error('failed to allocate a buffer of size 1733430199')));
