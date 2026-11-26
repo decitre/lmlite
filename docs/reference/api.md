@@ -28,6 +28,19 @@ Generated from the docstrings. For how to use these, see the [guides](../guides/
    :inherited-members:
 ```
 
+## Tool calling
+
+```{eval-rst}
+.. autoclass:: lmlite.ToolRunner
+   :members:
+
+.. autoclass:: lmlite.Tool
+
+.. autofunction:: lmlite.model_tool
+
+.. autoclass:: lmlite.AgentResult
+```
+
 ## Embeddings and classification
 
 ```{eval-rst}
