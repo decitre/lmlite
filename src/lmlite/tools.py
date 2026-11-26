@@ -5,7 +5,9 @@
 
 The model replies with one JSON object, either ``{"tool": name, "arguments": {...}}`` or ``{"answer": text}``. A reply
 is checked against the registered tools and their argument schemas before anything runs: an unknown tool or invalid
-arguments never execute, they come back to the model as an error to correct, which uses up a step.
+arguments never execute, they come back to the model as an error to correct, which uses up a step. One exception: once
+a tool has run, a reply that is plain text and not JSON at all is taken as the final answer, because small models
+usually answer in prose after a result. It cannot run anything.
 """
 
 import asyncio
@@ -103,7 +105,8 @@ class AgentResult:
         stopped: ``"answer"``, ``"step_limit"`` or ``"timeout"``.
         steps: One dict per model reply, for debugging: ``step``, ``reply`` (the raw text), ``outcome`` (``"answer"``,
             ``"ok"``, ``"error"`` for a tool that failed, ``"invalid"`` for a reply that was refused, or ``"timeout"`` for
-            the step the run's timeout cut short), ``tool`` and
+            the step the run's timeout cut short). An answer given as plain text after a tool ran has
+            ``plain_text: True``, ``tool`` and
             ``arguments`` when it named a tool, and ``detail`` (the observation, or why it failed).
     """
 
@@ -114,6 +117,10 @@ class AgentResult:
 
 class _Refused(Exception):
     """A model reply that cannot be dispatched."""
+
+
+class _NotJson(_Refused):
+    """A reply with no JSON in it: prose."""
 
 
 class ToolRunner:
@@ -175,7 +182,7 @@ class ToolRunner:
         try:
             call = json.loads(reply[start : end + 1])
         except ValueError:
-            raise _Refused("the reply is not a JSON object") from None
+            raise _NotJson("the reply is not a JSON object") from None
         if not isinstance(call, dict):
             raise _Refused("the reply is not a JSON object")
         if "answer" in call and "tool" not in call:
@@ -203,6 +210,7 @@ class ToolRunner:
 
     async def _loop(self, question, steps):
         messages = [{"role": "system", "content": self._system()}, {"role": "user", "content": question}]
+        observed = False  # a tool has run, so the model has something to answer from
         for number in range(1, self.max_steps + 1):
             try:
                 reply = (await self.model.chat(messages)).strip()
@@ -216,6 +224,9 @@ class ToolRunner:
             try:
                 tool, payload = self._parse(reply)
             except _Refused as refusal:
+                if observed and reply and isinstance(refusal, _NotJson):  # prose after a result is the answer
+                    step.update(outcome="answer", detail=reply, plain_text=True)
+                    return AgentResult(reply, "answer", steps)
                 step.update(outcome="invalid", detail=str(refusal))
                 messages.append({"role": "user", "content": f"Refused: {refusal}. Reply with one valid JSON object."})
                 continue
@@ -223,6 +234,7 @@ class ToolRunner:
                 step.update(outcome="answer", detail=payload)
                 return AgentResult(payload, "answer", steps)
             step.update(tool=tool.name, arguments=payload)
+            observed = True
             try:
                 step.update(outcome="ok", detail=await self._call(tool, payload))
             except Exception as error:  # a failing tool is an observation, not the end of the run
