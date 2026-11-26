@@ -223,3 +223,36 @@ async def test_a_timeout_that_is_not_the_runs_is_an_error():
 
     with pytest.raises(asyncio.TimeoutError):
         await ToolRunner(Stalled(), []).run("q")
+
+
+async def test_plain_text_after_a_tool_result_is_the_answer(tools, calls):
+    model = FakeModel(call("get_weather", city="Lisbon"), "It is 18 degrees in Lisbon.")
+    result = await ToolRunner(model, tools).run("Weather in Lisbon?")
+
+    assert (result.answer, result.stopped) == ("It is 18 degrees in Lisbon.", "answer")
+    assert result.steps[-1]["plain_text"] is True and calls == [("Lisbon", "celsius")]
+
+
+async def test_a_tool_error_also_lets_the_model_answer_in_plain_text():
+    def broken():
+        raise RuntimeError("busy")
+
+    result = await ToolRunner(FakeModel(call("broken"), "Sorry, it was busy."), [Tool("broken", "d", broken)]).run("q")
+
+    assert result.answer == "Sorry, it was busy."
+
+
+async def test_plain_text_is_still_refused_before_any_tool_ran(tools):
+    model = FakeModel("It is sunny.", "Still no JSON.", answer("ok"))
+    result = await ToolRunner(model, tools).run("q")
+
+    assert [s["outcome"] for s in result.steps] == ["invalid", "invalid", "answer"] and result.answer == "ok"
+    assert "plain_text" not in result.steps[-1]
+
+
+@pytest.mark.parametrize("reply", ["", '{"error": {"message": "Unknown tool"}}', call("launch_missiles")])
+async def test_after_a_tool_result_only_prose_counts_as_an_answer(tools, reply):
+    model = FakeModel(call("get_weather", city="Rome"), reply, answer("fine"))
+    result = await ToolRunner(model, tools).run("q")
+
+    assert result.steps[1]["outcome"] == "invalid" and result.answer == "fine"
