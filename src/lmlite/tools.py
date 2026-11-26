@@ -6,7 +6,7 @@
 The model replies with one JSON object, either ``{"tool": name, "arguments": {...}}`` or ``{"answer": text}``. A reply
 is checked against the registered tools and their argument schemas before anything runs: an unknown tool or invalid
 arguments never execute, they come back to the model as an error to correct, which uses up a step. One exception: once
-a tool has run, a reply that is plain text and not JSON at all is taken as the final answer, because small models
+a tool has run, a reply with no ``{`` in it is taken as the final answer, because small models
 usually answer in prose after a result. It cannot run anything.
 """
 
@@ -105,9 +105,8 @@ class AgentResult:
         stopped: ``"answer"``, ``"step_limit"`` or ``"timeout"``.
         steps: One dict per model reply, for debugging: ``step``, ``reply`` (the raw text), ``outcome`` (``"answer"``,
             ``"ok"``, ``"error"`` for a tool that failed, ``"invalid"`` for a reply that was refused, or ``"timeout"`` for
-            the step the run's timeout cut short). An answer given as plain text after a tool ran has
-            ``plain_text: True``, ``tool`` and
-            ``arguments`` when it named a tool, and ``detail`` (the observation, or why it failed).
+            the step the run's timeout cut short), ``tool`` and ``arguments`` when it named a tool, and ``detail`` (the
+            observation, or why it failed). An answer given as plain text after a tool ran also has ``plain_text: True``.
     """
 
     answer: str | None
@@ -120,7 +119,7 @@ class _Refused(Exception):
 
 
 class _NotJson(_Refused):
-    """A reply with no JSON in it: prose."""
+    """A reply with no ``{`` in it: prose."""
 
 
 class ToolRunner:
@@ -179,10 +178,12 @@ class ToolRunner:
     def _parse(self, reply):
         """The tool and its arguments, or the answer, from a reply. Raises ``_Refused`` with the reason."""
         start, end = reply.find("{"), reply.rfind("}")  # a small model often wraps the JSON in prose or a code fence
+        if start == -1:
+            raise _NotJson("the reply is not a JSON object")
         try:
             call = json.loads(reply[start : end + 1])
-        except ValueError:
-            raise _NotJson("the reply is not a JSON object") from None
+        except ValueError:  # it looks like JSON but is cut off or broken: the model can correct it
+            raise _Refused("the reply is not valid JSON") from None
         if not isinstance(call, dict):
             raise _Refused("the reply is not a JSON object")
         if "answer" in call and "tool" not in call:

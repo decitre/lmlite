@@ -250,7 +250,18 @@ async def test_plain_text_is_still_refused_before_any_tool_ran(tools):
     assert "plain_text" not in result.steps[-1]
 
 
-@pytest.mark.parametrize("reply", ["", '{"error": {"message": "Unknown tool"}}', call("launch_missiles")])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "",
+        '{"error": {"message": "Unknown tool"}}',
+        call("launch_missiles"),
+        '{"tool": "get_weather", "arguments": {"city": "Rome", ',  # cut off at the token limit
+        '{"tool": "get_weather", "arguments": {"city": "Rome",}}',  # a trailing comma
+        "See {city} for details",  # braces: it looks like JSON, so it is not taken as the answer
+        "```json\n" + call("get_weather", city="Rome")[:-3] + "\n```",  # a broken call in a code fence
+    ],
+)
 async def test_after_a_tool_result_only_prose_counts_as_an_answer(tools, reply):
     model = FakeModel(call("get_weather", city="Rome"), reply, answer("fine"))
     result = await ToolRunner(model, tools).run("q")
