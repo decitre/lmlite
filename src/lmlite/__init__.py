@@ -8,10 +8,12 @@ from .models import ModelInfo, cached_models, clear_cache, hosted_base, model_in
 from .onnx_model import OnnxModel
 from .pipeline import SUPPORTED_TASKS, Pipeline, Speech, pipeline
 from .tokenizer import Tokenizer, tokenizer
+from .tools import AgentResult, Tool, ToolRunner, model_tool
 from .version import __version__
 
 
 __all__ = [
+    "AgentResult",
     "Classifier",
     "Embedder",
     "LLM",
@@ -21,11 +23,14 @@ __all__ = [
     "SUPPORTED_TASKS",
     "Speech",
     "Tokenizer",
+    "Tool",
+    "ToolRunner",
     "cached_models",
     "clear_cache",
     "hosted_base",
     "model_info",
     "model_task",
+    "model_tool",
     "pipeline",
     "tokenizer",
     "__version__",

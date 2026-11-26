@@ -55,7 +55,7 @@ def test_notebook_runs_in_pyodide(source_server):
                   const pyodide = await loadPyodide();
                   await pyodide.loadPackage(['numpy', 'pillow', 'pyodide-http']);
                   pyodide.FS.mkdirTree('/lib/lmlite/bridge');
-                  for (const name of ['__init__.py', '_bridge.py', '_session.py', 'classifier.py', 'embedder.py', 'llm.py', 'lmlite.js', 'models.py', 'onnx_model.py', 'pipeline.py', 'tokenizer.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
+                  for (const name of ['__init__.py', '_bridge.py', '_session.py', 'classifier.py', 'embedder.py', 'llm.py', 'lmlite.js', 'models.py', 'onnx_model.py', 'pipeline.py', 'tokenizer.py', 'tools.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
                     pyodide.FS.writeFile(`/lib/lmlite/${name}`, await (await fetch(`${server}/src/lmlite/${name}`)).text());
                   }
                   pyodide.runPython("import sys; sys.path.insert(0, '/lib')");
