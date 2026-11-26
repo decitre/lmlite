@@ -409,6 +409,9 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         assert [step["outcome"] for step in checked.steps] == ["invalid", "invalid", "invalid", "ok", "answer"]
         assert namespace["calls"] == [(6, 3)] and checked.answer == "18"
         assert (stuck.stopped, stuck.answer) == ("step_limit", None)
+        assert (
+            namespace["backend"] == "webgpu" and instances[0].config["backend"] == "webgpu"
+        )  # the fake has an adapter
     if path.name == "ch99_model-info.ipynb":
         # Widget behavior is covered by test_widgets.py; check the notebook wires it up.
         (model_row,) = namespace["manager"].rows.children
@@ -687,3 +690,28 @@ def test_demo_lists_notebooks_in_file_order():
     others = sorted(path.name for path in NOTEBOOKS.glob("ch*.ipynb") if path.name != "ch01_demo.ipynb")
     assert links == others
     assert links[-1] == "ch99_model-info.ipynb"
+
+
+@pytest.mark.parametrize(
+    "adapter, backend",
+    [
+        ("null", "wasm"),
+        ('{"fallback": true}', "wasm"),
+        ('{"fallback": false}', "webgpu"),
+        ('{"fallback": null}', "webgpu"),
+    ],
+)
+def test_tool_calling_notebook_picks_the_backend_from_the_adapter(monkeypatch, adapter, backend):
+    cell = next(
+        cell
+        for cell in json.loads((NOTEBOOKS / "ch21_tool-calling.ipynb").read_text())["cells"]
+        if cell["id"] == "backend"
+    )
+    fake_js = types.ModuleType("js")
+    fake_js.eval = lambda source: AsyncMock(return_value=adapter)  # no adapter, a software one, a hardware one
+    monkeypatch.setitem(sys.modules, "js", fake_js)
+    namespace = {}
+    code = compile(cell["source"], "ch21", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+    asyncio.run(eval(code, namespace))
+
+    assert namespace["backend"] == backend
