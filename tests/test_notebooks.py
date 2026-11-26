@@ -283,6 +283,15 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         _fake_microphone(monkeypatch)
     if path.name == "ch11_camera.ipynb":
         _fake_camera(monkeypatch)
+    if path.name == "ch21_tool-calling.ipynb":
+        replies = iter(['{"tool": "multiply", "arguments": {"a": 17, "b": 23}}', '{"answer": "17 times 23 is 391."}'])
+
+        async def scripted_chat(self, messages):  # the example model replies like a model that follows the protocol
+            assert not self.disposed and self.config.get("generator_model")
+            chats.append(messages)
+            return next(replies)
+
+        monkeypatch.setattr(ExampleLLM, "chat", scripted_chat)
     onnx_models = []
     if path.name == "ch14_onnx-models.ipynb":
         onnx_models = _fake_onnx_notebook_world(monkeypatch)
@@ -391,6 +400,15 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
         panel.release.click()
         await panel.task
         assert panel.closed and panel.send.disabled and panel.release.disabled
+    if path.name == "ch21_tool-calling.ipynb":
+        result, checked, stuck = namespace["result"], namespace["checked"], namespace["stuck"]
+        assert (result.stopped, result.answer) == ("answer", "17 times 23 is 391.")
+        assert [(step["outcome"], step.get("detail")) for step in result.steps][0] == ("ok", "391")
+        assert "multiply" in chats[0][0]["content"] and "391" in chats[1][-1]["content"]
+        # invalid replies never run the tool; only the last valid call does
+        assert [step["outcome"] for step in checked.steps] == ["invalid", "invalid", "invalid", "ok", "answer"]
+        assert namespace["calls"] == [(6, 3)] and checked.answer == "18"
+        assert (stuck.stopped, stuck.answer) == ("step_limit", None)
     if path.name == "ch99_model-info.ipynb":
         # Widget behavior is covered by test_widgets.py; check the notebook wires it up.
         (model_row,) = namespace["manager"].rows.children
@@ -407,6 +425,7 @@ async def test_notebooks_run_in_order_and_dispose_models(path, monkeypatch):
     if path.name in {
         "ch01_demo.ipynb",
         "ch16_orchestration.ipynb",
+        "ch21_tool-calling.ipynb",
         "ch04_generation-tinyllama.ipynb",
         "ch05_generation-lamini.ipynb",
     }:
