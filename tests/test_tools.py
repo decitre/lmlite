@@ -92,6 +92,8 @@ async def test_an_async_tool_made_with_model_tool_gets_the_string_and_its_result
         ("I think it is sunny.", "not a JSON object"),
         ("[1, 2]", "not a JSON object"),
         (json.dumps({"answer": 5}), "answer must be a string"),
+        (json.dumps({"tool": ["get_weather"], "arguments": {}}), "unknown tool"),
+        (json.dumps({"tool": {"name": "search"}}), "unknown tool"),
     ],
 )
 async def test_an_invalid_reply_never_runs_a_tool_and_the_model_may_correct_it(tools, calls, reply, reason):
@@ -155,8 +157,8 @@ async def test_invalid_replies_count_against_the_step_limit(tools):
 
 
 async def test_the_timeout_ends_the_run_with_the_steps_so_far_and_stops_the_generation(tools):
-    model = FakeModel(call("get_weather", city="A"), call("get_weather", city="B"), delay=0.05)
-    result = await ToolRunner(model, tools, timeout=0.07).run("q")
+    model = FakeModel(call("get_weather", city="A"), call("get_weather", city="B"), delay=0.2)
+    result = await ToolRunner(model, tools, timeout=0.3).run("q")
 
     assert result.stopped == "timeout" and result.answer is None
     assert [s["outcome"] for s in result.steps] == ["ok"]  # the second reply never arrived
@@ -187,3 +189,37 @@ def test_bad_setup_is_refused(tools):
         ToolRunner(FakeModel(), [tools[0], tools[0]])
     with pytest.raises(ValueError, match="max_steps"):
         ToolRunner(FakeModel(), tools, max_steps=0)
+
+
+def test_a_schema_the_validator_cannot_apply_is_refused_at_setup():
+    for bad in (
+        {"type": "null"},
+        {"type": ["string", "null"]},
+        {"type": "object", "properties": {"x": {"type": "null"}}},
+    ):
+        with pytest.raises(ValueError, match="Unsupported schema type"):
+            ToolRunner(FakeModel(), [Tool("t", "d", lambda **a: "", bad)])
+
+
+async def test_an_object_argument_without_properties_takes_any_keys():
+    seen = []
+    schema = {"type": "object", "properties": {"filters": {"type": "object"}}}
+    model = FakeModel(call("t", filters={"a": 1}), answer("ok"))
+    await ToolRunner(model, [Tool("t", "d", lambda **a: seen.append(a) or "ok", schema)]).run("q")
+
+    assert seen == [{"filters": {"a": 1}}]
+
+
+async def test_tools_may_be_a_generator(tools):
+    result = await ToolRunner(FakeModel(answer("hi")), (tool for tool in tools)).run("q")
+
+    assert result.answer == "hi"
+
+
+async def test_a_timeout_that_is_not_the_runs_is_an_error():
+    class Stalled:
+        async def chat(self, messages):
+            raise asyncio.TimeoutError("connection stalled")
+
+    with pytest.raises(asyncio.TimeoutError):
+        await ToolRunner(Stalled(), []).run("q")

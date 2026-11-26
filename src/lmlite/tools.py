@@ -16,23 +16,32 @@ from dataclasses import dataclass, field
 _TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
 
 
+def _check_schema(schema):
+    """Refuse a schema that ``_check`` cannot apply, so a bad tool fails when it is registered, not mid-run."""
+    kind = schema.get("type")
+    if kind is not None and (not isinstance(kind, str) or kind not in _TYPES):
+        raise ValueError(f"Unsupported schema type {kind!r}; use one of {sorted(_TYPES)}.")
+    for sub in (*schema.get("properties", {}).values(), *([schema["items"]] if "items" in schema else [])):
+        _check_schema(sub)
+
+
 def _check(schema, value, where="arguments"):
     """The first way ``value`` breaks ``schema``, or ``None``. Supports type, enum, properties, required and items."""
     kind = schema.get("type")
     if kind is not None:
-        if kind not in _TYPES:
-            raise ValueError(f"Unsupported schema type {kind!r}; use one of {sorted(_TYPES)}.")
         # bool is an int in Python, but true is not a number in JSON
         if not isinstance(value, _TYPES[kind]) or (kind in ("integer", "number") and isinstance(value, bool)):
             return f"{where} must be of type {kind}"
     if "enum" in schema and value not in schema["enum"]:
         return f"{where} must be one of {schema['enum']}"
     if isinstance(value, dict):
-        properties = schema.get("properties", {})
+        properties = schema.get("properties")  # without it, any keys are accepted
         for name in schema.get("required", []):
             if name not in value:
                 return f"{where} is missing {name!r}"
         for name, item in value.items():
+            if properties is None:
+                continue
             if name not in properties:
                 return f"{where} has an unexpected property {name!r}"
             if problem := _check(properties[name], item, f"{where}.{name}"):
@@ -55,7 +64,8 @@ class Tool:
             stopped by a timeout.
         parameters: A JSON Schema for the arguments, an object with ``properties`` and ``required``. Only ``type``
             (``string``, ``integer``, ``number``, ``boolean``, ``array``, ``object``), ``enum``, ``properties``,
-            ``required`` and ``items`` are checked, and a property that is not listed is refused.
+            ``required`` and ``items`` are checked, and once ``properties`` is given, a property that is not listed is
+            refused.
     """
 
     name: str
@@ -92,7 +102,8 @@ class AgentResult:
         answer: The model's final answer, or ``None`` if it ran out of steps or time.
         stopped: ``"answer"``, ``"step_limit"`` or ``"timeout"``.
         steps: One dict per model reply, for debugging: ``step``, ``reply`` (the raw text), ``outcome`` (``"answer"``,
-            ``"ok"``, ``"error"`` for a tool that failed, or ``"invalid"`` for a reply that was refused), ``tool`` and
+            ``"ok"``, ``"error"`` for a tool that failed, ``"invalid"`` for a reply that was refused, or ``"timeout"`` for
+            the step the run's timeout cut short), ``tool`` and
             ``arguments`` when it named a tool, and ``detail`` (the observation, or why it failed).
     """
 
@@ -132,10 +143,14 @@ class ToolRunner:
             max_observation: The most characters of a tool's result that the model sees.
 
         Raises:
-            ValueError: Two tools share a name, or ``max_steps`` is below 1.
+            ValueError: Two tools share a name, a tool's schema uses a type that is not supported, or ``max_steps`` is
+                below 1.
         """
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1.")
+        tools = list(tools)  # a generator is read once
+        for tool in tools:
+            _check_schema(tool.parameters)
         self.tools = {tool.name: tool for tool in tools}
         if len(self.tools) != len(tools):
             raise ValueError("Tool names must be distinct.")
@@ -168,9 +183,11 @@ class ToolRunner:
                 raise _Refused("answer must be a string")
             return None, call["answer"]
         name = call.get("tool")
-        if name not in self.tools:
+        if not isinstance(name, str) or name not in self.tools:
             raise _Refused(f"unknown tool {name!r}; the tools are {sorted(self.tools)}")
         arguments = call.get("arguments", {})
+        if not isinstance(arguments, dict):
+            raise _Refused("arguments must be of type object")
         if problem := _check(self.tools[name].parameters, arguments):
             raise _Refused(problem)
         return self.tools[name], arguments
@@ -228,4 +245,8 @@ class ToolRunner:
         try:
             return await asyncio.wait_for(self._loop(question, steps), self.timeout)
         except asyncio.TimeoutError:
+            if self.timeout is None:  # not the run's: the model or a bridge timed out, which is an error
+                raise
+            if steps and "outcome" not in steps[-1]:
+                steps[-1].update(outcome="timeout", detail="the run timed out while this step was running")
             return AgentResult(None, "timeout", steps)

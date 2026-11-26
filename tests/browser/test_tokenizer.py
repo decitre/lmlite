@@ -82,7 +82,7 @@ def test_pyodide_encode_returns_plain_ints_synchronously(page, source_server):
     result = page.evaluate(
         """async ({server, text}) => {
           const pyodide = await loadPyodide();
-          for (const name of ['__init__.py', '_bridge.py', '_session.py', 'classifier.py', 'embedder.py', 'llm.py', 'lmlite.js', 'models.py', 'onnx_model.py', 'pipeline.py', 'tokenizer.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
+          for (const name of ['__init__.py', '_bridge.py', '_session.py', 'classifier.py', 'embedder.py', 'llm.py', 'lmlite.js', 'models.py', 'onnx_model.py', 'pipeline.py', 'tokenizer.py', 'tools.py', 'version.py', 'bridge/__init__.py', 'bridge/runtime.py']) {
             pyodide.FS.mkdirTree('/lib/lmlite/bridge');
             pyodide.FS.writeFile(`/lib/lmlite/${name}`, await (await fetch(`${server}/src/lmlite/${name}`)).text());
           }
