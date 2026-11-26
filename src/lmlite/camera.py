@@ -14,6 +14,8 @@ import base64
 import anywidget
 import traitlets
 
+from lmlite._request import CaptureCancelled, _Requests  # noqa: F401  (CaptureCancelled: for callers of request())
+
 _ESM = """
 const LONGEST_SIDE = 1024;  // pixels: a larger photo costs more to send and the detectors shrink it anyway
 
@@ -36,23 +38,52 @@ export default {
     status.style.marginLeft = "0.75em";
     const controls = document.createElement("div");
     controls.append(start, take, facing, status);
-    el.append(controls, video, photo);
+    const bar = document.createElement("div");  // a pending request(): what is asked, then Take photo and Cancel
+    bar.style.display = "none";
+    const ask = document.createElement("span");
+    ask.style.marginRight = "0.75em";
+    const shoot = document.createElement("button");
+    shoot.textContent = "Take photo";
+    shoot.disabled = true;  // like the Take photo button: only a picture that plays can be photographed
+    const dismiss = document.createElement("button");
+    dismiss.textContent = "Cancel";
+    bar.append(ask, shoot, dismiss);
+    el.append(controls, video, photo, bar);
 
     let stream = null;
+    let pending = null;  // {id, ownStream}: the request in progress; ownStream is true when it started the camera
     const stop = () => {
       stream?.getTracks().forEach((track) => track.stop());
       stream = null;
       video.srcObject = null;
       video.style.display = "none";
       start.textContent = "Start camera";
-      take.disabled = true;
+      take.disabled = shoot.disabled = true;
       facing.disabled = false;
       model.set("running", false);
       model.save_changes();
     };
 
+    let last = 0;  // the newest request this view has ended: a request is shown once
+    const endRequest = () => {
+      const release = pending?.ownStream;
+      last = Math.max(last, pending?.id ?? 0);
+      pending = null;
+      bar.style.display = "none";
+      if (release) {
+        stop();  // the request started the camera: do not leave it on
+      }
+    };
+    const refuse = (error) => {
+      if (pending) {
+        model.set("error", { id: pending.id, name: String(error?.name ?? "Error"), message: String(error?.message ?? error) });
+        model.save_changes();
+        endRequest();
+      }
+    };
+
     video.onplaying = () => {
-      take.disabled = false;
+      take.disabled = shoot.disabled = false;
       status.textContent = "";
       model.set("running", true);
       model.save_changes();
@@ -82,6 +113,7 @@ export default {
       } catch (error) {
         stop();
         status.textContent = String(error?.message ?? error);
+        refuse(error);
       } finally {
         start.disabled = false;
       }
@@ -93,6 +125,7 @@ export default {
         status.textContent = "The camera is not running yet.";
         return;
       }
+      const answering = pending?.id;  // the request this photo answers, if one is waiting for a tap
       const scale = Math.min(1, LONGEST_SIDE / Math.max(video.videoWidth, video.videoHeight));
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(video.videoWidth * scale);
@@ -108,10 +141,23 @@ export default {
       photo.style.display = model.get("show_photo") === false ? "none" : "";
       model.set("info", { width: canvas.width, height: canvas.height, bytes: bytes.length });  // before the photo, which wakes up whoever waits for it
       model.set("photo", btoa(text));
+      if (answering !== undefined && pending?.id === answering) {
+        model.set("answered", answering);  // after the photo: the request resolves with it
+      }
       model.save_changes();
       status.textContent = `Photo ${canvas.width} x ${canvas.height}`;
+      if (answering !== undefined && pending?.id === answering) {
+        endRequest();
+      }
     };
-    take.onclick = takePhoto;
+    take.onclick = shoot.onclick = takePhoto;
+    dismiss.onclick = () => {
+      if (pending) {
+        model.set("cancelled", pending.id);
+        model.save_changes();
+        endRequest();
+      }
+    };
     model.on?.("change:photo", () => {
       if (!model.get("photo")) {  // clear(): back to the live picture
         photo.style.display = "none";
@@ -131,6 +177,21 @@ export default {
     if (model.get("autostart") === true) {
       startCamera();
     }
+    // request(): Python sets pending_request and clears it when the request ends, however it ends.
+    const syncRequest = () => {
+      const wanted = model.get("pending_request") ?? {};
+      if (pending && pending.id !== wanted.id) {
+        endRequest();
+      }
+      if (!pending && wanted.id > last) {
+        pending = { id: wanted.id, ownStream: !stream };
+        ask.textContent = wanted.prompt;
+        bar.style.display = "";
+        startCamera();
+      }
+    };
+    model.on?.("change:pending_request", syncRequest);
+    syncRequest();  // a request made before the widget was shown
 
     return stop;  // release the camera when the output is removed
   },
@@ -138,7 +199,7 @@ export default {
 """
 
 
-class CameraCapture(anywidget.AnyWidget):
+class CameraCapture(_Requests, anywidget.AnyWidget):
     """Start camera, Take photo and Stop camera buttons for the camera of a laptop, tablet or phone, in a notebook.
 
     Install it with ``pip install 'lmlite[camera]'``. The kernel runs in a Web Worker, which cannot open the camera, so the
@@ -149,6 +210,10 @@ class CameraCapture(anywidget.AnyWidget):
     To build an app, turn the buttons off and drive the camera from your own: ``CameraCapture(controls=False,
     autostart=True, show_photo=False)`` shows just the live picture and starts it, ``take()`` takes the photo, and
     ``image`` or ``wait()`` returns it.
+
+    To ask the user for a photo from code, such as a tool an assistant calls, ``await camera.request("Tap to take a
+    photo of the desk")``: the widget shows the question with Take photo and Cancel buttons and the live picture, and
+    nothing is captured until the user taps.
 
     Example:
         .. code-block:: python
@@ -208,6 +273,39 @@ class CameraCapture(anywidget.AnyWidget):
         waiter = asyncio.get_running_loop().create_future()
         self._waiters.append(waiter)
         return await waiter
+
+    def _media(self):
+        return self.image
+
+    async def request(self, prompt, timeout=None):
+        """Ask the user for a new photo and wait for it.
+
+        The widget shows ``prompt`` with a live picture, a Take photo button and a Cancel button, and starts the camera
+        if it is not running. It takes nothing until the user taps. Only a photo taken for this request resolves it,
+        not one that was already there. The camera the request started is stopped when it ends, however it ends.
+
+        Args:
+            prompt: What the user is asked to do, shown in the widget.
+            timeout: Seconds to wait, including the permission prompt, or ``None`` to wait for ever.
+
+        Returns:
+            The JPEG bytes, as ``image``.
+
+        Raises:
+            CaptureCancelled: The user tapped Cancel.
+            TimeoutError: Nobody took a photo within ``timeout`` seconds.
+            PermissionError: The browser did not allow the camera.
+            RuntimeError: The camera could not start (none found, in use), or a request is already pending.
+
+        Example:
+            .. code-block:: python
+
+                try:
+                    jpeg = await camera.request("Tap to take a photo of the desk", timeout=60)
+                except CaptureCancelled:
+                    ...  # the user declined: answer without a photo
+        """
+        return await self._request(prompt, timeout)
 
     def start(self):
         """Start the camera, as the Start camera button does. Needs a page that shows the widget."""

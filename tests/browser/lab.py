@@ -59,3 +59,42 @@ def wait_for_all_cells(page, timeout=None):
 def outputs(page):
     """What the cells show: images, audio players, error outputs and printed text."""
     return page.evaluate(OUTPUTS)
+
+
+def run_in_repl(site, code, steps, flags=(), permissions=(), timeout=300000):
+    """Run `code` in the xeus-python REPL page, call `steps(page)` for the taps it needs, and return the RESULT JSON."""
+    import json
+    import urllib.parse
+
+    from playwright.sync_api import sync_playwright
+
+    url = f"{site}/repl/index.html?kernel=xpython&execute=1&code={urllib.parse.quote(code)}"
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(args=list(flags))
+        try:
+            context = browser.new_context()
+            context.grant_permissions(list(permissions))
+            page = context.new_page()
+            page.set_default_timeout(timeout)
+            messages = []
+            page.on("console", lambda message: messages.append(f"{message.type}: {message.text[:300]}"))
+            page.on("pageerror", lambda error: messages.append(f"pageerror: {error}"))
+            page.goto(url)
+            try:
+                steps(page)
+                page.wait_for_function("document.body.innerText.includes('RESULT{')", timeout=120000)
+            except Exception as error:
+                pytest.fail(
+                    f"{error}\nPage:\n{page.inner_text('body')[-2500:]}\nConsole:\n" + "\n".join(messages[-15:])
+                )
+            text = page.inner_text("body")
+            extra = page.evaluate("() => [...document.querySelectorAll('video')].map(v => v.srcObject === null)")
+        finally:
+            browser.close()
+    line = next(line for line in text.splitlines() if line.startswith("RESULT{"))
+    return json.loads(line.removeprefix("RESULT")), extra
+
+
+def tap(page, prompt, button):
+    """Click `button` (1 for the first, 2 for the second) next to the prompt text of a widget's pending request."""
+    page.get_by_text(prompt, exact=True).locator(f"xpath=following-sibling::button[{button}]").click()

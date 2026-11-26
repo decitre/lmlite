@@ -70,10 +70,12 @@ Generated from the docstrings. For how to use these, see the [guides](../guides/
 
 ```{eval-rst}
 .. autoclass:: lmlite.audio.AudioRecorder
-   :members: audio, wait, clear
+   :members: audio, wait, request, clear
 
 .. autoclass:: lmlite.camera.CameraCapture
-   :members: image, wait, clear
+   :members: image, wait, request, clear
+
+.. autoexception:: lmlite.camera.CaptureCancelled
 
 .. autoclass:: lmlite.widgets.CacheManager
    :members:
