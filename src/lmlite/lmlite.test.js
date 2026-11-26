@@ -534,6 +534,21 @@ describe('BrowserRuntime embedding dtype pinning', () => {
       expect(message).toContain('may not be supported');
     });
 
+    it.each([
+      ['Safari', 'Load failed'],
+      ['Chrome', 'Failed to fetch'],
+      ['Firefox', 'NetworkError when attempting to fetch resource.'],
+    ])('says a failed fetch in %s is a fetch, not an unsupported model', async (_browser, text) => {
+      const message = await failing({ generator_model: 'org/model', backend: 'webgpu' }, (pipeline) =>
+        pipeline.mockRejectedValue(new TypeError(text)));
+
+      expect(message).toContain(`Failed to load text-generation model 'org/model': ${text}`);
+      expect(message).toContain('A file could not be fetched');
+      expect(message).toContain("fails only with backend 'webgpu'");
+      expect(message).not.toContain('may not be supported');
+      expect(message).toContain("backend 'webgpu'");
+    });
+
     it('gives a task model the same message', async () => {
       const message = await failing({ task: 'translation', task_model: 'org/foo' }, (pipeline) =>
         pipeline.mockRejectedValue(new Error('failed to allocate a buffer of size 1733430199')));

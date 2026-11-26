@@ -9,6 +9,8 @@ const TRANSFORMERS_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers
 // What the runtimes in this project report when they cannot allocate memory (WASM RangeError, ONNX Runtime
 // allocation failures, the WebGPU buffer limit).
 const MEMORY_ERROR = /out of memory|failed to allocate|bad_alloc/i;
+// A fetch that failed, as the browsers word it: Safari "Load failed", Chrome "Failed to fetch", Firefox "NetworkError".
+const FETCH_ERROR = /load failed|failed to fetch|networkerror|fetch failed/i;
 
 // The error for a model that failed to load or to warm up: it keeps the runtime's own message, and names the stage,
 // the backend, the dtypes tried and the runtime versions, with advice that fits the failure.
@@ -22,8 +24,11 @@ function loadFailure({ stage, what, model, backend, error, env }) {
       'not that it is unsupported. Try a smaller model or dtype (for example q4), close other tabs, or reload the page to free memory.'
     : stage === 'warm up'
       ? 'The model loaded but could not generate one token, so it may not be supported by this runtime or backend.'
-      : `This model may not be supported by the current Transformers.js browser runtime or backend '${backend}'. ` +
-        'Check the WebGPU guide and model/dtype availability in the Transformers.js docs before picking a model.';
+      : FETCH_ERROR.test(message)
+        ? 'A file could not be fetched: a network error, a blocked request or a download the browser dropped, which says ' +
+          `nothing about whether the model is supported. Check the connection and try again; the browser's network tab shows which file failed. If it fails only with backend '${backend}', try the other backend.`
+        : `This model may not be supported by the current Transformers.js browser runtime or backend '${backend}'. ` +
+          'Check the WebGPU guide and model/dtype availability in the Transformers.js docs before picking a model.';
   return new Error(`Failed to ${stage} ${what} model '${model}': ${message}. ${advice} (backend '${backend}'${dtypes}; ${runtime})`);
 }
 
