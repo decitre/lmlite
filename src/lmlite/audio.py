@@ -84,7 +84,12 @@ export default {
     };
 
     const begin = async () => {
+      const asked = pending;  // the request this recording is for, if any
       await recorder.start({ raw: raw.checked });
+      if (asked && pending !== asked) {
+        await recorder.stop().catch(() => {});  // the request ended while the permission prompt was open
+        return;
+      }
       raw.disabled = true;
       status.textContent = "Recording...";
       button.textContent = go.textContent = "Stop";

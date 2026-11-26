@@ -97,8 +97,14 @@ export default {
         return;
       }
       start.disabled = true;
+      const asked = pending;  // the request that started the camera, if any
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing.value } }, audio: false });
+        const granted = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing.value } }, audio: false });
+        if (asked && pending !== asked) {
+          granted.getTracks().forEach((track) => track.stop());  // the request ended while the permission prompt was open
+          return;
+        }
+        stream = granted;
         video.srcObject = stream;
         video.style.display = "";
         photo.style.display = "none";

@@ -111,6 +111,18 @@ describe('CameraCapture request()', () => {
     expect(tracks[0].stop).toHaveBeenCalled();
   });
 
+  it('stops a camera that was granted after the request ended', async () => {
+    let grant;
+    navigator.mediaDevices.getUserMedia = vi.fn(() => new Promise((resolve) => { grant = resolve; }));
+    await mount();
+    model.python('pending_request', { id: 7, prompt: 'Tap' });
+    cancel.onclick();  // while the permission prompt is open
+    grant({ getTracks: () => tracks });
+    await settle();
+
+    expect(tracks[0].stop).toHaveBeenCalled();
+  });
+
   it('reports a refused camera with the request id and name', async () => {
     navigator.mediaDevices.getUserMedia = vi.fn(async () => { throw Object.assign(new Error('no'), { name: 'NotAllowedError' }); });
     await mount();
@@ -215,6 +227,20 @@ describe('AudioRecorder request()', () => {
     expect(model.sent.cancelled).toBe(2);
     expect(model.sent.recording).toBeUndefined();
     expect(shown(bar)).toBe(false);
+  });
+
+  it('stops a microphone that was granted after the request ended', async () => {
+    let grant;
+    recorder.start = vi.fn(() => new Promise((resolve) => { grant = () => { recorder.recording = true; resolve(); }; }));
+    await mount();
+    model.python('pending_request', { id: 7, prompt: 'Say it' });
+    button('Record')[1].onclick();
+    await cancel.onclick();  // while the permission prompt is open
+    grant();
+    await settle();
+
+    expect(recorder.stop).toHaveBeenCalled();
+    expect(model.sent.active).not.toBe(true);
   });
 
   it('reports a refused microphone with the request id and name', async () => {
