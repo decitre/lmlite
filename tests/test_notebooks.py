@@ -692,6 +692,23 @@ def test_demo_lists_notebooks_in_file_order():
     assert links[-1] == "ch99_model-info.ipynb"
 
 
+def _run_backend_cell(monkeypatch, fake_js):
+    """Run the tool-calling notebook's backend cell with `fake_js` as the js module (None: it cannot be imported)."""
+    notebook = json.loads((NOTEBOOKS / "ch21_tool-calling.ipynb").read_text())
+    cell = next(cell for cell in notebook["cells"] if cell["id"] == "backend")
+    monkeypatch.setitem(sys.modules, "js", fake_js)
+    namespace = {}
+    code = compile(cell["source"], "ch21", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+    asyncio.run(eval(code, namespace))
+    return namespace
+
+
+def _fake_js(probe):
+    fake = types.ModuleType("js")
+    fake.eval = lambda source: probe  # the cell evaluates a JavaScript function and awaits its call
+    return fake
+
+
 @pytest.mark.parametrize(
     "adapter, backend",
     [
@@ -702,36 +719,21 @@ def test_demo_lists_notebooks_in_file_order():
     ],
 )
 def test_tool_calling_notebook_picks_the_backend_from_the_adapter(monkeypatch, adapter, backend):
-    cell = next(
-        cell
-        for cell in json.loads((NOTEBOOKS / "ch21_tool-calling.ipynb").read_text())["cells"]
-        if cell["id"] == "backend"
-    )
-    fake_js = types.ModuleType("js")
-    fake_js.eval = lambda source: AsyncMock(return_value=adapter)  # no adapter, a software one, a hardware one
-    monkeypatch.setitem(sys.modules, "js", fake_js)
-    namespace = {}
-    code = compile(cell["source"], "ch21", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
-    asyncio.run(eval(code, namespace))
+    # no adapter, a software one, a hardware one, and one whose status the browser hides (Firefox)
+    namespace = _run_backend_cell(monkeypatch, _fake_js(AsyncMock(return_value=adapter)))
 
     assert namespace["backend"] == backend
 
 
 @pytest.mark.parametrize("failure", ["probe rejects", "no js module"])
-def test_tool_calling_notebook_uses_wasm_when_the_adapter_check_cannot_run(monkeypatch, failure):
-    cell = next(
-        cell
-        for cell in json.loads((NOTEBOOKS / "ch21_tool-calling.ipynb").read_text())["cells"]
-        if cell["id"] == "backend"
-    )
+def test_tool_calling_notebook_uses_wasm_when_the_adapter_check_cannot_run(monkeypatch, capsys, failure):
     if failure == "no js module":
-        monkeypatch.setitem(sys.modules, "js", None)  # import js raises ImportError, as outside a browser
+        fake_js = None  # import js raises ImportError, as outside a browser
     else:
-        fake_js = types.ModuleType("js")
-        fake_js.eval = lambda source: AsyncMock(side_effect=RuntimeError("requestAdapter rejected"))
-        monkeypatch.setitem(sys.modules, "js", fake_js)
-    namespace = {}
-    code = compile(cell["source"], "ch21", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
-    asyncio.run(eval(code, namespace))
+        fake_js = _fake_js(AsyncMock(side_effect=RuntimeError("requestAdapter rejected")))
+    namespace = _run_backend_cell(monkeypatch, fake_js)
+    printed = capsys.readouterr().out
 
     assert namespace["backend"] == "wasm" and namespace["adapter"] is None
+    # a missing js module is the normal native case and is not reported; a failing check is
+    assert ("Could not check" in printed) == (failure == "probe rejects")
