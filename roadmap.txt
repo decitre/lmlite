@@ -1,0 +1,91 @@
+lmLite roadmap
+==============
+
+Written 2026-11-26 from the open GitHub issues and the review of #98. It is a plan, not a promise: order and scope
+change when a measurement says so. "Unverified" marks what nobody has tested.
+
+Rules that shape the plan
+-------------------------
+1. Scope. lmLite runs models in the browser from Python (Transformers.js, bare ONNX, devices). It does not train
+   models. Training, fine-tuning and benchmark research live in a separate repository, decitre/lmlite-lab (private; it has only a README so far). That
+   repository exports ONNX files and result tables; lmLite only loads and runs them.
+2. Complexity. No module over about 400 source lines (non-blank, non-comment). Today every Python module is under,
+   pipeline.py at 385 is the closest, and lmlite.js (1710) is the one over. Tracked in #97.
+3. Tools never act silently. A sensor tool needs a tap in the widget (#78). A router's wrong choice then costs one
+   dismissed prompt.
+4. Evidence. The routing numbers so far (#89, #92, #95) come from small sets written by the maintainer after seeing
+   failures. They support design choices; they are not a final accuracy.
+
+Done
+----
+- #78  request() on CameraCapture and AudioRecorder: prompt, required tap, cancel, timeout, denied permission,
+       device released however it ends. Merged in #96. Not run: Pyodide kernel, Firefox, WebKit, real phones.
+- #77 (library)  ToolRunner, Tool, model_tool, AgentResult: validated dispatch, step limit, run and tool timeouts,
+       cancellation, recorded steps. Merged in #98. Not run: any real model, Pyodide, xeus-python.
+
+Now
+---
+- #77 (rest)  A notebook with one successful tool call from a small browser-hosted model, and a docs section on
+       how invalid model output is handled.
+       Risk: Qwen2.5-0.5B chose the right tool 5 of 8 times in the issue's test and never chose record_audio, so the
+       demo should use one easy tool. Needs a real run (about 786 MB download).
+       Decide first: the notebook number, the ch01_demo list, and the fakes in tests/test_notebooks.py.
+
+Next, in this repository
+------------------------
+- #80  Read-only HTTP tool (one fixed endpoint, validated parameters, errors as tool errors). About a day after #77.
+       Check from the hosted JupyterLite origins for Pyodide and xeus-python.
+- #79  Geolocation and motion widgets. About 2 days plus device testing; needs an Android phone and an iOS device.
+       Each widget adds JavaScript as an _ESM string in a Python module, which #97 will have to move.
+- #81  Multimodal demo notebook using camera and audio, on top of #77 and #78.
+- #102 Symbolic planner over typed tool inputs and outputs. Deterministic Python on ToolRunner; no model needed.
+       Start with supplied goals so planner failures are separate from routing failures.
+- #99 (harness only)  The runner, a versioned tool catalog with simulated tools, fixtures and the scoring rubric.
+       The research part (pinned model runs, handheld latency) goes in the research repository.
+- Policy seam in ToolRunner. Today the runner talks to a model through chat() and JSON replies. A router, a
+  classifier, a planner or an arbiter does not chat. Add a policy (state in, action out) only when #99 needs it; the
+  model becomes one policy.
+- Module size check in CI. A ratchet that holds lmlite.js at its current size, lowered as #97 progresses.
+
+Whenever a feature needs to change lmlite.js
+--------------------------------------------
+- #97  Split lmlite.js into real ES modules, each with one job and one test file, under 400 SLOC, with a CI check.
+       Constraints: scripts/lite-build.sh reads TRANSFORMERS_VERSION with sed; four browser tests copy package files
+       from a hard-coded list; the runtime is globalThis.lmLite; the widgets load the runtime from the page.
+       Not a shortcut: no moving blocks without an interface, no JavaScript read from strings.
+- #45  DistilGPT-2 out of memory on iPad Air. May sit in model loading, so it may force #97 first. Not read for this
+       roadmap.
+
+Research repository (separate: decitre/lmlite-lab, private)
+---------------------------------------------
+Outputs are ONNX files and result tables; lmLite loads them with OnnxModel and checks browser inference.
+- #99 (research part)  Pinned models, datasets, runtimes, backends and decoding; the frozen holdout; MiniLM, POTION
+       and Qwen3.5 WebGPU baselines; cold and warm latency, memory, handheld measurements.
+       The holdout must be written by someone other than the author of the training examples. Handheld numbers need
+       the maintainer's devices.
+- #100 Lexical and hybrid classifiers (TF-IDF, negation features) against MiniLM and POTION. A small in-browser
+       classifier could come back to lmLite as a feature if it wins.
+- #101 Fine-tuned BERT-Tiny and BERT-Mini for the next action from structured state.
+- #103 Small T5 models translating a request into a tool plan.
+- #105 FunctionGemma fine-tuned for observation-dependent calls (P3).
+
+Deferred
+--------
+- #104 PyBot-style proposals and arbiter. Speculative; revisit only if a single router is shown to fall short.
+- #84, #85  PyBot and SmolLM comparison and benchmark.
+- #86, #87, #88  Hugging Face Static Spaces. Several tested models are non-commercial (mms-tts-eng, musicgen-small,
+       SD-Turbo): do not bundle them into a published site (docs/MODELS.md).
+- #93  Embedder router in French and German. The earlier multilingual test was closed as not planned.
+
+Open decisions
+--------------
+- Who owns the research holdout and when it is frozen; the layout and tooling of decitre/lmlite-lab; where the
+  weights live on the Hugging Face Hub.
+- Whether the policy seam goes in before or with #99.
+- Whether #79 waits for device availability.
+
+What this plan does not know
+----------------------------
+- Whether any small model follows the tool protocol well enough for a phone (#95: none passed).
+- How the tools module behaves in Pyodide and xeus-python (the tests ran on the host).
+- The effort for #99, #100 to #105 (no estimate was made).
