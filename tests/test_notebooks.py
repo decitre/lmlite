@@ -715,3 +715,23 @@ def test_tool_calling_notebook_picks_the_backend_from_the_adapter(monkeypatch, a
     asyncio.run(eval(code, namespace))
 
     assert namespace["backend"] == backend
+
+
+@pytest.mark.parametrize("failure", ["probe rejects", "no js module"])
+def test_tool_calling_notebook_uses_wasm_when_the_adapter_check_cannot_run(monkeypatch, failure):
+    cell = next(
+        cell
+        for cell in json.loads((NOTEBOOKS / "ch21_tool-calling.ipynb").read_text())["cells"]
+        if cell["id"] == "backend"
+    )
+    if failure == "no js module":
+        monkeypatch.setitem(sys.modules, "js", None)  # import js raises ImportError, as outside a browser
+    else:
+        fake_js = types.ModuleType("js")
+        fake_js.eval = lambda source: AsyncMock(side_effect=RuntimeError("requestAdapter rejected"))
+        monkeypatch.setitem(sys.modules, "js", fake_js)
+    namespace = {}
+    code = compile(cell["source"], "ch21", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+    asyncio.run(eval(code, namespace))
+
+    assert namespace["backend"] == "wasm" and namespace["adapter"] is None
