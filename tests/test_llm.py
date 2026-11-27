@@ -818,10 +818,9 @@ class TestLLMAutoDetect:
                     if "js" in sys.modules:
                         del sys.modules["js"]
 
-    @pytest.mark.filterwarnings("ignore:.*will be removed in 0.15:DeprecationWarning")
     async def test_auto_detect_checks_all_configured_models(self, capsys):
         """Test generator and embedding models are both checked and reported."""
-        from lmlite import LLM
+        from lmlite._session import Session
 
         mock_js_instance = MagicMock()
         mock_js_instance.init = AsyncMock()
@@ -841,7 +840,7 @@ class TestLLMAutoDetect:
             with patch("lmlite._bridge.ensure_runtime"):
                 sys.modules["js"] = mock_js_module
                 try:
-                    await LLM.create(
+                    await Session.create(
                         local_models_path=tmpdir,
                         generator_model="gpt2",
                         embedding_model="all-mpnet-base-v2",
@@ -1084,18 +1083,19 @@ class TestLLMLoadingProgress:
         assert config["backend"] == "webgpu" and config["dtype_fallbacks"] == ["q8", "fp32"] and config["dtype"] is None
         assert isinstance(classifier, Classifier)
 
-    async def test_llm_create_still_loads_an_embedding_model_with_a_warning(self, loading):
+    async def test_llm_create_refuses_an_embedding_or_classification_model(self, loading):
         from lmlite import LLM
 
-        _, _, js, _ = loading
-        with pytest.warns(DeprecationWarning, match=r"LLM.create\(embedding_model=\).*0\.15.*Embedder\.create"):
-            await LLM.create(
-                embedding_model="all-MiniLM-L6-v2", embedding_dtype="q8", dtype="fp32", auto_detect_local=False
-            )
+        for name in ("embedding_model", "classification_model"):
+            with pytest.raises(
+                TypeError, match=rf"no longer takes {name}.*Embedder\.create\(\) or Classifier\.create\(\)"
+            ):
+                await LLM.create(**{name: "acme/model"}, auto_detect_local=False)
 
-        config = js.lmLite.createRuntime.call_args.args[0]
-        assert config["embedding_dtype"] == "q8" and config["dtype"] == "fp32"
-        assert config["embedding_model"] == "all-MiniLM-L6-v2"
+    def test_llm_has_no_embedding_or_classification_methods(self):
+        from lmlite import LLM
+
+        assert not [name for name in ("embed", "classify", "similarity_search") if hasattr(LLM, name)]
 
     @pytest.mark.parametrize("quiet", [False, True])
     async def test_quiet_loading_prints_nothing_and_shows_no_progress_bar(self, loading, tmp_path, capsys, quiet):
@@ -1116,34 +1116,6 @@ class TestLLMLoadingProgress:
         assert progress.call_args.kwargs == {"quiet": quiet}
         assert ("Using hosted files for Xenova/gpt2" in capsys.readouterr().out) is (not quiet)
 
-    async def test_llm_create_does_not_warn_for_a_generator(self, loading, recwarn):
-        from lmlite import LLM
-
-        await LLM.create(generator_model="gpt2", auto_detect_local=False)
-
-        assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning) and "0.15" in str(w.message)]
-
-    async def test_the_deprecated_llm_methods_warn_once_and_still_work(self):
-        from lmlite import LLM
-
-        js = MagicMock(embed=AsyncMock(return_value=[1.0, 0.0]), classify=AsyncMock(return_value=[{"label": "A"}]))
-        llm = LLM(js)
-        with pytest.warns(DeprecationWarning, match=r"LLM.embed\(\)") as embed_warnings:
-            assert await llm.embed("x") == [1.0, 0.0]
-        with pytest.warns(DeprecationWarning, match=r"LLM.classify\(\)"):
-            assert await llm.classify("x", top_k=1) == [{"label": "A"}]
-        with (
-            patch("lmlite.embedder._js_function", return_value=lambda query, docs: [0.5, 0.25]),
-            patch("lmlite.embedder._to_js", side_effect=lambda value: value),
-            pytest.warns(DeprecationWarning, match=r"LLM.similarity_search\(\)") as search_warnings,
-        ):
-            assert await llm.similarity_search("q", ["a", "b"]) == [("a", 0.5), ("b", 0.25)]
-
-        assert len(embed_warnings) == 1 and len(search_warnings) == 1  # the inner embed() calls do not warn again
-        assert all(
-            w.filename == __file__ for w in [*embed_warnings, *search_warnings]
-        )  # the warning points at the caller
-
     async def test_hosted_model_bypasses_zip_and_hub_revision_lookup(self, loading, tmp_path, monkeypatch):
         import sys
 
@@ -1163,13 +1135,12 @@ class TestLLMLoadingProgress:
         assert config["hosted_models"] == ["Xenova/gpt2"]
         instance.init.assert_awaited_once()
 
-    @pytest.mark.filterwarnings("ignore:.*will be removed in 0.15:DeprecationWarning")
     async def test_explicit_hosted_url_and_nonhosted_model_fallback(self, loading, tmp_path):
-        from lmlite import LLM
+        from lmlite._session import Session
 
         _, _, js, _ = loading
         js.lmLite.getHostedModelBase = AsyncMock(side_effect=["https://example.test/models/", None])
-        await LLM.create(
+        await Session.create(
             generator_model="gpt2@main",
             embedding_model="acme/embed@v1",
             hosted_models_url="https://example.test/models/",

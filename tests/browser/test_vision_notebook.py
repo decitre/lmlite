@@ -11,7 +11,7 @@ from kernels import run_in_pyodide, run_in_xeus
 
 pytestmark = pytest.mark.browser
 
-NOTEBOOK = Path(__file__).resolve().parents[2] / "notebooks/ch09_vision.ipynb"
+NOTEBOOK = Path(__file__).resolve().parents[2] / "notebooks/ch13_vision.ipynb"
 
 # Pyodide has no IPython: a stand-in keeps the notebook's own `from IPython.display import display` working.
 STAND_IN = """
