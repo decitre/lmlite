@@ -20,7 +20,7 @@ retrying another variant if loading fails. When `dtype` is omitted or `None`,
 Transformers.js chooses its default dtype. Use `backend="wasm"` or `"webgpu"` to
 select the embedding device. The default, `None`, retains Transformers.js's
 default device selection. Unsupported device/model/dtype combinations fail
-initialization without retrying on another backend.
+initialization, except that `"webgpu"` falls back to `"wasm"` when the browser has no WebGPU adapter or the load fails for a WebGPU-specific reason (see [WebGPU fallback](reference/parameters.md#webgpu-fallback)); pass `backend_fallback=False` to fail instead.
 
 ```python
 from lmlite import Embedder

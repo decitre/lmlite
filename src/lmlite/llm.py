@@ -181,6 +181,13 @@ class LLM(Session):
                 which gets the default ``Xenova/`` namespace.
             backend: ``"wasm"`` (the default) or ``"webgpu"``; ``"native"`` runs onnxruntime outside a browser
                 (``pip install 'lmlite[native]'``).
+            backend_fallback: ``True`` (the default) loads on ``"wasm"`` when ``backend="webgpu"`` but the browser has no
+                WebGPU adapter, or the load fails for a reason specific to WebGPU (no adapter, a lost device, a shader or
+                buffer limit such as Firefox's "Too many storage buffers" for ``q4``). It says so when loading ends;
+                ``backend`` and ``backend_fallback_reason`` tell which backend ran and why. A pinned ``dtype`` stays
+                pinned, so a ``q4`` model that fell back is slow on WASM. A network error, running out of memory or a
+                missing file does not fall back, since WASM would fail the same way. ``False`` fails instead; use it
+                when you measure or prove which backend ran.
             dtype: The weights to load, such as ``"q4"`` or ``"fp32"``. By default the first of ``q8``, ``int8`` and
                 ``fp32`` that exists. On WebGPU ``"q4"`` is the fastest; see the model guide.
             dtype_fallbacks: Dtypes to try in order; takes precedence over ``dtype``.

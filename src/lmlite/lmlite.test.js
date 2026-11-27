@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import './lmlite.js';
 
+// A browser with WebGPU, unless a test says otherwise.
+beforeEach(() => { vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({}) } }); });
+afterEach(() => { vi.unstubAllGlobals(); });
+
 vi.mock('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2', () => {
   class PreTrainedTokenizer {
     constructor(json, config) { this.json = json; this.config = config; }
@@ -486,16 +490,150 @@ describe('BrowserRuntime embedding dtype pinning', () => {
     expect(pipeline).not.toHaveBeenCalled();
   });
 
-  it('does not fall back to WASM when WebGPU embedding loading fails', async () => {
+  it('does not fall back to WASM when WebGPU embedding loading fails with backend_fallback false', async () => {
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
     pipeline.mockRejectedValue(new Error('WebGPU unavailable'));
     pipeline.mockClear();
 
     await expect(new BrowserRuntime({
-      embedding_model: 'org/embedding', embedding_backend: 'webgpu',
+      embedding_model: 'org/embedding', embedding_backend: 'webgpu', backend_fallback: false,
     }).init()).rejects.toThrow("Failed to load embedding model 'org/embedding': WebGPU unavailable");
     expect(pipeline).toHaveBeenCalledTimes(1);
     expect(pipeline.mock.calls[0][2].device).toBe('webgpu');
+  });
+
+  describe('backend fallback without WebGPU', () => {
+    const noGpu = () => vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => null } });
+    const load = async (config) => {
+      const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+      pipeline.mockReset();
+      pipeline.mockResolvedValue(vi.fn());
+      const runtime = new BrowserRuntime(config);
+      await runtime.init();
+      return { pipeline, runtime };
+    };
+
+    it('uses wasm for every model when there is no adapter', async () => {
+      noGpu();
+      const { pipeline, runtime } = await load({
+        classification_model: 'org/cls', embedding_model: 'org/emb', embedding_backend: 'webgpu', backend: 'webgpu',
+      });
+      expect(runtime.backend).toBe('wasm');
+      expect(pipeline.mock.calls.map(c => c[2].device)).toEqual(['wasm', 'wasm']);
+    });
+
+    it('uses wasm when navigator.gpu is missing', async () => {
+      vi.stubGlobal('navigator', {});
+      expect((await load({ classification_model: 'org/cls', backend: 'webgpu' })).runtime.backend).toBe('wasm');
+    });
+
+    it('keeps webgpu with backend_fallback false, and the load fails as before', async () => {
+      noGpu();
+      const { pipeline, runtime } = await load({ classification_model: 'org/cls', backend: 'webgpu', backend_fallback: false });
+      expect(runtime.backend).toBe('webgpu');
+      expect(pipeline.mock.calls[0][2].device).toBe('webgpu');
+    });
+
+    it('keeps webgpu when there is an adapter', async () => {
+      expect((await load({ classification_model: 'org/cls', backend: 'webgpu' })).runtime.backend).toBe('webgpu');
+    });
+
+    describe('after a WebGPU load failure', () => {
+      const tooManyBuffers = 'no available backend found. ERR: [webgpu] Error: Too many storage buffers in shader. Current: 10, Max is 9';
+      const failOnWebgpu = async (message) => {
+        const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+        pipeline.mockReset();
+        pipeline.mockImplementation(async (task, model, options) => {
+          if (options.device === 'webgpu') throw new Error(message);
+          return vi.fn(async () => []);
+        });
+        return pipeline;
+      };
+
+      it('retries a classifier once on wasm, keeps the dtype order, and reports why', async () => {
+        const pipeline = await failOnWebgpu(tooManyBuffers);
+        const runtime = new BrowserRuntime({ classification_model: 'org/cls', backend: 'webgpu', dtype: 'q4' });
+        await runtime.init();
+
+        expect(pipeline.mock.calls.map(c => [c[2].device, c[2].dtype])).toEqual([['webgpu', 'q4'], ['wasm', 'q4']]);
+        expect(runtime.backend).toBe('wasm');
+        expect(runtime.fallbackReason).toContain('Too many storage buffers');
+      });
+
+      it('frees a generator that loaded but failed to warm up before the retry', async () => {
+        const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+        const dispose = vi.fn(async () => {});
+        const order = [];
+        pipeline.mockReset();
+        pipeline.mockImplementation(async (task, model, options) => {
+          order.push(`load ${options.device}`);
+          const generator = vi.fn(async () => {
+            if (options.device === 'webgpu') throw new Error('Device lost');
+          });
+          generator.model = {};
+          generator.dispose = async () => { order.push('dispose'); await dispose(); };
+          return generator;
+        });
+        const runtime = new BrowserRuntime({ generator_model: 'org/gen', backend: 'webgpu', dtype: 'q4' });
+        await runtime.init();
+
+        expect(order).toEqual(['load webgpu', 'dispose', 'load wasm']);
+        expect(runtime.backend).toBe('wasm');
+      });
+
+      it('retries an embedder on wasm with its pinned dtype', async () => {
+        const pipeline = await failOnWebgpu(tooManyBuffers);
+        const runtime = new BrowserRuntime({
+          embedding_model: 'org/emb', embedding_backend: 'webgpu', embedding_dtype: 'q8',
+        });
+        await runtime.init();
+
+        expect(pipeline.mock.calls.map(c => [c[2].device, c[2].dtype])).toEqual([['webgpu', 'q8'], ['wasm', 'q8']]);
+        expect(runtime.embeddingBackend).toBe('wasm');
+      });
+
+      it('loads the next model on the backend the first one ended up on', async () => {
+        const pipeline = await failOnWebgpu(tooManyBuffers);
+        await new BrowserRuntime({ classification_model: 'org/cls', task: 'translation', task_model: 'org/t', backend: 'webgpu' }).init();
+
+        expect(pipeline.mock.calls.map(c => c[2].device)).toEqual(['webgpu', 'wasm', 'wasm']);
+      });
+
+      it.each([
+        ['out of memory', 'no available backend found. ERR: [webgpu] RangeError: Out of memory'],
+        ['a dropped download', 'no available backend found. ERR: [webgpu] TypeError: Failed to fetch'],
+        ['a missing file', 'Could not locate file: model.onnx'],
+      ])('does not retry %s', async (name, message) => {
+        const pipeline = await failOnWebgpu(message);
+        await expect(new BrowserRuntime({ classification_model: 'org/cls', backend: 'webgpu', dtype: 'q4' }).init())
+          .rejects.toThrow(message);
+        expect(pipeline.mock.calls.map(c => c[2].device)).toEqual(['webgpu']);
+      });
+
+      it('does not retry with backend_fallback false', async () => {
+        const pipeline = await failOnWebgpu(tooManyBuffers);
+        await expect(new BrowserRuntime({
+          classification_model: 'org/cls', backend: 'webgpu', dtype: 'q4', backend_fallback: false,
+        }).init()).rejects.toThrow('Too many storage buffers');
+        expect(pipeline).toHaveBeenCalledTimes(1);
+      });
+
+      it('names both failures when the retry fails too', async () => {
+        const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+        pipeline.mockReset();
+        pipeline.mockImplementation(async (task, model, options) => {
+          throw new Error(options.device === 'webgpu' ? tooManyBuffers : 'unsupported operator');
+        });
+        await expect(new BrowserRuntime({ classification_model: 'org/cls', backend: 'webgpu', dtype: 'q4' }).init())
+          .rejects.toThrow(/unsupported operator \(WebGPU had failed first: .*Too many storage buffers/);
+      });
+    });
+
+    it('leaves wasm and an unset embedding device alone', async () => {
+      noGpu();
+      const { pipeline } = await load({ embedding_model: 'org/emb', backend: 'wasm' });
+      expect(pipeline.mock.calls[0][2].device).toBeUndefined();
+    });
   });
 
   describe('the message when a generator or task model fails', () => {
@@ -1843,6 +1981,45 @@ describe('bare ONNX models', () => {
     expect(info).toMatchObject({ backend: 'webgpu', execution_provider: 'webgpu', size: 3 });
     expect(info.sha256).toHaveLength(64);
     expect(info.inputs).toEqual([{ name: 'x', dtype: 'float32', shape: ['batch', 3] }]);
+  });
+
+  describe('falling back from WebGPU', () => {
+    const f16 = 'no available backend found. ERR: [webgpu] Error: Program Transpose requires f16 but the device does not support it';
+
+    it('retries on wasm after a WebGPU-specific failure and says so', async () => {
+      const ort = await import(ortUrl);
+      ort.InferenceSession.create.mockRejectedValueOnce(new Error(f16));
+      const bytes = new Uint8Array([1, 2, 3]);
+
+      const info = JSON.parse((await loadOnnxModel(bytes, 'webgpu')).describe());
+
+      expect(ort.InferenceSession.create.mock.calls.slice(-2).map(c => c[1].executionProviders)).toEqual([['webgpu'], ['wasm']]);
+      expect(info).toMatchObject({ backend: 'wasm', execution_provider: 'wasm' });
+      expect(info.backend_fallback_reason).toContain('requires f16');
+    });
+
+    it('uses wasm without an adapter, and not at all with backend_fallback false', async () => {
+      const ort = await import(ortUrl);
+      vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => null } });
+      ort.InferenceSession.create.mockClear();
+
+      const info = JSON.parse((await loadOnnxModel(new Uint8Array([1]), 'webgpu')).describe());
+      expect(info).toMatchObject({ backend: 'wasm', backend_fallback_reason: 'no WebGPU adapter in this browser' });
+      expect(ort.InferenceSession.create.mock.calls.map(c => c[1].executionProviders)).toEqual([['wasm']]);
+
+      await loadOnnxModel(new Uint8Array([1]), 'webgpu', null, true, false);
+      expect(ort.InferenceSession.create.mock.calls.at(-1)[1].executionProviders).toEqual(['webgpu']);
+    });
+
+    it('does not retry a failure that is not about WebGPU, or any wasm failure', async () => {
+      const ort = await import(ortUrl);
+      ort.InferenceSession.create.mockClear();
+      ort.InferenceSession.create.mockRejectedValueOnce(new Error('Out of memory'));
+      await expect(loadOnnxModel(new Uint8Array([1]), 'webgpu')).rejects.toThrow('Out of memory');
+      ort.InferenceSession.create.mockRejectedValueOnce(new Error(f16));
+      await expect(loadOnnxModel(new Uint8Array([1]), 'wasm')).rejects.toThrow('requires f16');
+      expect(ort.InferenceSession.create).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('fetches a URL, runs on raw buffers and returns one buffer per output', async () => {

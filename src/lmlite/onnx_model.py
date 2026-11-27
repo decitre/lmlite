@@ -134,7 +134,16 @@ class OnnxModel:
         return f"OnnxModel(inputs={[i['name'] for i in self.inputs]}, outputs={[o['name'] for o in self.outputs]})"
 
     @classmethod
-    async def load(cls, source, backend="wasm", licence=None, sha256=None, cache=True, hosted_models_url=None):
+    async def load(
+        cls,
+        source,
+        backend="wasm",
+        licence=None,
+        sha256=None,
+        cache=True,
+        hosted_models_url=None,
+        backend_fallback=True,
+    ):
         """Load a model.
 
         Args:
@@ -147,6 +156,11 @@ class OnnxModel:
             sha256: A hash the model's bytes must match.
             cache: In a browser kernel, keep URLs in the Cache API so a later load of the same URL makes no request.
             hosted_models_url: An explicit URL of a models directory, for hosted IDs.
+            backend_fallback: ``True`` (the default) loads on ``"wasm"`` when ``backend="webgpu"`` but the browser has no
+                WebGPU adapter, or the session cannot be created for a reason specific to WebGPU (an operator or
+                ``float16`` the adapter lacks). The model then runs on WASM, which can be much slower or run out of
+                memory; ``model_info()`` reports the ``backend`` that ran and the ``backend_fallback_reason``. ``False``
+                fails instead.
 
         Returns:
             The loaded ``OnnxModel``.
@@ -169,7 +183,7 @@ class OnnxModel:
         if native:
             return await native.load_onnx_model(cls, data if data is not None else source, licence, sha256)
         handle = await _js_function("loadOnnxModel")(
-            _to_js(data) if data is not None else source, backend, sha256, cache
+            _to_js(data) if data is not None else source, backend, sha256, cache, backend_fallback
         )
         return cls(handle, json.loads(str(handle.describe())), licence)
 

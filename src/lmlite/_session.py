@@ -14,6 +14,7 @@ class Session:
         "classification_model": None,
         "backend": "wasm",
         "embedding_backend": None,
+        "backend_fallback": True,
         "dtype": None,
         "dtype_fallbacks": None,
         # Explicit dtype for the embedding (feature-extraction) pipeline, e.g.
@@ -32,6 +33,18 @@ class Session:
     def __init__(self, js_instance, models=None):
         self.js = js_instance
         self._models = [m for m in (models or []) if m]
+
+    @property
+    def backend(self):
+        """The backend that loaded the models: ``"webgpu"``, ``"wasm"`` or ``"native"``. After a fallback from WebGPU
+        (see ``backend_fallback``) it is ``"wasm"``, and ``backend_fallback_reason`` says why."""
+        return getattr(self.js, "backend", None) or "native"  # the native backend has no such attribute
+
+    @property
+    def backend_fallback_reason(self):
+        """Why WebGPU was given up for WASM, or ``None`` if it was not."""
+        reason = getattr(self.js, "fallbackReason", None)
+        return str(reason) if reason else None
 
     # --- lifecycle ---
 
@@ -204,6 +217,10 @@ class Session:
             progress.reset(total=1)
             progress.update(1)
             progress.set_description("Models ready")
+
+        reason = None if native else getattr(instance, "fallbackReason", None)
+        if reason:  # WebGPU was asked for and given up: say so, so a benchmark or a bug report is not misread
+            say(f"WebGPU was not used, the models run on WASM: {reason}")
 
         models = [
             config.get("generator_model"),
