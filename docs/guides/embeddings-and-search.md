@@ -61,7 +61,7 @@ embedder = await Embedder.create("all-MiniLM-L6-v2", dtype="q8")
 embedding = await embedder.embed("JupyterLite runs in the browser.")
 ```
 
-Set `backend="wasm"` or `"webgpu"` to choose the embedding device. The default, `None`, omits the device option and lets Transformers.js choose. Unsupported device/model/dtype combinations fail initialization; lmLite does not retry on another embedding backend.
+Set `backend="wasm"` or `"webgpu"` to choose the embedding device. The default, `None`, omits the device option and lets Transformers.js choose. Unsupported device/model/dtype combinations fail initialization. With `"webgpu"`, a failure specific to WebGPU is retried once on WASM, as described in [WebGPU fallback](../reference/parameters.md#webgpu-fallback); pass `backend_fallback=False` to fail instead.
 
 `dtype=None` (the default) leaves dtype selection to Transformers.js. An explicit value selects only that dtype: unavailable or incompatible weights fail initialization rather than falling back. No embedding warm-up is performed. This opt-in setting preserves existing embedding loading behavior when omitted.
 

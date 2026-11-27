@@ -2450,3 +2450,25 @@ class TestTopLevelFunctions:
 
         assert await getattr(lmlite.LLM, name)(*args, **kwargs) == "result"
         assert function.await_args == call(*expected[0], **expected[1])
+
+
+def test_backend_reports_the_backend_that_ran():
+    import types
+
+    from lmlite import Embedder, LLM
+
+    assert LLM(types.SimpleNamespace(backend="wasm")).backend == "wasm"
+    assert LLM(types.SimpleNamespace()).backend == "native"
+    assert Embedder(types.SimpleNamespace(embeddingBackend="wasm")).backend == "wasm"
+    assert Embedder(types.SimpleNamespace(embeddingBackend=None)).backend is None
+    assert Embedder(types.SimpleNamespace()).backend == "native"
+
+
+def test_backend_fallback_reason():
+    import types
+
+    from lmlite import LLM
+
+    assert LLM(types.SimpleNamespace(fallbackReason="no WebGPU adapter")).backend_fallback_reason == "no WebGPU adapter"
+    assert LLM(types.SimpleNamespace(fallbackReason=None)).backend_fallback_reason is None
+    assert LLM(types.SimpleNamespace()).backend_fallback_reason is None

@@ -426,6 +426,56 @@ function yieldBeforeEachStep(model) {
   };
 }
 
+// True when the browser has WebGPU and an adapter to run it on.
+async function hasWebGPU() {
+  try {
+    return Boolean(await globalThis.navigator?.gpu?.requestAdapter());
+  } catch {
+    return false;
+  }
+}
+
+// What the runtimes say when WebGPU itself is the problem: no adapter, a lost device, a shader or buffer limit
+// ("Too many storage buffers", "exceeds maxBufferSize"), or "no available backend found. ERR: [webgpu] ...".
+const WEBGPU_ERROR = /webgpu|gpu adapter|device (was )?lost|storage buffers?|shader|maxbuffersize|maxstoragebufferbindingsize/i;
+
+// A failure that WASM may not share. Out-of-memory and fetch errors are not: they happen on both backends, and a retry
+// would hide a dropped download or a model that is too large. Matched by wording, which is fragile.
+function isWebGPUFailure(error) {
+  const message = String(error?.message ?? error);
+  return !MEMORY_ERROR.test(message) && !FETCH_ERROR.test(message) && WEBGPU_ERROR.test(message);
+}
+
+// Runs load(device). On 'webgpu', with `enabled`, a WebGPU-specific failure frees what the attempt left (cleanup) and
+// runs load('wasm') once. Returns the value, the backend that ran and why it fell back (null if it did not).
+async function loadWithBackendFallback({ device, enabled, what, load, cleanup = async () => {} }) {
+  if (device === 'webgpu' && enabled && !(await hasWebGPU())) {
+    const reason = 'no WebGPU adapter in this browser';
+    console.warn(`WebGPU is not available for ${what}, using WASM: ${reason}`);
+    return { value: await load('wasm'), backend: 'wasm', reason };
+  }
+  try {
+    return { value: await load(device), backend: device, reason: null };
+  } catch (error) {
+    if (device !== 'webgpu' || !enabled || !isWebGPUFailure(error)) {
+      throw error;
+    }
+    const reason = String(error?.message ?? error);
+    console.warn(`WebGPU failed for ${what}, using WASM: ${reason}`);
+    try {
+      await cleanup();
+    } catch {
+      // The failed attempt is gone either way; a release error must not hide the retry.
+    }
+    try {
+      return { value: await load('wasm'), backend: 'wasm', reason };
+    } catch (retryError) {
+      retryError.message = `${retryError.message} (WebGPU had failed first: ${reason})`;
+      throw retryError;
+    }
+  }
+}
+
 class BrowserRuntime {
   constructor(config) {
     this.generatorModel = config.generator_model;
@@ -435,6 +485,8 @@ class BrowserRuntime {
     this.taskModel = config.task_model ?? null;
     this.backend = (config.backend ?? 'wasm').toLowerCase();
     this.embeddingBackend = config.embedding_backend == null ? null : config.embedding_backend.toLowerCase();
+    this.backendFallback = config.backend_fallback ?? true;
+    this.fallbackReason = null;  // why WebGPU was given up for WASM, if it was
     this.dtype = config.dtype ?? null;
     this.dtypeFallbacks = Array.isArray(config.dtype_fallbacks) ? config.dtype_fallbacks : null;
     // Optional explicit dtype for the embedding (feature-extraction) pipeline.
@@ -497,6 +549,17 @@ class BrowserRuntime {
     throw Object.assign(lastError, { dtypesTried: tried });
   }
 
+  // Later models load on the backend an earlier one ended up on, and the reason is kept for the user.
+  _useBackend(backend, reason) {
+    this.backend = backend;
+    this.fallbackReason = reason ?? this.fallbackReason;
+  }
+
+  async _release(name) {
+    await this[name]?.dispose?.();
+    this[name] = null;
+  }
+
   async init(progressCallback = null) {
     const report = (model, status, file = '', loaded = 0, total = 0) => {
       if (progressCallback) {
@@ -552,23 +615,33 @@ class BrowserRuntime {
         const generatorModelId = resolveModelId(this.generatorModel).replace(/@main$/, '');
         report(generatorModelId, 'loading');
         console.log(`Loading text-generation model: ${generatorModelId}`);
-        this.generator = await this._loadPipelineWithDtypeFallback(
-          pipeline,
-          "text-generation",
-          generatorModelId,
-          {
-            device: this.backend,
-            ...sourceOptions(generatorModelId),
-            progress_callback: onProgress(generatorModelId)
-          }
-        );
-        yieldBeforeEachStep(this.generator.model);
-        console.log(`Model loaded successfully: ${this.generatorModel}`);
-        console.log(`Warming up model...`);
-        report(generatorModelId, 'warming up');
-        stage = 'warm up';
-        await this.generator("test", { max_new_tokens: 1 });
-        console.log(`Model warm-up complete`);
+        const { backend, reason } = await loadWithBackendFallback({
+          device: this.backend,
+          enabled: this.backendFallback,
+          what: generatorModelId,
+          load: async (device) => {
+            stage = 'load';
+            this.generator = await this._loadPipelineWithDtypeFallback(
+              pipeline,
+              "text-generation",
+              generatorModelId,
+              {
+                device,
+                ...sourceOptions(generatorModelId),
+                progress_callback: onProgress(generatorModelId)
+              }
+            );
+            yieldBeforeEachStep(this.generator.model);
+            console.log(`Model loaded successfully: ${this.generatorModel}`);
+            console.log(`Warming up model...`);
+            report(generatorModelId, 'warming up');
+            stage = 'warm up';
+            await this.generator("test", { max_new_tokens: 1 });
+            console.log(`Model warm-up complete`);
+          },
+          cleanup: () => this._release('generator'),  // the WebGPU buffers go before the second load
+        });
+        this._useBackend(backend, reason);
       } catch (error) {
         throw loadFailure({ stage, what: 'text-generation', model: this.generatorModel, backend: this.backend, error, env });
       }
@@ -581,26 +654,29 @@ class BrowserRuntime {
         console.log(`Loading embedding model: ${embeddingModelId}`);
         // Embedding device selection is independent of the generation/classification backend.
         const embeddingOptions = {
-          ...(this.embeddingBackend === null ? {} : { device: this.embeddingBackend }),
           ...sourceOptions(embeddingModelId),
           progress_callback: onProgress(embeddingModelId),
         };
+        // A pinned embedding dtype is exactly that dtype (an offline-precomputed vector set depends on it), independent
+        // of the generator's `dtype` / `dtype_fallbacks`, so it does not go through _loadPipelineWithDtypeFallback and
+        // never changes on a backend fallback. Without a pin Transformers.js chooses the dtype.
         if (this.embeddingDtype) {
-          // Pin EXACTLY this dtype. This is deliberately independent of the
-          // global `dtype` / `dtype_fallbacks` (which target the generator): we
-          // do NOT route through _loadPipelineWithDtypeFallback / _resolveDtypes,
-          // because those would let a generator-oriented dtype override the
-          // embedding pin. A pinned embedding dtype must be reproducible (an
-          // offline-precomputed vector set depends on it), so there is no
-          // fallback to another dtype here.
           console.log(`Pinning embedding dtype: ${this.embeddingDtype}`);
-          this.embedder = await pipeline("feature-extraction", embeddingModelId, {
+        }
+        const { value, backend, reason } = await loadWithBackendFallback({
+          device: this.embeddingBackend,
+          enabled: this.backendFallback,
+          what: embeddingModelId,
+          load: (device) => pipeline("feature-extraction", embeddingModelId, {
             ...embeddingOptions,
-            dtype: this.embeddingDtype,
-          });
-        } else {
-          // Default: let Transformers.js choose the feature-extraction dtype.
-          this.embedder = await pipeline("feature-extraction", embeddingModelId, embeddingOptions);
+            ...(device === null ? {} : { device }),
+            ...(this.embeddingDtype ? { dtype: this.embeddingDtype } : {}),
+          }),
+        });
+        this.embedder = value;
+        if (reason) {
+          this.embeddingBackend = backend;
+          this.fallbackReason = reason;
         }
         console.log(`Embedding model loaded successfully: ${this.embeddingModel}`);
       } catch (error) {
@@ -615,16 +691,23 @@ class BrowserRuntime {
         const classificationModelId = resolveModelId(this.classificationModel).replace(/@main$/, '');
         report(classificationModelId, 'loading');
         console.log(`Loading classification model: ${classificationModelId}`);
-        this.classifier = await this._loadPipelineWithDtypeFallback(
-          pipeline,
-          "text-classification",
-          classificationModelId,
-          {
-            device: this.backend,
-            ...sourceOptions(classificationModelId),
-            progress_callback: onProgress(classificationModelId)
-          }
-        );
+        const { value, backend, reason } = await loadWithBackendFallback({
+          device: this.backend,
+          enabled: this.backendFallback,
+          what: classificationModelId,
+          load: (device) => this._loadPipelineWithDtypeFallback(
+            pipeline,
+            "text-classification",
+            classificationModelId,
+            {
+              device,
+              ...sourceOptions(classificationModelId),
+              progress_callback: onProgress(classificationModelId)
+            }
+          ),
+        });
+        this.classifier = value;
+        this._useBackend(backend, reason);
         console.log(`Classification model loaded successfully: ${this.classificationModel}`);
       } catch (error) {
         throw new Error(
@@ -638,16 +721,23 @@ class BrowserRuntime {
         const taskModelId = resolveModelId(this.taskModel).replace(/@main$/, '');
         report(taskModelId, 'loading');
         console.log(`Loading ${this.task} model: ${taskModelId}`);
-        this.taskPipeline = await this._loadPipelineWithDtypeFallback(
-          pipeline,
-          this.task,
-          taskModelId,
-          {
-            device: this.backend,
-            ...sourceOptions(taskModelId),
-            progress_callback: onProgress(taskModelId)
-          }
-        );
+        const { value, backend, reason } = await loadWithBackendFallback({
+          device: this.backend,
+          enabled: this.backendFallback,
+          what: taskModelId,
+          load: (device) => this._loadPipelineWithDtypeFallback(
+            pipeline,
+            this.task,
+            taskModelId,
+            {
+              device,
+              ...sourceOptions(taskModelId),
+              progress_callback: onProgress(taskModelId)
+            }
+          ),
+        });
+        this.taskPipeline = value;
+        this._useBackend(backend, reason);
         console.log(`${this.task} model loaded successfully: ${this.taskModel}`);
       } catch (error) {
         throw loadFailure({ stage: 'load', what: this.task, model: this.taskModel, backend: this.backend, error, env });
@@ -1395,8 +1485,10 @@ async function fetchOnnxBytes(url, expected, useCache) {
 }
 
 // `source` is a URL or the model's bytes. With `sha256`, the bytes must match it. URLs are kept in the Cache API
-// unless `useCache` is false. Throws if the backend cannot create the session.
-async function loadOnnxModel(source, backend = 'wasm', expectedSha256 = null, useCache = true) {
+// unless `useCache` is false. Throws if the backend cannot create the session. With `backendFallback`, 'webgpu' falls
+// back to 'wasm' when there is no adapter or the session cannot be created for a WebGPU-specific reason (an operator or
+// float16 the adapter lacks); `backend` and `backend_fallback_reason` in the description say what happened.
+async function loadOnnxModel(source, backend = 'wasm', expectedSha256 = null, useCache = true, backendFallback = true) {
   const ort = await loadOrt();
   let loaded;
   if (typeof source === 'string') {
@@ -1408,10 +1500,16 @@ async function loadOnnxModel(source, backend = 'wasm', expectedSha256 = null, us
       throw new Error(`SHA-256 mismatch: expected ${expectedSha256}, got ${loaded.sha256}`);
     }
   }
-  const session = await ort.InferenceSession.create(loaded.bytes, { executionProviders: [backend] });
+  const { value: session, backend: used, reason } = await loadWithBackendFallback({
+    device: backend,
+    enabled: backendFallback,
+    what: 'the ONNX model',
+    load: (device) => ort.InferenceSession.create(loaded.bytes, { executionProviders: [device] }),
+  });
   return new OnnxModel(session, {
-    backend,
-    execution_provider: backend,  // one provider is requested, so creation succeeding means it is the one used
+    backend: used,
+    execution_provider: used,  // one provider is requested, so creation succeeding means it is the one used
+    backend_fallback_reason: reason,
     sha256: loaded.sha256,
     size: loaded.bytes.byteLength,
     cache_status: loaded.cache,

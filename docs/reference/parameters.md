@@ -8,6 +8,7 @@
 llm = await LLM.create(
     generator_model="gpt2",           # or "distilgpt2", etc.
     backend="wasm",                   # "wasm" or "webgpu"
+    backend_fallback=True,            # webgpu falls back to wasm when WebGPU is the problem (see below)
     dtype=None,                       # e.g. "fp32"
     dtype_fallbacks=None,             # retry order; takes precedence over dtype
     max_new_tokens=50,
@@ -63,6 +64,24 @@ Pass full Hugging Face IDs (e.g. `Xenova/gpt2`, `my-org/my-model`) for explicit 
 Model support depends on the current Transformers.js runtime and the ONNX/dtype files available for that model. If a model fails to load, check the Transformers.js WebGPU and dtype guides for compatible browser models.
 
 The fastest generation dtype depends on the backend: `q4` on WebGPU, `fp16` (or `q8` for files over 2 GB) on WASM, where `q4` is 4 to 8× slower than `q8`. The default fallback order starts with `q8`, the slowest WebGPU choice, so pass `dtype="q4"` with `backend="webgpu"`. Measurements are in [MODELS.md](../MODELS.md#generation-dtype-selection).
+
+### WebGPU fallback
+
+`backend_fallback=True` (the default) applies to `LLM`, `Embedder`, `Classifier`, `pipeline()` and `OnnxModel.load()`. With `backend="webgpu"`:
+
+- A browser with no WebGPU adapter loads on WASM with no attempt on WebGPU.
+- A load that fails for a reason specific to WebGPU is retried once on WASM, after the failed model is released: a lost device, a shader or buffer limit (Firefox's `Too many storage buffers` for `q4`), or `no available backend found [webgpu]`. This is decided by the wording of the error, so an unusual message is not retried and fails as before.
+- A network error, running out of memory or a missing file is not retried: it would fail on WASM too, and a retry would hide a dropped download.
+- `backend="wasm"` and `backend="native"` never fall back.
+
+What it costs you:
+
+- **It can be much slower.** A pinned `dtype` stays pinned, so a `q4` model that fell back runs on WASM, where `q4` is 4 to 8 times slower than `q8`. Without a pinned `dtype` the default order (`q8`, `int8`, `fp32`) applies on both backends.
+- **A failure can take longer to show.** A model that fails on both backends loads twice, and the error you get is the WASM one, followed by the WebGPU one.
+- **The backend can differ from what you asked for.** Read `llm.backend` (`Embedder.backend` for the embedding device, `OnnxModel.model_info()["backend"]`) and `backend_fallback_reason`. A message is printed when loading ends, unless `quiet=True`. Pass `backend_fallback=False` for benchmarks, for proofs that inference ran on the GPU, and for parity checks.
+- **A second load can run a small device out of memory** if the failed session's WebGPU buffers are not freed in time (#45).
+- **An `OnnxModel` may not run on WASM.** A model that needs an operator the WASM backend lacks, or that is too large for WASM, fails there instead; and the speed and numerical results can differ between backends.
+- **A software adapter** (a CPU emulation of WebGPU) counts as an adapter, so it does not fall back and can be slower than WASM.
 
 If you hit ONNX runtime errors such as `Missing required scale ... DequantizeLinear` on WASM, try `backend="webgpu", dtype="fp32"` or set `dtype_fallbacks=["fp32"]` to avoid quantized variants.
 

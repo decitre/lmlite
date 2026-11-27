@@ -51,6 +51,14 @@ class Embedder(Session):
             await embedder.dispose()
     """
 
+    @property
+    def backend(self):
+        """The device the embedding model loaded on, ``"webgpu"`` or ``"wasm"``, or ``None`` when Transformers.js chose
+        it. ``"native"`` for the onnxruntime backend."""
+        if not hasattr(self.js, "embeddingBackend"):  # the native backend has no such attribute
+            return "native"
+        return self.js.embeddingBackend
+
     @classmethod
     async def create(cls, model, *, backend=None, dtype=None, progress_callback=None, **options):
         """Load an embedding model.
@@ -59,13 +67,14 @@ class Embedder(Session):
             model: A Hugging Face model ID such as ``"Xenova/all-MiniLM-L6-v2"``, or a short name, which gets the default
                 ``Xenova/`` namespace.
             backend: ``"wasm"`` or ``"webgpu"``, or ``"native"`` for the onnxruntime backend outside a browser. ``None``
-                (the default) leaves the device to Transformers.js. A backend that does not suit the model fails; there is
-                no retry on another one.
+                (the default) leaves the device to Transformers.js. With ``"webgpu"``, a failure specific to WebGPU is retried
+                once on ``"wasm"`` unless ``backend_fallback=False`` (see ``LLM.create()``); any other failure is not
+                retried.
             dtype: Pins the weights, for example ``"q8"``, so the vectors are reproducible. There is no fallback to
                 another dtype. ``None`` (the default) keeps the Transformers.js default.
             progress_callback: Called with a dict per loading event, as for ``LLM.create()``.
             **options: The other loading options of ``LLM.create()``: ``hosted_models_url``, ``auto_detect_local`` and
-                ``local_models_path`` and ``quiet`` (no progress bar and no loading messages).
+                ``local_models_path``, ``backend_fallback`` and ``quiet`` (no progress bar and no loading messages).
 
         Returns:
             The loaded ``Embedder``; call ``dispose()`` when you are done.

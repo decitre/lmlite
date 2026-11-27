@@ -241,7 +241,7 @@ class TestBrowser:
         module, handle = js
 
         model = await OnnxModel.load("https://example.test/m.onnx", backend="webgpu")
-        module.lmLite.loadOnnxModel.assert_awaited_once_with("https://example.test/m.onnx", "webgpu", None, True)
+        module.lmLite.loadOnnxModel.assert_awaited_once_with("https://example.test/m.onnx", "webgpu", None, True, True)
 
         out = await model.run({"b": B, "x": np.ones((2, 3), np.float32)})  # any key order
         meta, buffers = handle.run.call_args.args
@@ -268,7 +268,7 @@ class TestBrowser:
             "lmlite/scale-add", "https://example.test/files/models/"
         )
         module.lmLite.loadOnnxModel.assert_awaited_once_with(
-            "https://example.test/files/models/lmlite/scale-add/model.onnx", "wasm", None, False
+            "https://example.test/files/models/lmlite/scale-add/model.onnx", "wasm", None, False, True
         )
 
     async def test_unlisted_hosted_id_is_reported(self, js):
