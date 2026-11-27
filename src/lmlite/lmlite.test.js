@@ -527,6 +527,11 @@ describe('BrowserRuntime embedding dtype pinning', () => {
       expect((await load({ classification_model: 'org/cls', backend: 'webgpu' })).runtime.backend).toBe('wasm');
     });
 
+    it('uses wasm when asking the browser for an adapter throws', async () => {
+      vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { throw new Error('blocked'); } } });
+      expect((await load({ classification_model: 'org/cls', backend: 'webgpu' })).runtime.backend).toBe('wasm');
+    });
+
     it('keeps webgpu with backend_fallback false, and the load fails as before', async () => {
       noGpu();
       const { pipeline, runtime } = await load({ classification_model: 'org/cls', backend: 'webgpu', backend_fallback: false });
@@ -578,6 +583,24 @@ describe('BrowserRuntime embedding dtype pinning', () => {
         await runtime.init();
 
         expect(order).toEqual(['load webgpu', 'dispose', 'load wasm']);
+        expect(runtime.backend).toBe('wasm');
+      });
+
+      it('still retries on wasm when freeing the failed generator throws', async () => {
+        const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+        pipeline.mockReset();
+        pipeline.mockImplementation(async (task, model, options) => {
+          const generator = vi.fn(async () => {
+            if (options.device === 'webgpu') throw new Error('Device lost');
+          });
+          generator.model = {};
+          generator.dispose = async () => { throw new Error('release failed'); };
+          return generator;
+        });
+        const runtime = new BrowserRuntime({ generator_model: 'org/gen', backend: 'webgpu', dtype: 'q4' });
+        await runtime.init();
+
+        expect(pipeline.mock.calls.map(c => c[2].device)).toEqual(['webgpu', 'wasm']);
         expect(runtime.backend).toBe('wasm');
       });
 
