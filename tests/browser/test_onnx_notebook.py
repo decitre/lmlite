@@ -14,7 +14,7 @@ from playwright.sync_api import sync_playwright
 pytestmark = pytest.mark.browser
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-NOTEBOOK = REPO_ROOT / "notebooks/ch14_onnx-models.ipynb"
+NOTEBOOK = REPO_ROOT / "notebooks/ch19_onnx-models.ipynb"
 TIMEOUT = int(os.getenv("LMLITE_MODEL_TIMEOUT_MS", "300000"))
 PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"
 

@@ -72,11 +72,11 @@ Extras: `images` (NumPy and Pillow), `audio` and `camera` (the widgets), `native
   <em>Generated in the browser with SD-Turbo by the text-to-image notebook.</em>
 </p>
 
-- **[Detect objects with the camera](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch11_camera.ipynb)**: take a photo on a laptop, tablet or phone and find the objects in it.
-- **[Speak to the notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch13_microphone.ipynb)**: record your voice, transcribe it, or name the instrument you play.
-- **[Pipelines that return images](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch10_image-outputs.ipynb)**: background removal, depth estimation, segmentation and a 2x upscale.
-- **[Text to image](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch15_text-to-image.ipynb)**: SD-Turbo on WebGPU with prompt widgets (a hardware GPU and about 7 GB of memory).
-- **[Chat with memory](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch16_orchestration.ipynb)**: a retrieval-augmented answer, then a multi-turn chat widget with conversation memory and streamed, stoppable answers.
+- **[Detect objects with the camera](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch15_camera.ipynb)**: take a photo on a laptop, tablet or phone and find the objects in it.
+- **[Speak to the notebook](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch17_microphone.ipynb)**: record your voice, transcribe it, or name the instrument you play.
+- **[Pipelines that return images](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch14_image-outputs.ipynb)**: background removal, depth estimation, segmentation and a 2x upscale.
+- **[Text to image](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch20_text-to-image.ipynb)**: SD-Turbo on WebGPU with prompt widgets (a hardware GPU and about 7 GB of memory).
+- **[Chat with memory](https://decitre.github.io/lmlite/xeus/lab/index.html?path=ch11_orchestration.ipynb)**: a retrieval-augmented answer, then a multi-turn chat widget with conversation memory and streamed, stoppable answers.
 
 [All the notebooks](https://decitre.github.io/lmlite/tutorials/index.html), from the first demo to a retrieval-augmented chat, are listed in the documentation.
 

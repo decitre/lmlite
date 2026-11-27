@@ -18,7 +18,7 @@ lmLite is browser machine learning from Python: Transformers.js pipelines, bare 
 
 - **New Python module:** four browser tests copy the package files into Pyodide from a hard-coded list (`tests/browser/kernels.py`, `test_onnx_model.py`, `test_onnx_notebook.py`, `test_tokenizer.py`). Add the file there or those tests fail with an import error.
 - **New notebook:** `tests/test_notebooks.py` runs every notebook against fakes, and `ch01_demo` must list the notebooks in file order. Keep each cell's `source` as it is (string or list) so diffs stay small.
-- **Public API:** add the name to `__init__.py` and `__all__`, and to `docs/reference/api.md` (a test checks), whose entries come from the docstrings: write one. `LLM.create(embedding_model=...)`, `llm.embed()`, `llm.classify()` and `llm.similarity_search()` are deprecated and go in 0.15; use `Embedder` and `Classifier`.
+- **Public API:** add the name to `__init__.py` and `__all__`, and to `docs/reference/api.md` (a test checks), whose entries come from the docstrings: write one. `LLM` has no embedding or classification (removed in 0.15): use `Embedder` and `Classifier`.
 - **JavaScript:** the Transformers.js version is the `TRANSFORMERS_VERSION` constant in `lmlite.js`, and `scripts/lite-build.sh` reads it with `sed`: do not reformat that line. In the same script, `jl-forge$JL_FORGE_VERSION` must stay on one line (a weekly job rewrites it).
 - **xeus-python:** binary widget traits set by the browser never reach the kernel (send base64 text), and loading a FreeType font hangs (use `ImageFont.load_default_imagefont()`).
 - **Models:** several tested models are non-commercial (`mms-tts-eng`, `musicgen-small`, SD-Turbo); `docs/MODELS.md` lists the licences. Do not bundle them into a published site.

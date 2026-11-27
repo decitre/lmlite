@@ -106,7 +106,7 @@ Each task below was run with the model in the table, in a real browser, by the o
 
 | Model | What it is | Licence | Where |
 |-------|-----------|---------|-------|
-| [UltraFace `version-RFB-320.onnx`](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB) | 1.2 MB face detector, `(1, 3, 240, 320)` float32 in, scores and boxes out | MIT | `ch14_onnx-models.ipynb`, `onnx-notebook-smoke` |
+| [UltraFace `version-RFB-320.onnx`](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB) | 1.2 MB face detector, `(1, 3, 240, 320)` float32 in, scores and boxes out | MIT | `ch19_onnx-models.ipynb`, `onnx-notebook-smoke` |
 | [`minishlab/potion-base-8M`](https://huggingface.co/minishlab/potion-base-8M) `onnx/model.onnx` | 30 MB static embedding model: token ids and offsets in, 256-number unit vectors out | MIT | [Run a bare ONNX model](guides/onnx-models.md#a-static-embedding-model-potion); run by hand, not in a test |
 | `tests/fixtures/onnx/scale_add.onnx` and `scale_add_fp16.onnx` | 150-byte `y = x * 2 + b` models with a dynamic batch dimension | repository licence | `onnx-smoke`, `xeus-onnx-smoke` |
 
@@ -116,7 +116,7 @@ To host a bare model with a site, put it at `files/models/<namespace>/<model>/mo
 
 ## Text to image: a recipe, not a pipeline task
 
-Transformers.js 4.3.2 has no text-to-image task, so `pipeline()` cannot offer one. [`ch15_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch15_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `tokenizer()`, three ONNX models on WebGPU, and the scheduler in NumPy.
+Transformers.js 4.3.2 has no text-to-image task, so `pipeline()` cannot offer one. [`ch20_text-to-image.ipynb`](https://github.com/decitre/lmlite/blob/main/notebooks/ch20_text-to-image.ipynb) runs a diffusion model with `OnnxModel` instead: the CLIP tokenizer through `tokenizer()`, three ONNX models on WebGPU, and the scheduler in NumPy.
 
 | Model | Licence | Files |
 |-------|---------|-------|

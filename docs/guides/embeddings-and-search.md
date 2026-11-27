@@ -1,6 +1,6 @@
 # Embeddings, classification and similarity search
 
-`Embedder` and `Classifier` load a model each, independently of a language model and of one another. They used to be loaded with `LLM.create(embedding_model=...)` and `LLM.create(classification_model=...)`, and `llm.embed()`, `llm.classify()` and `llm.similarity_search()` still work with a `DeprecationWarning`: they will be removed in 0.15.
+`Embedder` and `Classifier` load a model each, independently of a language model and of one another. Before 0.15 they were loaded with `LLM.create(embedding_model=...)` and `LLM.create(classification_model=...)` and used through `llm.embed()`, `llm.classify()` and `llm.similarity_search()`. Those are gone: `LLM.create()` raises a `TypeError` for the two model options.
 
 ## Embeddings
 

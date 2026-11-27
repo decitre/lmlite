@@ -1,19 +1,11 @@
 # Copyright 2026 Emmanuel Decitre
 # SPDX-License-Identifier: Apache-2.0
 
-import warnings
-
 from ._bridge import _to_python_deep
 from ._session import Session
-from .classifier import _classify
-from .embedder import _embed, _similarity_search
 from .models import hosted_base, model_info, model_task
 from .pipeline import pipeline
 from .tokenizer import tokenizer
-
-
-def _deprecated(old, new):
-    warnings.warn(f"{old} is deprecated and will be removed in 0.15: use {new}.", DeprecationWarning, stacklevel=3)
 
 
 def _check_alternatives(alternatives):
@@ -209,24 +201,10 @@ class LLM(Session):
         """
         legacy = [name for name in ("embedding_model", "classification_model") if overrides.get(name)]
         if legacy:
-            _deprecated(
-                f"LLM.create({', '.join(f'{name}=' for name in legacy)})", "Embedder.create() or Classifier.create()"
+            raise TypeError(
+                f"LLM.create() no longer takes {', '.join(legacy)}: use Embedder.create() or Classifier.create()."
             )
         return await super().create(progress_callback, **overrides)
-
-    # --- deprecated: embeddings and classification are not about language models; removed in 0.15 ---
-
-    async def embed(self, text: str):
-        _deprecated("LLM.embed()", "Embedder.create(...).embed()")
-        return await _embed(self, text)
-
-    async def classify(self, text: str, top_k=None):
-        _deprecated("LLM.classify()", "Classifier.create(...).classify()")
-        return await _classify(self, text, top_k)
-
-    async def similarity_search(self, query, docs, k=None):
-        _deprecated("LLM.similarity_search()", "Embedder.create(...).similarity_search()")
-        return await _similarity_search(self, query, docs, k)
 
     # --- not about language models: the same as the functions in lmlite ---
 

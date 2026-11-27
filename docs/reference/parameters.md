@@ -24,7 +24,7 @@ llm = await LLM.create(
 )
 ```
 
-`LLM.create(embedding_model=..., embedding_backend=..., embedding_dtype=..., classification_model=...)` still loads those models, with a `DeprecationWarning`: use `Embedder.create()` and `Classifier.create()`. The options will be removed in 0.15.
+`LLM.create()` no longer takes `embedding_model`, `classification_model` or their backend and dtype options (removed in 0.15) and raises a `TypeError`: use `Embedder.create()` and `Classifier.create()`.
 
 ## `Embedder.create()` and `Classifier.create()`
 
